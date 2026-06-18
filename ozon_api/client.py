@@ -1,0 +1,340 @@
+from __future__ import annotations
+
+import json as json_lib
+from dataclasses import dataclass
+from typing import Any, Protocol
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+
+SELLER_API_BASE_URL = "https://api-seller.ozon.ru"
+
+
+class ResponseLike(Protocol):
+    status_code: int
+    text: str
+
+    def json(self) -> dict[str, Any]:
+        ...
+
+
+class Transport(Protocol):
+    def request(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        timeout: float,
+    ) -> ResponseLike:
+        ...
+
+
+@dataclass
+class SimpleResponse:
+    status_code: int
+    text: str
+
+    def json(self) -> dict[str, Any]:
+        if not self.text:
+            return {}
+        data = json_lib.loads(self.text)
+        if not isinstance(data, dict):
+            return {"data": data}
+        return data
+
+
+class UrlLibTransport:
+    def request(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        timeout: float,
+    ) -> SimpleResponse:
+        body = json_lib.dumps(json, ensure_ascii=False).encode("utf-8")
+        req = Request(url=url, data=body, headers=headers, method=method)
+        try:
+            with urlopen(req, timeout=timeout) as res:  # noqa: S310 - caller controls endpoint config.
+                text = res.read().decode("utf-8")
+                return SimpleResponse(status_code=res.status, text=text)
+        except HTTPError as exc:
+            text = exc.read().decode("utf-8", errors="replace")
+            return SimpleResponse(status_code=exc.code, text=text)
+
+
+class OzonApiError(RuntimeError):
+    def __init__(self, status_code: int, payload: dict[str, Any], text: str) -> None:
+        self.status_code = status_code
+        self.payload = payload
+        self.text = text
+        message = payload.get("message") or payload.get("error") or text[:300] or "Ozon API error"
+        super().__init__(f"Ozon API returned HTTP {status_code}: {message}")
+
+
+class OzonSellerClient:
+    def __init__(
+        self,
+        client_id: str,
+        api_key: str,
+        *,
+        base_url: str = SELLER_API_BASE_URL,
+        timeout: float = 30.0,
+        transport: Transport | None = None,
+    ) -> None:
+        if not client_id:
+            raise ValueError("client_id is required")
+        if not api_key:
+            raise ValueError("api_key is required")
+        self.client_id = client_id
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.timeout = float(timeout)
+        self.transport = transport or UrlLibTransport()
+
+    def request(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not path.startswith("/"):
+            path = f"/{path}"
+        response = self.transport.request(
+            method="POST",
+            url=f"{self.base_url}{path}",
+            headers={
+                "Client-Id": self.client_id,
+                "Api-Key": self.api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload or {},
+            timeout=self.timeout,
+        )
+        data = response.json()
+        if response.status_code >= 400:
+            raise OzonApiError(response.status_code, data, response.text)
+        return data
+
+    def list_warehouses(self, *, cursor: str = "", limit: int = 100) -> dict[str, Any]:
+        # /v1/warehouse/list 已被 Ozon 废弃（返回 "obsolete method cannot be used"）→ 用 /v2
+        # /v2/warehouse/list 支持 cursor + has_next 游标翻页
+        body: dict[str, Any] = {"limit": limit}
+        if cursor:
+            body["cursor"] = cursor
+        return self.request("/v2/warehouse/list", body)
+
+    def import_products(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.request("/v3/product/import", {"items": items})
+
+    def get_import_info(self, task_id: int) -> dict[str, Any]:
+        return self.request("/v1/product/import/info", {"task_id": int(task_id)})
+
+    def import_prices(self, prices: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.request("/v1/product/import/prices", {"prices": prices})
+
+    def get_category_tree(self, language: str = "ZH_HANS") -> dict[str, Any]:
+        return self.request("/v1/description-category/tree", {"language": language})
+
+    def get_category_attributes(
+        self, description_category_id: int, type_id: int, language: str = "ZH_HANS"
+    ) -> dict[str, Any]:
+        return self.request(
+            "/v1/description-category/attribute",
+            {"description_category_id": description_category_id, "type_id": type_id, "language": language},
+        )
+
+    def search_attribute_values(
+        self, description_category_id: int, type_id: int, attribute_id: int,
+        value: str, *, limit: int = 20, language: str = "ZH_HANS",
+    ) -> dict[str, Any]:
+        return self.request(
+            "/v1/description-category/attribute/values/search",
+            {
+                "description_category_id": description_category_id,
+                "type_id": type_id,
+                "attribute_id": attribute_id,
+                "value": value,
+                "limit": limit,
+                "language": language,
+            },
+        )
+
+    def archive_products(self, product_ids: list[int]) -> dict[str, Any]:
+        return self.request("/v1/product/archive", {"product_id": product_ids})
+
+    def delete_products(self, offer_ids: list[str]) -> dict[str, Any]:
+        """删除商品（按 offer_id）。Ozon 要求商品先归档/无在途单才能删。"""
+        return self.request(
+            "/v2/products/delete",
+            {"products": [{"offer_id": str(o)} for o in offer_ids]},
+        )
+
+    def update_stocks(self, stocks: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.request("/v2/products/stocks", {"stocks": stocks})
+
+    def list_unfulfilled_fbs(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        status: str = "awaiting_packaging",
+        since: str | None = None,
+        to: str | None = None,
+        include: dict[str, bool] | None = None,
+        direction: str = "ASC",
+    ) -> dict[str, Any]:
+        filters: dict[str, Any] = {"status": status}
+        if since is not None:
+            filters["cutoff_from"] = since
+        if to is not None:
+            filters["cutoff_to"] = to
+        return self.request(
+            "/v3/posting/fbs/unfulfilled/list",
+            {
+                "dir": direction,
+                "filter": filters,
+                "limit": limit,
+                "offset": offset,
+                "with": include or {
+                    "analytics_data": True,
+                    "barcodes": True,
+                    "financial_data": True,
+                    "translit": True,
+                },
+            },
+        )
+
+    def get_fbs_posting(
+        self,
+        posting_number: str,
+        *,
+        include: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        return self.request(
+            "/v3/posting/fbs/get",
+            {
+                "posting_number": posting_number,
+                "with": include or {
+                    "analytics_data": True,
+                    "barcodes": True,
+                    "financial_data": True,
+                    "translit": True,
+                },
+            },
+        )
+
+    def ship_fbs(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.request("/v2/posting/fbs/ship", payload)
+
+    def list_unfulfilled_fbs_v4(self, *, cutoff_from: str, cutoff_to: str,
+                                status: str = "awaiting_packaging", limit: int = 100,
+                                cursor: str = "") -> dict[str, Any]:
+        # v4 的 limit 取值范围是 (0, 100]（与 v3 的 ≤1000 不同），超了会 400。
+        body: dict[str, Any] = {
+            "dir": "ASC",
+            "filter": {"cutoff_from": cutoff_from, "cutoff_to": cutoff_to, "status": status},
+            "limit": max(1, min(int(limit), 100)),
+            "with": {"analytics_data": True, "barcodes": True},
+        }
+        if cursor:
+            body["cursor"] = cursor
+        return self.request("/v4/posting/fbs/unfulfilled/list", body)
+
+    def ship_fbs_v4(self, posting_number: str, packages: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.request("/v4/posting/fbs/ship",
+                            {"posting_number": posting_number, "packages": packages,
+                             "with": {"additional_data": True}})
+
+    def _raw_post(self, path: str, payload: dict[str, Any]) -> bytes:
+        """直接 POST 返回原始字节（面单 PDF 用）。可被测试 monkeypatch。"""
+        import json as _json
+        from urllib.request import Request, urlopen  # noqa: PLC0415
+        from urllib.error import HTTPError  # noqa: PLC0415
+        req = Request(
+            url=f"{self.base_url}{path}",
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={"Client-Id": self.client_id, "Api-Key": self.api_key,
+                     "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(req, timeout=self.timeout) as res:  # noqa: S310
+                return res.read()
+        except HTTPError as exc:
+            raise OzonApiError(exc.code, {}, exc.read().decode("utf-8", "replace"))
+
+    def get_package_label_pdf(self, posting_numbers: list[str]) -> bytes:
+        data = self._raw_post("/v2/posting/fbs/package-label",
+                              {"posting_number": [str(p) for p in posting_numbers]})
+        if not data.startswith(b"%PDF"):
+            try:
+                payload = json_lib.loads(data.decode("utf-8", "replace"))
+            except Exception:
+                payload = {}
+            raise OzonApiError(
+                200, payload,
+                "面单尚未就绪（发货后约 45-60 秒可取），请稍后重试",
+            )
+        return data
+
+    def get_fbs_package_label(self, posting_numbers: list[str]) -> dict[str, Any]:
+        return self.request("/v2/posting/fbs/package-label", {"posting_number": posting_numbers})
+
+    def cancel_fbs_posting(
+        self,
+        posting_number: str,
+        *,
+        cancel_reason_id: int,
+        cancel_reason_message: str = "",
+    ) -> dict[str, Any]:
+        return self.request(
+            "/v2/posting/fbs/cancel",
+            {
+                "posting_number": posting_number,
+                "cancel_reason_id": cancel_reason_id,
+                "cancel_reason_message": cancel_reason_message,
+            },
+        )
+
+    def list_products(self, *, visibility: str = "ALL", last_id: str = "",
+                       limit: int = 1000, offer_ids: list[str] | None = None,
+                       product_ids: list[int] | None = None) -> dict[str, Any]:
+        filt: dict[str, Any] = {"visibility": visibility}
+        if offer_ids:
+            filt["offer_id"] = [str(o) for o in offer_ids]
+        if product_ids:
+            filt["product_id"] = [str(p) for p in product_ids]
+        return self.request("/v3/product/list",
+                            {"filter": filt, "last_id": last_id, "limit": int(limit)})
+
+    def get_products_info(self, *, offer_ids: list[str] | None = None,
+                          product_ids: list[int] | None = None) -> dict[str, Any]:
+        if offer_ids:
+            payload: dict[str, Any] = {"offer_id": [str(o) for o in offer_ids]}
+        elif product_ids:
+            payload = {"product_id": [int(p) for p in product_ids]}
+        else:
+            payload = {"offer_id": []}
+        return self.request("/v3/product/info/list", payload)
+
+    def get_products_attributes(self, *, offer_ids: list[str] | None = None,
+                                product_ids: list[int] | None = None,
+                                last_id: str = "", limit: int = 1000) -> dict[str, Any]:
+        filt: dict[str, Any] = {"visibility": "ALL"}
+        if offer_ids:
+            filt["offer_id"] = [str(o) for o in offer_ids]
+        if product_ids:
+            filt["product_id"] = [str(p) for p in product_ids]
+        return self.request("/v4/product/info/attributes",
+                            {"filter": filt, "last_id": last_id, "limit": int(limit)})
+
+    def get_product_description(self, *, offer_id: str | None = None,
+                                product_id: int | None = None) -> dict[str, Any]:
+        """GET /v1/product/info/description — 返回 {result: {description, id, name, offer_id}}。
+        offer_id 或 product_id 二选一，优先 offer_id。"""
+        if offer_id is not None:
+            payload: dict[str, Any] = {"offer_id": str(offer_id)}
+        elif product_id is not None:
+            payload = {"product_id": int(product_id)}
+        else:
+            payload = {}
+        return self.request("/v1/product/info/description", payload)

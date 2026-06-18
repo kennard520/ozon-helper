@@ -1,0 +1,8 @@
+# Ozon 上品助手后端运行依赖（服务端无需浏览器/Playwright/cloakbrowser）
+# 精确锁版本可在跑通的环境执行： pip freeze > requirements.lock.txt
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+python-multipart>=0.0.9
+openai>=1.30
+oss2>=2.18

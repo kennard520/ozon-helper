@@ -1,0 +1,1704 @@
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]   # tools/ozon-listing-webui/
+REPO = ROOT.parents[1]
+AUTH_ROOT = REPO / ".auth"
+PROFILE_1688 = AUTH_ROOT / "1688_profile"
+FRONTEND_DIST = ROOT / "frontend" / "dist"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import time  # noqa: E402
+from urllib.parse import urlparse  # noqa: E402
+
+from backend.catalog import Catalog  # noqa: E402
+from backend.drafts import (  # noqa: E402
+    collected_chars,
+    create_draft_from_url,
+    dimension_warnings,
+    match_chars_to_attributes,
+    missing_required_attributes,
+    normalize_category_attrs,
+    BRAND_ATTR_ID,
+    NO_BRAND,
+    split_collection_value,
+    to_ozon_import_item,
+    utc_now_iso,
+    validate_draft,
+)
+from backend.ozon_client_adapter import (  # noqa: E402
+    build_client,
+    get_category_attributes,
+    get_import_info,
+    publish_items,
+    search_attribute_values,
+)
+from backend.oss import OssClient  # noqa: E402
+from backend.media_rehost import rehost_draft_media, needs_rehost  # noqa: E402
+from backend.store import Store  # noqa: E402
+from backend.settings_migrate import normalize_stores, migrate_ai  # noqa: E402
+import backend.media as _media  # noqa: E402
+import backend.ai_video as ai_video  # noqa: E402
+import urllib.request  # noqa: E402
+
+
+def _to_int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+OZON_ATTRIBUTE_LANGUAGES = {"DEFAULT", "EN", "RU", "TR", "ZH_HANS"}
+
+
+def _attr_language(language: str | None) -> str:
+    lang = str(language or "ZH_HANS").strip().upper()
+    if lang in {"ZH", "ZH-HANS", "ZH_CN", "ZH-CN"}:
+        return "ZH_HANS"
+    return lang if lang in OZON_ATTRIBUTE_LANGUAGES else "ZH_HANS"
+
+
+def _download_bytes(url: str, *, timeout: int = 60) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def _has_cjk(text: object) -> bool:
+    """是否含中日韩表意文字（CJK 统一汉字）。用于拦未本地化的 1688 草稿。"""
+    return any("一" <= ch <= "鿿" for ch in str(text or ""))
+
+
+class App:
+    def __init__(self) -> None:
+        self.store = Store()
+        self.catalog = Catalog(store=self.store, language="ZH_HANS")
+        # 俄语树用来对齐采集回来的俄语类目路径，做自动匹配
+        self.catalog_ru = Catalog(store=self.store, language="RU")
+        self._ensure_auth_bootstrap()
+
+    # ---------- 鉴权（多用户）----------
+    def _ensure_auth_bootstrap(self) -> None:
+        """首次启动：生成稳定 JWT 密钥 + 建默认管理员 admin/admin(user_id=1，承接旧数据)。"""
+        settings = self.store.get_settings()
+        if not settings.get("jwt_secret"):
+            self.store.save_settings({"jwt_secret": os.urandom(32).hex()})
+        if self.store.count_users() == 0:
+            from backend.auth import hash_password  # noqa: PLC0415
+            self.store.create_user("admin", hash_password("admin"), role="admin")
+
+    def auth_secret(self) -> str:
+        return str(self.store.get_settings().get("jwt_secret") or "")
+
+    def register(self, username: str, password: str) -> dict:
+        username = (username or "").strip()
+        if len(username) < 3:
+            raise ValueError("用户名至少 3 个字符")
+        if len(password or "") < 6:
+            raise ValueError("密码至少 6 位")
+        if self.store.get_user_by_username(username):
+            raise ValueError("用户名已存在")
+        from backend.auth import hash_password, make_token  # noqa: PLC0415
+        user = self.store.create_user(username, hash_password(password), role="user")
+        token = make_token(user["id"], self.auth_secret())
+        return {"token": token, "user": self._public_user(user)}
+
+    def login(self, username: str, password: str) -> dict:
+        from backend.auth import verify_password, make_token  # noqa: PLC0415
+        user = self.store.get_user_by_username((username or "").strip())
+        if not user or not verify_password(password or "", user["password_hash"]):
+            raise ValueError("用户名或密码错误")
+        if user.get("status") and user["status"] != "active":
+            raise ValueError("账号已停用")
+        token = make_token(user["id"], self.auth_secret())
+        return {"token": token, "user": self._public_user(user)}
+
+    def user_from_token(self, token: str) -> dict | None:
+        from backend.auth import decode_token  # noqa: PLC0415
+        payload = decode_token(token or "", self.auth_secret())
+        if not payload:
+            return None
+        user = self.store.get_user_by_id(int(payload.get("sub", 0)))
+        return self._public_user(user) if user else None
+
+    @staticmethod
+    def _public_user(user: dict) -> dict:
+        return {"id": user["id"], "username": user["username"], "role": user.get("role", "user")}
+
+    # ---------- 钱包 ----------
+    def wallet_state(self) -> dict:
+        """当前用户钱包：账户 + 最近流水。"""
+        return {"account": self.store.get_account(), "txns": self.store.list_txns()}
+
+    def wallet_recharge(self, amount: float, remark: str = "") -> dict:
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            raise ValueError("金额必须是数字")
+        if amount <= 0:
+            raise ValueError("金额必须大于 0")
+        account = self.store.recharge(amount, remark=remark or "充值")
+        return {"account": account}
+
+    def presign_media(self, items: list) -> dict:
+        """给插件签一批媒体的预签名 OSS 上传地址（服务级共享桶，内容哈希去重）。"""
+        oss = OssClient(self.store.get_settings())
+        if not oss.configured():
+            raise ValueError("未配置 OSS（服务级），无法签发上传地址")
+        return {"results": oss.presign_items(items or [])}
+
+    def publish_fee(self) -> float:
+        """单次发布扣费，读全局设置 publish_fee，默认 0（不收费，旧行为不变）。"""
+        try:
+            return float(self.store.get_settings().get("publish_fee") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _auto_match_category(self, scraped: dict) -> None:
+        """采集时按俄语类目路径自动猜 description_category_id + type_id。
+        叶子名常有歧义(如 наушники=耳机/毛皮耳罩)，故取多候选、按候选完整路径与
+        面包屑(含上级 Электроника/Одежда 等)的词重合度打分，选最吻合的那个消歧。"""
+        path = str(scraped.get("category_path") or "").strip()
+        if not path:
+            return
+        try:
+            client = build_client(self.store.get_settings())
+        except Exception:  # noqa: BLE001
+            return  # 没配 key 就跳过
+        segments = [s.strip() for s in path.split("/") if s.strip()]
+        # 商品自己声明的「Тип(类型)」属性值——最精准的类型信号，优先用它搜
+        type_seeds = [
+            str(a.get("value")).strip()
+            for a in (scraped.get("attributes") or [])
+            if isinstance(a, dict) and str(a.get("name") or "").strip() in ("Тип", "Тип товара")
+            and a.get("value")
+        ]
+        # 搜索种子：先 Тип 值(精准) → 再面包屑叶子往父回溯
+        seeds = type_seeds + list(reversed(segments))
+        if not seeds:
+            return
+        # 面包屑里所有词(俄语词形容错：长词去尾)，用于给候选路径打分消歧(电子 vs 服装)
+        crumb_words = set()
+        for s in segments:
+            for w in s.lower().split():
+                if len(w) >= 3:
+                    crumb_words.add(w[:-1] if len(w) >= 5 else w)
+
+        def _score(hit: dict) -> int:
+            p = str(hit.get("path") or "").lower()
+            return sum(1 for w in crumb_words if w in p)
+
+        # 按种子顺序找，第一个有候选的种子那层选最佳(路径与面包屑域最吻合者)
+        for seg in seeds:
+            try:
+                hits = self.catalog_ru.search(client, seg, limit=30)
+            except Exception:  # noqa: BLE001
+                return
+            cands = [h for h in hits if h.get("description_category_id") and h.get("type_id")]
+            if not cands:
+                continue
+            best = max(cands, key=_score)   # 路径与面包屑重合最多者(消歧)；并列取第一
+            scraped["category_id"] = str(best["description_category_id"])
+            scraped["type_id"] = str(best["type_id"])
+            return
+
+    def search_category(self, query: str, limit: int = 500) -> dict:
+        # 本地缓存在就纯离线搜，不碰网络/不要求 API key；缓存为空才首次拉取
+        client = None
+        if not self.catalog.has_cache():
+            client = build_client(self.store.get_settings())
+        return {"results": self.catalog.search(client, query, limit=limit)}
+
+    def category_tree(self) -> dict:
+        # 本地缓存优先，无缓存才需 API key 首次拉取
+        client = None
+        if not self.catalog.has_tree_cache():
+            client = build_client(self.store.get_settings())
+        return {"tree": self.catalog.tree(client)}
+
+    def resolve_category(self, cat_id: int, type_id: int) -> dict:
+        # 按 ID 反查可读类目名（给前端回显用），本地缓存优先
+        client = None
+        if not self.catalog.has_cache():
+            client = build_client(self.store.get_settings())
+        leaf = self.catalog.find_leaf(client, cat_id, type_id)
+        return {"leaf": leaf}
+
+    def state(self) -> dict:
+        settings = self.store.get_settings()
+        _ai = migrate_ai(settings)
+
+        def _ai_public(blk: dict) -> dict:
+            out = {"engine": blk["engine"], "api_base": blk["api_base"],
+                   "model": blk["model"], "api_key_saved": bool(blk["api_key"])}
+            if "multimodal" in blk:
+                out["multimodal"] = bool(blk["multimodal"])
+            return out
+
+        return {
+            "settings": {
+                "ozon_client_id": settings.get("ozon_client_id", ""),
+                "ozon_api_key_saved": bool(settings.get("ozon_api_key")),
+                "rub_cny": settings.get("rub_cny", ""),
+                "rub_cny_at": settings.get("rub_cny_at", ""),
+                # 合同货币：草稿 price 字段按 RUB 录入，发布时换算成合同币提交（默认 CNY）
+                "contract_currency": settings.get("contract_currency", "CNY"),
+                # 翻译引擎（功能③）：manual / glossary / remote；key 不回传，只回传是否已存
+                "translate_engine": settings.get("translate_engine", "manual"),
+                "translate_api_base": settings.get("translate_api_base", ""),
+                "translate_model": settings.get("translate_model", ""),
+                "translate_api_key_saved": bool(settings.get("translate_api_key")),
+                # AI 卡片应用模式（功能③）：true=自动应用 / false=人工确认（默认）
+                "ai_auto_apply": bool(settings.get("ai_auto_apply")),
+                # 卡片生成聊天引擎：remote=沿用翻译引擎配置(DeepSeek) / agnes=Agnes-2.0-Flash
+                "ai_chat_provider": settings.get("ai_chat_provider", "remote"),
+                # agnes 时是否把商品图发给模型做图片理解（标题/属性更贴图）
+                "ai_card_vision": bool(settings.get("ai_card_vision")),
+                # Agnes AI（聊天/生图/生视频共用一个 key）；key 不回传，只回传是否已存
+                "agnes_api_base": settings.get("agnes_api_base", ""),
+                "agnes_api_key_saved": bool(settings.get("agnes_api_key")),
+                "agnes_chat_model": settings.get("agnes_chat_model", ""),
+                "agnes_image_model": settings.get("agnes_image_model", ""),
+                "agnes_video_model": settings.get("agnes_video_model", ""),
+                "ozon_stores": [
+                    {"name": st["name"], "client_id": st["client_id"],
+                     "is_default": st["is_default"], "api_key_saved": bool(st["api_key"])}
+                    for st in normalize_stores(settings)
+                ],
+                "last_publish_store": settings.get("last_publish_store", ""),
+                "oss_endpoint": settings.get("oss_endpoint", ""),
+                "oss_bucket": settings.get("oss_bucket", ""),
+                "oss_access_key_id": settings.get("oss_access_key_id", ""),
+                "oss_public_base": settings.get("oss_public_base", ""),
+                "oss_access_key_secret_saved": bool(settings.get("oss_access_key_secret")),
+                "ai_text": _ai_public(_ai["ai_text"]),
+                "ai_image": _ai_public(_ai["ai_image"]),
+                "ai_video": _ai_public(_ai["ai_video"]),
+                "translate_mode": _ai["translate_mode"],
+            },
+            "paths": {
+                "db": str(self.store.path),
+                "auth_root": str(AUTH_ROOT),
+                "profile_1688": str(PROFILE_1688),
+            },
+            "status": {
+                "ozon_api": "connected" if settings.get("ozon_client_id") and settings.get("ozon_api_key") else "not_configured",
+                "profile_1688": "present" if PROFILE_1688.exists() else "not_created",
+            },
+        }
+
+    @staticmethod
+    def _clean_secret(value: object) -> str:
+        # 去掉粘贴时常带进来的反引号/引号/空白（曾导致 Invalid Api-Key）
+        return str(value or "").strip().strip("`'\"").strip()
+
+    def save_settings(self, payload: dict) -> dict:
+        allowed: dict = {}
+        if "ozon_client_id" in payload:
+            allowed["ozon_client_id"] = self._clean_secret(payload.get("ozon_client_id"))
+        if payload.get("contract_currency"):
+            allowed["contract_currency"] = str(payload["contract_currency"]).strip().upper()
+        if payload.get("ozon_api_key"):
+            allowed["ozon_api_key"] = self._clean_secret(payload["ozon_api_key"])
+        # 翻译引擎（功能③）：引擎名 / API base / model 非空才存；key 走 _clean_secret 且非空才存
+        if payload.get("translate_engine"):
+            allowed["translate_engine"] = str(payload["translate_engine"]).strip().lower()
+        if payload.get("translate_api_base"):
+            allowed["translate_api_base"] = str(payload["translate_api_base"]).strip()
+        if payload.get("translate_model"):
+            allowed["translate_model"] = str(payload["translate_model"]).strip()
+        if payload.get("translate_api_key"):
+            allowed["translate_api_key"] = self._clean_secret(payload["translate_api_key"])
+        # AI 卡片自动应用开关：False 是有意义的值，用 is not None 判断（不能 falsy 判断，否则关不掉）
+        if payload.get("ai_auto_apply") is not None:
+            allowed["ai_auto_apply"] = bool(payload["ai_auto_apply"])
+        # Agnes AI：provider/base/model 非空才存（空字段不覆盖已存值）；key 走 _clean_secret
+        if payload.get("ai_chat_provider"):
+            allowed["ai_chat_provider"] = str(payload["ai_chat_provider"]).strip().lower()
+        if payload.get("ai_card_vision") is not None:
+            allowed["ai_card_vision"] = bool(payload["ai_card_vision"])
+        if payload.get("agnes_api_base"):
+            allowed["agnes_api_base"] = str(payload["agnes_api_base"]).strip()
+        if payload.get("agnes_api_key"):
+            allowed["agnes_api_key"] = self._clean_secret(payload["agnes_api_key"])
+        for k in ("agnes_chat_model", "agnes_image_model", "agnes_video_model"):
+            if payload.get(k):
+                allowed[k] = str(payload[k]).strip()
+        # 汇率：随时间戳一起持久化（CLAUDE.md 硬规矩，不存无日期汇率）
+        if payload.get("rub_cny") not in (None, ""):
+            try:
+                allowed["rub_cny"] = float(payload["rub_cny"])
+                allowed["rub_cny_at"] = utc_now_iso()
+            except (TypeError, ValueError):
+                pass
+        if payload.get("ozon_stores") is not None:
+            from backend.settings_migrate import normalize_stores, mirror_of  # noqa: PLC0415
+            prev = {str(st.get("client_id")): str(st.get("api_key") or "")
+                    for st in (self.store.get_settings().get("ozon_stores") or [])}
+            incoming = []
+            for st in payload["ozon_stores"]:
+                cid = self._clean_secret(st.get("client_id"))
+                name = str(st.get("name") or "").strip()
+                key = self._clean_secret(st.get("api_key")) or prev.get(cid, "")
+                if cid and name:
+                    incoming.append({"name": name, "client_id": cid, "api_key": key,
+                                     "is_default": bool(st.get("is_default"))})
+            stores = normalize_stores({"ozon_stores": incoming})
+            allowed["ozon_stores"] = stores
+            mcid, mkey = mirror_of(stores)
+            allowed["ozon_client_id"] = mcid
+            allowed["ozon_api_key"] = mkey
+        if payload.get("translate_mode"):
+            allowed["translate_mode"] = str(payload["translate_mode"]).strip().lower()
+        for kind in ("ai_text", "ai_image", "ai_video"):
+            blk = payload.get(kind)
+            if isinstance(blk, dict):
+                prev_blk = self.store.get_settings().get(kind) or {}
+                prev_key = str(prev_blk.get("api_key") or "") if isinstance(prev_blk, dict) else ""
+                blk_out = {
+                    "engine": str(blk.get("engine") or "").strip().lower(),
+                    "api_base": str(blk.get("api_base") or "").strip(),
+                    "api_key": self._clean_secret(blk.get("api_key")) or prev_key,
+                    "model": str(blk.get("model") or "").strip(),
+                }
+                if kind == "ai_text":
+                    blk_out["multimodal"] = bool(blk.get("multimodal"))
+                allowed[kind] = blk_out
+        for k in ("oss_endpoint", "oss_bucket", "oss_access_key_id", "oss_public_base"):
+            if payload.get(k) is not None:
+                allowed[k] = str(payload[k]).strip()
+        if payload.get("oss_access_key_secret"):
+            allowed["oss_access_key_secret"] = self._clean_secret(payload["oss_access_key_secret"])
+        if payload.get("last_publish_store") is not None:
+            allowed["last_publish_store"] = str(payload["last_publish_store"]).strip()
+        if allowed:
+            self.store.save_settings(allowed)
+        return self.state()
+
+    def _settings_for_store(self, store_client_id: str | None) -> dict:
+        """返回目标店的 settings：client_id/api_key 替换成目标店，其余全局字段（rub_cny/
+        contract_currency 等）不变。空或 == 主店 → 主店；额外店在 ozon_stores 里按 client_id
+        匹配；找不到抛 ValueError。"""
+        s = self.store.get_settings()
+        cid = str(store_client_id or "").strip()
+        if not cid or cid == str(s.get("ozon_client_id") or "").strip():
+            return s
+        for st in s.get("ozon_stores") or []:
+            if str(st.get("client_id") or "").strip() == cid:
+                return {**s, "ozon_client_id": cid, "ozon_api_key": str(st.get("api_key") or "")}
+        raise ValueError(f"目标店未配置: {cid}")
+
+    def list_drafts(self, *, status: str = "all", page: int = 1, page_size: int = 20,
+                    store_client_id: str | None = None) -> dict:
+        """草稿绑定店：store_client_id 非 None 时只返回该店草稿（计数同）。None=不按店过滤（兼容旧调用/未配店）。"""
+        scid = None if store_client_id is None else str(store_client_id or "")
+        drafts, total = self.store.list_drafts_page(
+            status=status, page=page, page_size=page_size, store_client_id=scid)
+        return {
+            "drafts": drafts,
+            "total": total,
+            "page": max(1, int(page)),
+            "page_size": max(1, min(int(page_size), 200)),
+            "counts": self.store.count_by_status(store_client_id=scid),
+        }
+
+    def copy_draft_to_store(self, draft_id: int, target_client_id: str) -> dict:
+        """把草稿复制到另一个店：克隆内容（标题/类目/属性/媒体/尺寸/描述/采购信息），
+        重置店级字段（store_client_id=目标店、状态重算、清 ozon_product_id/库存/仓库/发布响应）。
+        目标店已有同来源草稿则拦截，不重复建。"""
+        from backend.drafts import utc_now_iso  # noqa: PLC0415
+        target = str(target_client_id or "").strip()
+        if not target:
+            return {"ok": False, "error": "未指定目标店铺"}
+        src = self.store.get_draft(draft_id)
+        if src is None:
+            raise KeyError(f"draft {draft_id} not found")
+        if str(src.get("store_client_id") or "") == target:
+            return {"ok": False, "error": "目标店与当前店相同"}
+        dup = self.store.find_by_source_url(src["source_url"], None, target)
+        if dup:
+            return {"ok": False, "error": "该店已存在此来源商品", "draft_id": dup["id"]}
+        now = utc_now_iso()
+        clone = {
+            **src,
+            "store_client_id": target,
+            "ozon_product_id": None,
+            "stock": 0,
+            "warehouse_id": None,
+            "publish_response": None,
+            "status": "ready",          # insert_draft 会按校验结果改成 invalid（缺字段时）
+            "created_at": now,
+            "updated_at": now,
+        }
+        clone.pop("id", None)
+        saved = self.store.insert_draft(clone)
+        return {"ok": True, "draft": saved}
+
+    def update_draft(self, draft_id: int, payload: dict) -> dict:
+        current = self.store.get_draft(draft_id)
+        if current is None:
+            raise KeyError(f"draft {draft_id} not found")
+        normalized = dict(payload or {})
+        brand_name = str(normalized.get("brand_name") or current.get("brand_name") or "").strip()
+        brand_id = normalized.get("brand_id", current.get("brand_id"))
+        normalized["brand_id"] = brand_id if brand_name == NO_BRAND and _to_int(brand_id) > 0 else None
+        normalized["brand_name"] = NO_BRAND
+        draft = self.store.update_draft(draft_id, normalized)
+        return {"draft": draft}
+
+    def batch_publish(self, ids: list, store_client_id: str | None = None) -> dict:
+        """批量发布：逐个调 publish（各自校验/扣费/媒体托管），单个失败不影响其它。
+        返回 {results:[{id, published, errors}], published, failed}。"""
+        results = []
+        ok = 0
+        for did in ids or []:
+            try:
+                r = self.publish(int(did), store_client_id)
+                published = bool(r.get("published"))
+                if published:
+                    ok += 1
+                results.append({"id": did, "published": published,
+                                "errors": r.get("errors") or [], "warnings": r.get("warnings") or []})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"id": did, "published": False, "errors": [str(exc)]})
+        return {"results": results, "published": ok, "failed": len(results) - ok}
+
+    def batch_update_drafts(self, ids: list, patch: dict) -> dict:
+        """批量给多个草稿打同一个补丁（目前用于批量设库存/仓库）。
+        只放行安全的批量字段；逐条复用 update_draft，并保留各自原 status——
+        否则未传 status 时 update_draft 会重算，把已发布草稿误降级为 ready。"""
+        allowed = {k: v for k, v in (patch or {}).items() if k in ("stock", "warehouse_id")}
+        if not allowed:
+            raise ValueError("没有可批量设置的字段（仅支持 stock / warehouse_id）")
+        updated, errors = [], []
+        for did in ids or []:
+            try:
+                cur = self.store.get_draft(int(did))
+                if cur is None:
+                    errors.append({"id": did, "error": "草稿不存在"})
+                    continue
+                # 保留原 status，避免批量改库存/仓库时被重算降级
+                draft = self.store.update_draft(int(did), {**allowed, "status": cur.get("status")})
+                updated.append(draft)
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"id": did, "error": str(exc)})
+        return {"updated": updated, "errors": errors}
+
+    def translate_draft(self, draft_id: int) -> dict:
+        from backend.translate import get_engine  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        settings = self.store.get_settings()
+        from backend.settings_migrate import migrate_ai, ai_config  # noqa: PLC0415
+        _tm = migrate_ai(settings)["translate_mode"]
+        # ai translate_mode 需要 key；无 key 时降级 manual（避免抛 RuntimeError）
+        if _tm == "ai" and not ai_config(settings, "text")["key"]:
+            _tm = "manual"
+        engine = get_engine(_tm, settings)
+        title = engine.translate(str(draft.get("ozon_title") or ""))
+        desc = engine.translate(str(draft.get("description") or ""))
+        updated = self.store.update_draft(draft_id, {"ozon_title": title, "description": desc})
+        still = _has_cjk(title) or _has_cjk(desc)
+        note = "" if not still else "仍含中文：manual 引擎只占位，请配置 remote 引擎或手动翻译"
+        return {"draft": updated, "engine": engine.name, "still_cjk": still, "note": note}
+
+    def _validate_and_build_item(self, draft: dict, store_settings: dict | None = None) -> tuple[list[str], dict | None]:
+        """共享校验 + item 构建逻辑（publish 与 publish_preview 共用）。
+
+        返回 (errors, item)：
+        - errors: 阻断性错误列表（同 publish 的拦截规则）；非空时 item 为 None
+        - item: to_ozon_import_item 产出 + 币种换算后的 import item（pre-media-swap）
+
+        注意：
+        - 此方法不写 DB（不改 status、不写 validation_errors）——由调用方决定是否持久化
+        - 媒体上传不在此方法里发生；media 检测仅验证 company_id / is_logged_in（is_ok 检查）
+        - 返回的 item 仍使用 draft 里的原始 media URL（未上传替换），仅供预览；
+          publish 会在校验通过后自行完成 upload + swap
+        """
+        errors: list[str] = list(validate_draft(draft))
+        warnings: list[str] = list(dimension_warnings(draft))   # 克重/尺寸缺失=软警告，不拦发布
+        # 1688 来源若标题/描述仍含中文，说明还没本地化（功能③的 AI 中译俄）——拦截
+        if draft.get("source_platform") == "1688" and (
+            _has_cjk(draft.get("ozon_title")) or _has_cjk(draft.get("description"))
+        ):
+            errors.append("1688 商品未本地化（标题/描述仍含中文），请先翻译成俄语再发布")
+        # 类目必填属性：缺了只警告、不阻断——发到 Ozon 后在后台补(Ozon 卡片好编辑)
+        cat, typ = str(draft.get("category_id") or "").strip(), str(draft.get("type_id") or "").strip()
+        if cat and typ:
+            try:
+                attrs = self._category_attrs(int(cat), int(typ))
+                for m in missing_required_attributes(draft, attrs):
+                    warnings.append(f"缺必填属性：{m['name']}")
+            except ValueError:
+                pass  # 未配置 API key 等：不阻断
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"类目必填属性校验失败，无法确认是否缺失（请重试）：{exc}")
+        # 合同货币汇率校验
+        settings = store_settings if store_settings is not None else self.store.get_settings()
+        currency = str(settings.get("contract_currency") or "CNY").upper()
+        if not settings.get("rub_cny"):
+            errors.append("未配置 RUB/CNY 汇率，无法换算合同币价格，请先在设置里填写汇率")
+        if errors:
+            return errors, warnings, None
+        # 构建 item（用原始 URL，不做 upload/swap）
+        item = to_ozon_import_item(draft)
+        # 内部 price/old_price 统一为 CNY 人民币。
+        if currency == "RUB":
+            # 合同币种=卢布 → CNY 换算成 RUB（rub_cny = CNY/RUB）
+            rate = float(settings.get("rub_cny"))
+            item["currency_code"] = "RUB"
+            item["price"] = str(round(float(item["price"] or 0) / rate, 2))
+            if item.get("old_price"):
+                item["old_price"] = str(round(float(item["old_price"]) / rate, 2))
+        else:
+            # 合同币种=CNY → 价格已是人民币，直接发，不换算
+            item["currency_code"] = currency
+        return [], warnings, item
+
+    def publish_preview(self, draft_id: int, store_client_id: str | None = None) -> dict:
+        """预览将要发布的内容，不发送任何请求，不写 DB（无副作用）。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        target_store = str(draft.get("store_client_id") or "") or store_client_id
+        errors, warnings, item = self._validate_and_build_item(draft, self._settings_for_store(target_store))
+        if errors:
+            return {"ok": False, "errors": errors, "warnings": warnings, "summary": None}
+        # 构建摘要（item 已含换算后价格）
+        images = item.get("images") or []
+        attributes = item.get("attributes") or []
+        has_video = bool(draft.get("video_url"))
+        summary = {
+            "offer_id": item.get("offer_id"),
+            "name": item.get("name"),
+            "description_len": len(str(item.get("description_category_id") and draft.get("description") or "")),
+            "category_id": item.get("description_category_id"),
+            "type_id": item.get("type_id"),
+            "price": item.get("price"),
+            "old_price": item.get("old_price"),
+            "currency_code": item.get("currency_code"),
+            "dims_mm": {
+                "depth": item.get("depth"),
+                "width": item.get("width"),
+                "height": item.get("height"),
+            },
+            "weight_g": item.get("weight"),
+            "images_count": len(images),
+            "attributes_count": len(attributes),
+            "has_video": has_video,
+        }
+        return {"ok": True, "errors": [], "warnings": warnings, "summary": summary}
+
+    def publish(self, draft_id: int, store_client_id: str | None = None) -> dict:
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        # 草稿绑定店：优先发到草稿自带店；旧草稿(无 store_client_id)回退入参/默认店
+        target_store = str(draft.get("store_client_id") or "") or store_client_id
+        store_settings = self._settings_for_store(target_store)
+        # 媒体托管：插件已把媒体传到卖家自己的 Ozon 店铺(ir.ozone.ru)时，全是 Ozon 原生链接、
+        # 无需 OSS——跳过。只有存在非 Ozon 媒体(老路径/手动加图)时才用 OSS 兜底；未配 OSS 才硬拦。
+        oss = OssClient(store_settings)
+        rehost_stats = {"uploaded": 0, "failed": 0}
+        if needs_rehost(draft):
+            if not oss.configured():
+                errs = ["有非 Ozon 来源的图片/视频需托管：请用插件把媒体传到你的 Ozon 店铺，或在设置里配置阿里云 OSS"]
+                updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+                return {"published": False, "draft": updated, "errors": errs}
+            draft, rehost_stats = rehost_draft_media(draft, oss.upload_remote)
+            # OSS URL 持久化回草稿（再发幂等；展示也变 OSS 图）
+            self.store.update_draft(draft_id, {
+                "images": draft.get("images") or [], "video_url": draft.get("video_url") or "",
+                "source_raw": draft.get("source_raw") or {}})
+        errors, warnings, item = self._validate_and_build_item(draft, store_settings)
+        if errors:
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errors})
+            return {"published": False, "draft": updated, "errors": errors, "warnings": warnings}
+        if rehost_stats.get("failed"):
+            warnings = [*warnings, f"{rehost_stats['failed']} 个媒体未能上传到 OSS，已沿用原链接（Ozon 可能抓不到）"]
+        # 发布扣费（publish_fee>0 才扣；余额不足直接拦下不发布）
+        fee = self.publish_fee()
+        if fee > 0 and not self.store.deduct(fee, biz_no=f"publish:{draft_id}", remark="发布商品"):
+            errs = ["余额不足，请先充值后再发布"]
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+            return {"published": False, "draft": updated, "errors": errs, "warnings": warnings}
+        try:
+            response = publish_items(store_settings, [item])
+        except Exception:
+            if fee > 0:  # 调用失败把刚扣的费退回，不白扣
+                self.store.refund(fee, biz_no=f"publish-refund:{draft_id}", remark="发布失败退款")
+            raise
+        self.store.save_settings({"last_publish_store": str(store_settings.get("ozon_client_id") or "")})
+        task_id = ((response.get("result") or {}).get("task_id"))
+        poll: dict = {}
+        final_status = "draft"
+        if task_id:
+            for _ in range(10):
+                time.sleep(2)
+                try:
+                    info = get_import_info(store_settings, task_id)
+                except Exception as exc:  # noqa: BLE001
+                    poll = {"error": str(exc)}
+                    break
+                poll_items = (info.get("result") or {}).get("items") or []
+                statuses = [it.get("status") for it in poll_items]
+                if statuses and not any(s in ("pending", "not_started", "") for s in statuses):
+                    poll = info
+                    final_status = "published" if all(s == "imported" for s in statuses) else "failed"
+                    break
+            else:
+                poll = {"warning": "poll timeout — Ozon 仍在异步处理，稍后用 task_id 查"}
+        updated = self.store.update_draft(draft_id, {
+            "status": final_status,
+            "publish_response": {"import": response, "poll": poll, "warnings": warnings,
+                                 "store_client_id": str(store_settings.get("ozon_client_id") or ""),
+                                 "rehost": rehost_stats},
+            "offer_id": item["offer_id"],
+        })
+        return {"published": final_status == "published", "draft": updated, "response": response,
+                "poll": poll, "task_id": task_id, "warnings": warnings, "rehost": rehost_stats}
+
+    def pull_ozon_products(self, visibility: str = "ALL") -> dict:
+        from backend.ozon_client_adapter import (  # noqa: PLC0415
+            list_ozon_products, get_ozon_info, get_ozon_attributes, get_ozon_descriptions,
+            ozon_to_draft)
+        errors: list = []
+        try:
+            listing = list_ozon_products(self.store.get_settings(), visibility)
+        except Exception as exc:  # noqa: BLE001
+            return {"pulled": 0, "drafts": self.store.list_drafts(), "errors": [str(exc)]}
+        offer_ids = [str(it.get("offer_id")) for it in listing if it.get("offer_id")]
+        info = get_ozon_info(self.store.get_settings(), offer_ids) if offer_ids else {}
+        try:
+            attrs = get_ozon_attributes(self.store.get_settings(), offer_ids) if offer_ids else {}
+        except Exception as exc:  # noqa: BLE001
+            attrs = {}
+            errors.append(f"属性拉取失败(尺寸/属性留空): {exc}")
+        try:
+            descriptions = get_ozon_descriptions(self.store.get_settings(), offer_ids) if offer_ids else {}
+        except Exception as exc:  # noqa: BLE001
+            descriptions = {}
+            errors.append(f"描述拉取失败(描述留空): {exc}")
+        pulled = 0
+        for oid in offer_ids:
+            if oid not in info:
+                continue
+            d = ozon_to_draft(info[oid], attrs.get(oid))
+            # 补全描述：/v3/product/info/list 不含描述，单独接口拉取
+            desc_text = descriptions.get(oid, "")
+            if desc_text:
+                d["description"] = desc_text
+            existing = self.store.find_by_offer_id(oid)
+            if existing:
+                # 再拉已存在草稿：非破坏式合并，只补空字段 + 刷新 Ozon 权威身份，
+                # 绝不覆盖用户手编的 description/price/supplier 等（否则每次拉单都丢编辑）。
+                self.store.update_draft(existing["id"], self._merge_pulled_into_existing(existing, d))
+            else:
+                self.store.insert_draft(self._normalize_ozon_draft(d, oid))
+            pulled += 1
+        return {"pulled": pulled, "drafts": self.store.list_drafts(), "errors": errors}
+
+    @staticmethod
+    def _merge_pulled_into_existing(existing: dict, pulled: dict) -> dict:
+        """再拉已存在草稿时，算出"只补空、不覆盖"的最小更新集（纯函数，可测）。
+
+        - 用户可能手编的字段：仅当现有草稿该字段为空/缺失时才用拉来的值填补；
+          已有非空值则一律保留，不传进更新集（让 store 维持原值）。
+        - Ozon 权威身份/元数据：用户不会手改 → 总是用拉来的最新值刷新。
+        - status 显式设为 "published"：从 Ozon 拉回的商品已上架，
+          update_draft 的 status 重算逻辑若不传 status 会将其降级为 "ready"，
+          故此处明确传入 "published" 保持已上架状态。
+        """
+        def _empty(v: object) -> bool:
+            if v is None:
+                return True
+            if isinstance(v, str):
+                return v.strip() == ""
+            if isinstance(v, (list, tuple, dict)):
+                return len(v) == 0
+            return False
+
+        patch: dict = {}
+        # 用户可能手编的字段：只在现有为空时补
+        user_editable = (
+            "description", "ozon_title", "price", "old_price", "stock",
+            "supplier", "purchase_url", "purchase_note", "cost_cny",
+            "category_id", "type_id",
+        )
+        for k in user_editable:
+            if k in pulled and _empty(existing.get(k)) and not _empty(pulled.get(k)):
+                patch[k] = pulled[k]
+
+        # 图片：仅当现有草稿一张都没有时才用拉来的
+        if _empty(existing.get("images")) and not _empty(pulled.get("images")):
+            patch["images"] = pulled["images"]
+
+        # 视频：仅当现有草稿没有视频时才用拉来的（Ozon 重新托管的 v.ozone.ru URL）
+        if _empty(existing.get("video_url")) and not _empty(pulled.get("video_url")):
+            patch["video_url"] = pulled["video_url"]
+
+        # Ozon 权威身份/元数据：总是刷新（用户不会手编）
+        if pulled.get("ozon_product_id") is not None:
+            patch["ozon_product_id"] = pulled["ozon_product_id"]
+        patch["source"] = pulled.get("source", "ozon")
+        patch["offer_id"] = existing.get("offer_id") or pulled.get("offer_id")
+        # 从 Ozon 拉回的商品已在平台上线，显式保持 published 状态（不让 update_draft 重算降级）
+        patch["status"] = "published"
+        return patch
+
+    @staticmethod
+    def _normalize_ozon_draft(draft: dict, offer_id: str) -> dict:
+        """补齐 store.insert_draft 要求但纯映射不产出的键。
+        source_url 在 drafts 表是 UNIQUE 主键约束（且 insert 按它去重），
+        Ozon 商品无 1688 链接，故用合成唯一键 ozon://product/<offer_id>。"""
+        now = utc_now_iso()
+        draft.setdefault("purchase_url", "")
+        draft.setdefault("purchase_note", "")
+        draft["brand_id"] = None
+        draft["brand_name"] = NO_BRAND
+        draft.setdefault("cost_cny", None)
+        draft.setdefault("video_url", "")
+        draft.setdefault("local_images", [])
+        draft.setdefault("validation_errors", [])
+        draft.setdefault("publish_response", None)
+        draft["source_url"] = f"ozon://product/{offer_id}"
+        draft["created_at"] = now
+        draft["updated_at"] = now
+        return draft
+
+    def category_attributes(self, cat_id: int, type_id: int, language: str = "ZH_HANS") -> dict:
+        lang = _attr_language(language)
+        attrs = self._category_attrs(cat_id, type_id, language=lang)
+        return {"result": attrs, "required": [a for a in attrs if a.get("is_required")], "language": lang}
+
+    def _category_attrs(self, cat_id: int, type_id: int, language: str = "ZH_HANS") -> list[dict]:
+        lang = _attr_language(language)
+        # 本地优先：缓存命中直接用；没有再调 Ozon 拉取并写回缓存
+        cached = self.store.load_category_attrs(cat_id, type_id, lang)
+        # 旧缓存缺新增字段（description / category_dependent）→ 视为过期重拉。
+        # category_dependent 用于排除"类型"等由 type_id 表达的属性，缺它会误报缺类型。
+        if cached and not ("description" in cached[0] and "category_dependent" in cached[0]):
+            cached = None
+        if cached is not None:
+            return cached
+        raw = get_category_attributes(self.store.get_settings(), cat_id, type_id, language=lang)
+        attrs = normalize_category_attrs(raw)
+        # 只缓存非空结果：空大概率是 API 抽风，缓存了会永久屏蔽必填校验
+        if attrs:
+            self.store.save_category_attrs(cat_id, type_id, attrs, lang)
+        return attrs
+
+    def required_check(self, draft_id: int, language: str = "ZH_HANS") -> dict:
+        """结构校验 + 类目必填属性校验，给 UI 标记/提示用。"""
+        lang = _attr_language(language)
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        errors = list(validate_draft(draft))
+        required: list[dict] = []
+        optional: list[dict] = []
+        missing: list[dict] = []
+        cat, typ = str(draft.get("category_id") or "").strip(), str(draft.get("type_id") or "").strip()
+        if cat and typ:
+            try:
+                attrs = self._category_attrs(int(cat), int(typ), language=lang)
+                # category_dependent 属性（如"类型"）由 type_id 表达，用户无需/无法单独填，
+                # 不在属性区展示（也不计入 missing），否则会显示一个填不了的"缺类型"。
+                attrs = [a for a in attrs if not a.get("category_dependent")]
+                required = [a for a in attrs if a.get("is_required")]
+                # 可选属性：非必填的全列出（品牌 85 是必填，不会落到这里），供人工补充
+                optional = [a for a in attrs if not a.get("is_required") and int(a.get("id") or 0) != 85]
+                missing = missing_required_attributes(draft, attrs)
+            except Exception as exc:  # noqa: BLE001
+                # 没配 key / 拉取失败：不阻断，只提示
+                return {"errors": errors, "required": [], "optional": [], "missing": [],
+                        "attr_warning": f"类目必填属性未校验：{exc}"}
+        for m in missing:
+            errors.append(f"缺必填属性：{m['name']}")
+        return {"errors": errors, "required": required, "optional": optional, "missing": missing, "language": lang}
+
+    def _resolve_values(self, cat: int, typ: int, attr_id: int, texts: list[str],
+                        is_collection: bool) -> list[dict]:
+        """把(俄文)文本值解析成 Ozon 字典值 [{dictionary_value_id, value}]，按俄文搜，精确匹配优先。"""
+        settings = self.store.get_settings()
+        values: list[dict] = []
+        seen: set[int] = set()
+        for t in (texts if is_collection else texts[:1]):
+            if len(t.strip()) < 2:
+                continue
+            try:
+                resp = search_attribute_values(settings, cat, typ, attr_id, t, language="RU")
+                res = resp.get("result") or []
+            except Exception:  # noqa: BLE001
+                res = []
+            if not res:
+                continue
+            hit = next((r for r in res if str(r.get("value") or "").strip().lower()
+                        == t.strip().lower()), res[0])
+            vid = _to_int(hit.get("id"))
+            if vid and vid not in seen:
+                seen.add(vid)
+                values.append({"dictionary_value_id": vid, "value": str(hit.get("value") or t)})
+        return values
+
+    def auto_map_attributes(self, draft_id: int) -> dict:
+        """采集特征(俄文) → 按俄文名对到类目属性(也取俄文) → 解析字典值，自动填进上架属性。
+        属性 ID 与语言无关，填进去后中文界面的必填校验照样会减少。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        cat = str(draft.get("category_id") or "").strip()
+        typ = str(draft.get("type_id") or "").strip()
+        if not cat or not typ:
+            return {"error": "请先选好类目再自动填充"}
+        cat_i, typ_i = int(cat), int(typ)
+        # 采集数据是俄文，属性表也取俄文才能按名对上（不污染界面用的 ZH 缓存）
+        meta = normalize_category_attrs(
+            get_category_attributes(self.store.get_settings(), cat_i, typ_i, language="RU")
+        )
+        pairs = match_chars_to_attributes(collected_chars(draft), meta)
+
+        # 现有上架格式条目（{id, values}），按 id 索引，便于覆盖/合并
+        raw = draft.get("attributes") if isinstance(draft.get("attributes"), list) else []
+        publish_by_id: dict[int, dict] = {}
+        passthrough: list[dict] = []
+        for a in raw:
+            if isinstance(a, dict) and "id" in a and "values" in a:
+                publish_by_id[_to_int(a.get("id"))] = a
+            elif isinstance(a, dict):
+                passthrough.append(a)  # 采集来的 {name,value} 参考，原样保留
+
+        mapped: list[dict] = []
+        unmapped: list[dict] = []
+        for p in pairs:
+            attr, ch = p["attr"], p["char"]
+            aid = _to_int(attr.get("id"))
+            if aid == BRAND_ATTR_ID:
+                continue
+            text = str(ch.get("value") or "")
+            if attr.get("dictionary_id"):
+                texts = split_collection_value(text)
+                values = self._resolve_values(cat_i, typ_i, aid,
+                                               texts, bool(attr.get("is_collection")))
+                if not values:
+                    unmapped.append({"id": aid, "name": attr.get("name"), "value": text})
+                    continue
+                publish_by_id[aid] = {"id": aid, "values": values}
+                mapped.append({"id": aid, "name": attr.get("name"),
+                               "value": " , ".join(v["value"] for v in values)})
+            else:  # 自由文本属性
+                publish_by_id[aid] = {"id": aid, "values": [{"value": text}]}
+                mapped.append({"id": aid, "name": attr.get("name"), "value": text})
+
+        new_attributes = passthrough + list(publish_by_id.values())
+        brand_id = draft.get("brand_id") if str(draft.get("brand_name") or "").strip() == NO_BRAND else None
+        patch: dict = {
+            "attributes": new_attributes,
+            "brand_id": brand_id if _to_int(brand_id) > 0 else None,
+            "brand_name": NO_BRAND,
+        }
+        updated = self.store.update_draft(draft_id, patch)
+        return {"draft": updated, "mapped": mapped, "unmapped": unmapped,
+                "mapped_count": len(mapped)}
+
+    def _no_brand_value(self, cat: int, typ: int) -> dict | None:
+        """解析"无品牌"(Нет бренда)的字典值，attr 85。找不到返回 None。"""
+        vals = self._resolve_values(cat, typ, 85, [NO_BRAND], False)
+        return vals[0] if vals else None
+
+    def _category_roots_ru(self, settings: dict) -> list:
+        client = None if self.catalog_ru.has_tree_cache() else build_client(settings)
+        return self.catalog_ru.raw_tree(client)
+
+    def _card_chat(self, settings: dict, draft: dict):
+        """卡片/类目下钻/提示词生成用的 chat 函数。
+        - engine=agnes：agnes_chat；多模态时附公网主图
+        - engine=openai：deepseek_chat；多模态时附公网主图(OpenAI vision)
+        多模态由 ai_text.multimodal 决定（取代旧 ai_card_vision）。"""
+        from backend.settings_migrate import ai_config, migrate_ai  # noqa: PLC0415
+        engine = ai_config(settings, "text")["engine"]
+        multimodal = bool(migrate_ai(settings)["ai_text"].get("multimodal"))
+        images = None
+        if multimodal:
+            from backend import agnes  # noqa: PLC0415
+            sr = (draft or {}).get("source_raw") or {}
+            pics = agnes.pick_public_images((draft or {}).get("images"), sr.get("detail_images")) or []
+            images = pics[:1] or None      # 只发主图
+        if engine == "agnes":
+            from backend import agnes  # noqa: PLC0415
+            return lambda s, u: agnes.agnes_chat(settings, s, u, images=images)
+        from backend.ai_card import deepseek_chat  # noqa: PLC0415  单测会 monkeypatch 该属性
+        return lambda s, u: deepseek_chat(settings, s, u, images=images)
+
+    def ai_generate(self, draft_id: int) -> dict:
+        """生成 AI 卡片提案，但 **不写入草稿**。
+
+        返回:
+          {"ok": True,
+           "proposal": { ...所有将被应用的字段... },
+           "report": {"category_fallback":..., "brand_warning":...,
+                      "unmapped":..., "mapped":..., "keywords":...,
+                      "category_path":...}}
+
+        调用方（前端）应向用户展示预览；用户点「应用」后把 proposal 字段发往
+        PATCH /api/drafts/{id}（update_draft），点「放弃」则丢弃。
+        """
+        from backend.ai_card import generate_card  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        raw = draft.get("source_raw") or {}
+        if not raw:
+            raw = {"title": draft.get("source_title") or draft.get("ozon_title") or "",
+                   "params": draft.get("attributes") if isinstance(draft.get("attributes"), list) else [],
+                   "description_text": draft.get("description") or ""}
+        settings = self.store.get_settings()
+        r = generate_card(
+            raw,
+            chat=self._card_chat(settings, draft),
+            # AI 从根类目逐层下钻到末级类型（取代旧的"关键词→搜索候选→选一个"两步）。
+            category_roots=self._category_roots_ru(settings),
+            fetch_required_attrs=self._category_attrs,
+            resolve_values=self._resolve_values,
+        )
+        if not r.get("ok"):
+            return r
+        cat, typ = int(r["category_id"]), int(r["type_id"])
+        # 构造 proposal（仅包含将要被应用的字段，不写 DB）
+        proposal: dict = {
+            "category_id": r["category_id"],
+            "type_id": r["type_id"],
+            "ozon_title": r["ozon_title"],
+            "description": r["description"],
+            "attributes": r["attributes"],
+        }
+        # AI 从参数表解析到的毛重/尺寸：仅在 >0 时纳入 proposal
+        for k in ("weight_g", "length_mm", "width_mm", "height_mm"):
+            if _to_int(r.get(k)) > 0:
+                proposal[k] = _to_int(r.get(k))
+        nb = self._no_brand_value(cat, typ)
+        brand_warning: str | None = None
+        if nb:
+            proposal["brand_id"] = nb["dictionary_value_id"]
+            proposal["brand_name"] = nb["value"]
+        else:
+            proposal["brand_name"] = NO_BRAND
+            brand_warning = "无品牌(Нет бренда)未能解析为字典值，发布前请手动确认品牌属性"
+        unmapped = list(r["unmapped"])
+        if brand_warning:
+            unmapped = [{"id": 85, "name": "Бренд", "value": brand_warning}] + unmapped
+        report = {
+            "category_path": r.get("category_path"),
+            "category_fallback": r.get("category_fallback", False),
+            "brand_warning": brand_warning,
+            "unmapped": unmapped,
+            "mapped": r["mapped"],
+            "keywords": [],   # 已改树形下钻，不再有关键词步骤（保留键以兼容下游）
+        }
+        # 组装待确认草案（含缺失必填/可选属性）
+        from backend.ai_card import build_proposal_draft  # noqa: PLC0415
+        try:
+            attrs = self._category_attrs(cat, typ)
+            required = [a for a in attrs if a.get("is_required")]
+            optional = [a for a in attrs if not a.get("is_required")]
+        except Exception:  # noqa: BLE001
+            required, optional = [], []
+        draft_json = build_proposal_draft(proposal, report, required, optional, ts=utc_now_iso())
+        is_auto = bool(settings.get("ai_auto_apply"))
+        self.store.set_ai_proposal(draft_id, draft_json)
+        if is_auto:
+            applied = self.apply_ai_proposal(draft_id)
+            return {"ok": True, "mode": "applied", "draft": applied["draft"],
+                    "unmapped": applied["unmapped"], "report": report}
+        return {"ok": True, "mode": "draft", "proposal": draft_json, "report": report}
+
+    def ai_image_prompts(self, draft_id: int, n_points: int = 3) -> dict:
+        """生成 ChatGPT 出图提示词(主图 + n_points 张卖点图)，不写库。
+        同时返回原始图片 URL，供用户手动上传 ChatGPT 当参考图。
+        AI 未配置 → deepseek_chat 抛 RuntimeError(路由转 400)。"""
+        from backend.ai_card import (  # noqa: PLC0415
+            build_image_prompt_input, parse_image_prompts, _SYS_IMG_PROMPTS)
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        # 注意：不能用 `n_points or 3`——n_points=0 是 falsy 会变 3。显式判 None。
+        n = max(1, min(int(n_points if n_points is not None else 3), 6))
+        settings = self.store.get_settings()
+        system = _SYS_IMG_PROMPTS.format(n=n)
+        out = self._card_chat(settings, draft)(system, build_image_prompt_input(draft))
+        parsed = parse_image_prompts(out, n)
+        _sr = draft.get("source_raw") or {}
+        detail_images = _sr.get("detail_images") or []
+        detail_local = _sr.get("detail_local") or []   # 本地副本(避防盗链)，给缩略图显示
+        return {
+            "ok": True,
+            "main": parsed["main"],
+            "selling_points": parsed["selling_points"],
+            "source_images": draft.get("images") or [],
+            "local_images": draft.get("local_images") or [],
+            "detail_images": detail_images,    # 源 URL，给 ChatGPT 当参考(复制全部用)
+            "detail_local": detail_local,      # 本地副本，缩略图显示用(避防盗链)
+        }
+
+    def _resolve_image_input(self, url: str) -> str:
+        """把前端选的源图变成 Agnes 能取到的输入：http(s) 直接用；/media/ 本地副本
+        外网不可达 → 读字节转 data URI（图生图官方支持 Data URI Base64；图生视频
+        官方只写了 URL，data URI 是尽力而为，被拒会以 Agnes 400 浮出来）。"""
+        from backend import agnes  # noqa: PLC0415
+        u = str(url or "").strip()
+        if u.startswith("http"):
+            return u
+        if u.startswith("/media/"):
+            ext = u.rsplit(".", 1)[-1].lower() if "." in u else ""
+            if ext in ("mp4", "mov", "webm", "m4v"):
+                raise ValueError(f"源图不能是视频文件: {u}")
+            data = _media.read_media_bytes(u)
+            if not data:
+                raise ValueError(f"本地图读取失败: {u}")
+            return agnes.to_data_uri(data, u)
+        raise ValueError("源图必须是 http(s) URL 或 /media/ 本地图")
+
+    def ai_generate_image(self, draft_id: int, *, mode: str = "text2img", prompt: str = "",
+                          source_url: str | None = None, size: str | None = None,
+                          as_main: bool = False) -> dict:
+        """Agnes 生成商品图：text2img(营销图) / img2img(白底主图等，保构图改场景)。
+        生成结果下载到本地 /media/（不依赖 Agnes URL 存活期），挂进 draft.images；
+        发布时由 OSS rehost 链路把本地图上传到你的 OSS。as_main=True 插到首位当主图。"""
+        from backend import agnes  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        p = str(prompt or "").strip()
+        if not p:
+            raise ValueError("提示词不能为空")
+        m = str(mode or "text2img").strip().lower()
+        settings = self.store.get_settings()
+        sources = None
+        if m == "img2img":
+            if not str(source_url or "").strip():
+                raise ValueError("图生图需要选择一张源图")
+            sources = [self._resolve_image_input(str(source_url))]
+        remote_url = agnes.generate_image(settings, p, size=size or "1024x768",
+                                          source_images=sources)
+        data = _download_bytes(remote_url, timeout=120)
+        if len(data) > 20 * 1024 * 1024:   # 与上传路由同口径的 20MB 上限
+            raise RuntimeError(f"生成图过大({len(data) // 1024 // 1024}MB > 20MB)")
+        ext = remote_url.rsplit("?", 1)[0].rsplit(".", 1)[-1].lower()
+        fname = f"agnes-ai.{ext if ext in ('png', 'jpg', 'jpeg', 'webp') else 'png'}"
+        local = _media.save_upload(f"draft-{draft_id}", fname, data)
+        # 生图可能阻塞数分钟——写前重读草稿，别用进入时的旧快照盖掉期间的用户编辑/并发生成
+        cur = self.store.get_draft(draft_id)
+        if cur is None:
+            raise KeyError(f"draft {draft_id} not found")
+        images = list(cur.get("images") or [])
+        patch: dict = {"images": images}
+        if as_main:
+            images.insert(0, local)
+            # images↔local_images 是按下标配对的平行数组（前端 localMap），头插必须同步补位
+            locs = list(cur.get("local_images") or [])
+            if locs:
+                patch["local_images"] = ["", *locs]
+        else:
+            images.append(local)
+        updated = self.store.update_draft(draft_id, patch)
+        return {"ok": True, "draft": updated, "image": local, "remote_url": remote_url}
+
+    def start_ai_video(self, draft_id: int, *, prompt: str | None = None,
+                       image_url: str | None = None) -> dict:
+        """启动 Agnes 图生视频后台任务（全局单任务，约 5 秒 121帧@24fps）。
+        默认用草稿主图 + 商品展示运镜提示词；完成后 _on_ai_video_done 回写草稿。"""
+        from backend import agnes  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        settings = self.store.get_settings()
+        agnes._conf(settings)   # 没配 key 在启动前就报错（不进后台线程才能让前端看到 400）
+        img_in = str(image_url or "").strip()
+        if not img_in:
+            imgs = draft.get("images") or []
+            if not imgs:
+                raise ValueError("草稿没有图片，无法图生视频（先采集或上传图片）")
+            img_in = str(imgs[0])
+        image = self._resolve_image_input(img_in)
+        title = str(draft.get("ozon_title") or draft.get("source_title") or "").strip()
+        p = str(prompt or "").strip() or (
+            "Smooth cinematic product showcase video, slow camera orbit around the product, "
+            "soft studio lighting, the product stays centered and visually identical to the "
+            f"reference image. Product: {title[:200]}"
+        )
+        create_fn = lambda: agnes.create_video_task(settings, p, image=image)  # noqa: E731
+        query_fn = lambda vid: agnes.query_video(settings, vid)  # noqa: E731
+        return ai_video.start_video(create_fn, query_fn, self._on_ai_video_done, draft_id)
+
+    def _on_ai_video_done(self, draft_id: int, url: str) -> None:
+        """视频任务完成回调（后台线程）：写 video_url + 下载本地预览副本。
+        - 本地副本放 draft-{id}-ai key（避免覆盖采集来的源视频），overwrite=True 防重生成命中旧缓存
+        - 下载完再重读草稿（下载可能数十秒，别用旧快照盖掉期间的编辑）
+        - 下载失败把 video_local 置空：宁可前端回退播 video_url，也别播上一版的旧副本
+        - 显式保留 status：这是后台异步写，不该把已发布草稿悄悄打回 ready/invalid"""
+        try:
+            vloc = _media.download_video(url, f"draft-{draft_id}-ai", overwrite=True)
+        except Exception:  # noqa: BLE001  本地副本失败不影响 video_url 落库
+            vloc = ""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            return
+        patch: dict = {
+            "video_url": url,
+            "source_raw": {**(draft.get("source_raw") or {}), "video_local": vloc},
+        }
+        if draft.get("status"):
+            patch["status"] = draft["status"]
+        self.store.update_draft(draft_id, patch)
+
+    def ai_video_status(self) -> dict:
+        return ai_video.video_status()
+
+    def stop_ai_video(self) -> dict:
+        return ai_video.request_stop()
+
+    def start_image_batch(self, draft_id: int, *, source_url: str | None = None) -> dict:
+        """启动 Agnes 整套商品图后台任务（12 角度·全图生图·候选区）。
+        参考图优先用本地副本（避 1688 防盗链 Agnes 拉不到）；生成结果进候选区不进正式图集。"""
+        from backend import agnes  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        settings = self.store.get_settings()
+        agnes._conf(settings)   # 没配 key 启动前就报错（不进后台线程，前端能看到 400）
+        ref_in = str(source_url or "").strip()
+        if not ref_in:
+            locs = draft.get("local_images") or []
+            imgs = draft.get("images") or []
+            ref_in = str(locs[0]) if locs else (str(imgs[0]) if imgs else "")
+        if not ref_in:
+            raise ValueError("草稿没有图片，无法整套图生图（先采集或上传图片）")
+        ref = self._resolve_image_input(ref_in)
+        title = str(draft.get("ozon_title") or draft.get("source_title") or "")
+        plan = agnes.plan_image_angles(title)
+        # 开新批先清空旧候选（避免多次生成累积）
+        sr = dict(draft.get("source_raw") or {})
+        sr["ai_image_candidates"] = []
+        self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
+        gen_fn = lambda prompt: agnes.generate_image(settings, prompt, source_images=[ref])  # noqa: E731
+        return ai_image_batch.start_batch(gen_fn, self._on_image_candidate, plan, draft_id)
+
+    def _on_image_candidate(self, draft_id: int, angle: str, url: str) -> None:
+        """单张候选完成回调（后台线程，串行）：下载本地 + 追加 source_raw.ai_image_candidates。
+        Agnes 图 URL 可能过期 → 下载到 /media（候选 key 与正式图分开）。失败抛出由批量层记 failed。"""
+        data = _download_bytes(url, timeout=120)
+        if len(data) > 20 * 1024 * 1024:
+            raise RuntimeError("候选图过大(>20MB)")
+        local = _media.save_upload(f"draft-{draft_id}-cand", "cand.png", data)
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            return
+        sr = dict(draft.get("source_raw") or {})
+        cands = list(sr.get("ai_image_candidates") or [])
+        cands.append({"url": local, "angle": angle})
+        sr["ai_image_candidates"] = cands
+        self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
+
+    def image_batch_status(self) -> dict:
+        return ai_image_batch.batch_status()
+
+    def stop_image_batch(self) -> dict:
+        return ai_image_batch.request_stop()
+
+    def apply_image_candidates(self, draft_id: int, indices: list[int]) -> dict:
+        """把候选区里勾选的图加入正式图集 draft.images，清空候选区。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = dict(draft.get("source_raw") or {})
+        cands = list(sr.get("ai_image_candidates") or [])
+        if not cands:
+            raise ValueError("没有候选图可应用")
+        sel = [str(cands[i]["url"]) for i in (indices or [])
+               if isinstance(i, int) and 0 <= i < len(cands)]
+        if not sel:
+            raise ValueError("未选择任何候选图")
+        images = list(draft.get("images") or []) + sel
+        sr["ai_image_candidates"] = []   # 应用后清空候选区
+        updated = self.store.update_draft(draft_id, {"images": images, "source_raw": sr})
+        return {"ok": True, "draft": updated, "added": len(sel)}
+
+    def discard_image_candidates(self, draft_id: int) -> dict:
+        """清空候选区（全部丢弃）。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = dict(draft.get("source_raw") or {})
+        sr["ai_image_candidates"] = []
+        updated = self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
+        return {"ok": True, "draft": updated}
+
+    # ---------- 插件桥接（/api/ext/*）----------
+    def ext_ping(self) -> dict:
+        # 带上 rub_cny 汇率：插件采集 Ozon 卢布价后据此换算成人民币再回传（后端统一 CNY）
+        rate = self.store.get_settings().get("rub_cny")
+        try:
+            rate = float(rate) if rate not in (None, "") else None
+        except (TypeError, ValueError):
+            rate = None
+        return {"ok": True, "name": "ozon-listing-webui", "version": "1", "rub_cny": rate}
+
+    def _ext_cache_video(self, draft_id: int, video_url: str) -> None:
+        """为草稿下载视频本地副本（同 collect 流程）：Ozon/1688 CDN 的 <video> 跨域会卡死，
+        落 /media/ 同源才能播。best-effort，失败不影响采集。"""
+        vurl = str(video_url or "")
+        if not vurl.startswith("http"):
+            return
+        cur = self.store.get_draft(draft_id)
+        sr = cur.get("source_raw") if cur else None
+        if isinstance(sr, str):
+            from backend.drafts import loads_json  # noqa: PLC0415
+            sr = loads_json(sr, {})
+        sr = sr if isinstance(sr, dict) else {}
+        if sr.get("video_local"):
+            return
+        try:
+            from backend.media import download_video  # noqa: PLC0415
+            vloc = download_video(vurl, f"draft-{draft_id}")
+            if vloc:
+                self.store.update_draft(draft_id, {"source_raw": {**sr, "video_local": vloc}})
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _auto_map_safe(self, draft_id: int) -> None:
+        """采集后尽力自动映射属性(类目对上才有效)：把采集的名值对填进 Ozon 上架属性。
+        无网/无key/无类目/失败都静默跳过，绝不阻断采集。"""
+        try:
+            d = self.store.get_draft(draft_id)
+            if d and str(d.get("category_id") or "").strip() and str(d.get("type_id") or "").strip():
+                self.auto_map_attributes(draft_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def ext_collect_parsed(self, payload: dict) -> dict:
+        url = str(payload.get("url") or "").strip()
+        if not url:
+            raise ValueError("url required")
+        data = payload.get("data") or {}
+        from backend.drafts import create_draft_from_url  # noqa: PLC0415
+        scraped = {
+            "source_title": data.get("title"),
+            "ozon_title": data.get("title"),  # Ozon 竞品标题已是俄语，直接用
+            "description": data.get("description"),
+            "price": data.get("price"),
+            "old_price": data.get("old_price"),
+            "images": data.get("images") or [],
+            "video_url": data.get("video_url"),
+            "weight_g": data.get("weight_g"),
+            "length_mm": data.get("length_mm"),
+            "width_mm": data.get("width_mm"),
+            "height_mm": data.get("height_mm"),
+            "category_path": data.get("category_path"),
+        }
+        # 采集的属性(名值对 {name,value}) → draft.attributes，供 collected_chars → auto-map/AI；
+        # 发布时 to_ozon_import_item 只发 {id,values}，名值对自动丢弃（不会误发给 Ozon）。
+        collected_attrs = [
+            {"name": str(a["name"]).strip(), "value": str(a.get("value") or "").strip()}
+            for a in (data.get("attributes") or [])
+            if isinstance(a, dict) and a.get("name") and a.get("value")
+        ]
+        # 主题标签(webHashtags) → 属性 23171「#Хештеги」，多标签空格连接成单值（与 Ozon 卡片惯例一致）
+        tags = [str(t).strip() for t in (data.get("hashtags") or []) if str(t).strip()]
+        tag_attr = (
+            {"id": 23171, "name": "#Хештеги", "values": [{"value": " ".join(tags)}]}
+            if tags else None
+        )
+        attrs_list = list(collected_attrs)
+        if tag_attr:
+            attrs_list.append(tag_attr)
+        if attrs_list:
+            scraped["attributes"] = attrs_list
+        # 按买家面包屑路径自动匹配卖家类目 → 填 category_id/type_id（没配 key/无匹配则跳过，回退编辑器手选）
+        try:
+            self._auto_match_category(scraped)
+        except Exception:  # noqa: BLE001
+            pass
+        platform = str(data.get("source_platform") or "ozon").strip() or "ozon"
+        new_draft = create_draft_from_url(url, source_platform=platform, scraped=scraped)
+        # 草稿绑定店：插件带 store_client_id=当前店；缺省回退默认店(settings.ozon_client_id)，单店用户零感知
+        store_cid = str(payload.get("store_client_id") or data.get("store_client_id") or "").strip()
+        if not store_cid:
+            store_cid = str((self.store.get_settings() or {}).get("ozon_client_id") or "")
+        new_draft["store_client_id"] = store_cid
+        det = data.get("detail_images") or []
+        rcj = data.get("rich_content_json") or None
+        vars_ = data.get("variants") or []
+        vg = data.get("variant_group") or ""
+        sa = data.get("selected_aspects") or []
+        sr_new: dict = {}
+        # 插件可直接带 source_raw（如 WB 的 options/brand_name，喂 auto-map/AI）
+        incoming_sr = data.get("source_raw")
+        if isinstance(incoming_sr, dict):
+            sr_new.update(incoming_sr)
+        if det:
+            sr_new["detail_images"] = det
+        if rcj:
+            sr_new["rich_content_json"] = rcj  # 原始富文本(A+)，发布时复刻
+        if vars_:
+            sr_new["variants"] = vars_
+        if vg:
+            sr_new["variant_group"] = vg
+        if sa:
+            sr_new["selected_aspects"] = sa
+        if sr_new:
+            new_draft["source_raw"] = sr_new
+        # 重复采集去重按店：同来源在不同店各存一份，刷新只补空当前店那一份
+        existing = self.store.find_by_source_url(new_draft["source_url"], None, store_cid)
+        if existing:
+            # 重复采集：用新解析的源字段「补空」（不覆盖用户已编辑/已选的非空字段），
+            # 这样旧的、缺描述/克重/尺寸的草稿能被重新采集刷新。
+            patch = {}
+            for k in ("ozon_title", "description", "price", "old_price", "images",
+                      "video_url", "weight_g", "length_mm", "width_mm", "height_mm",
+                      "category_id", "type_id"):
+                cur = existing.get(k)
+                is_empty = cur in (None, "", 0) or (isinstance(cur, list) and not cur)
+                val = new_draft.get(k)
+                has_val = val not in (None, "", 0) and not (isinstance(val, list) and not val)
+                if is_empty and has_val:
+                    patch[k] = val
+            if sr_new:
+                ex_sr = existing.get("source_raw")
+                if not isinstance(ex_sr, dict):
+                    ex_sr = {}
+                merged = dict(ex_sr)
+                for kk, vv in sr_new.items():
+                    if not merged.get(kk):  # 旧草稿没有才补
+                        merged[kk] = vv
+                if merged != ex_sr:
+                    patch["source_raw"] = merged
+            # 属性/标签补空（不覆盖用户已填）：旧草稿没有采集名值对则补；没有 attr 23171 则补标签
+            ex_attrs = existing.get("attributes")
+            ex_attrs = ex_attrs if isinstance(ex_attrs, list) else []
+            merged_attrs = list(ex_attrs)
+            changed_attrs = False
+            has_collected = any(a.get("name") and a.get("value") and "values" not in a for a in ex_attrs)
+            if collected_attrs and not has_collected:
+                merged_attrs = collected_attrs + merged_attrs
+                changed_attrs = True
+            if tag_attr and not any(_to_int(a.get("id")) == 23171 for a in ex_attrs):
+                merged_attrs = merged_attrs + [tag_attr]
+                changed_attrs = True
+            if changed_attrs:
+                patch["attributes"] = merged_attrs
+            if patch:
+                self.store.update_draft(existing["id"], patch)
+            self._ext_cache_video(existing["id"], data.get("video_url"))
+            self._auto_map_safe(existing["id"])   # 采集后自动映射属性
+            return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True}
+        saved = self.store.insert_draft(new_draft)
+        self._ext_cache_video(saved["id"], data.get("video_url"))
+        self._auto_map_safe(saved["id"])   # 采集后自动映射属性
+        return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
+
+    def ext_add_snapshot(self, payload: dict) -> dict:
+        pid = str(payload.get("product_id") or "").strip()
+        if not pid:
+            raise ValueError("product_id required")
+        fc = payload.get("follow_count")
+        pmin = payload.get("price_min")
+        pmax = payload.get("price_max")
+        last = self.store.latest_offer_snapshot(pid)
+        if last and last.get("follow_count") == fc and last.get("price_min") == pmin and last.get("price_max") == pmax:
+            return {"id": last.get("id"), "deduped": True}
+        from backend.drafts import dumps_json, utc_now_iso  # noqa: PLC0415
+        snap = {
+            "product_id": pid,
+            "sku": (str(payload.get("sku")) if payload.get("sku") else None),
+            "captured_at": utc_now_iso(),
+            "follow_count": fc,
+            "price_min": pmin,
+            "price_max": pmax,
+            "sellers_json": dumps_json(payload.get("sellers") or []),
+        }
+        return self.store.add_offer_snapshot(snap)
+
+    def ext_snapshots(self, product_id: str) -> dict:
+        return {"product_id": str(product_id), "snapshots": self.store.list_offer_snapshots(str(product_id))}
+
+    def apply_ai_proposal(self, draft_id: int) -> dict:
+        """把草稿的 AI 待确认草案合并进正式字段，清空草案。
+        - fields 里存在的 key 才覆盖（删除的 key 保留正式原值）
+        - attributes 有 value 的项解析成上架格式并按 id 合并；空 value 跳过
+        返回 {ok, draft, unmapped}。无草案 → ValueError。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        proposal = draft.get("ai_proposal")
+        if not proposal:
+            raise ValueError("没有待确认的 AI 草案")
+        fields = dict(proposal.get("fields") or {})
+        patch: dict = {}
+        for k in ("ozon_title", "description", "category_id", "type_id",
+                  "weight_g", "length_mm", "width_mm", "height_mm"):
+            if k in fields:
+                patch[k] = fields[k]
+        brand_id = fields.get("brand_id", draft.get("brand_id"))
+        brand_name = str(fields.get("brand_name") or draft.get("brand_name") or "").strip()
+        patch["brand_id"] = brand_id if brand_name == NO_BRAND and _to_int(brand_id) > 0 else None
+        patch["brand_name"] = NO_BRAND
+        cat = int(str(patch.get("category_id") or draft.get("category_id") or 0) or 0)
+        typ = int(str(patch.get("type_id") or draft.get("type_id") or 0) or 0)
+        new_attrs: list[dict] = []
+        unmapped: list[dict] = []
+        for a in (proposal.get("attributes") or []):
+            val = str(a.get("value") or "").strip()
+            if not val:
+                continue
+            aid = _to_int(a.get("id"))
+            if aid <= 0:
+                continue
+            if aid == BRAND_ATTR_ID:
+                continue
+            texts = [t.strip() for t in val.replace("，", ",").split(",") if t.strip()]
+            vals = self._resolve_values(cat, typ, aid, texts, False) if cat and typ else [{"value": val}]
+            if vals:
+                new_attrs.append({"id": aid, "values": vals})
+            else:
+                unmapped.append({"id": aid, "name": a.get("name"), "value": val})
+        attr_list = draft.get("attributes") if isinstance(draft.get("attributes"), list) else []
+        passthrough = [a for a in attr_list if isinstance(a, dict) and not ("id" in a and "values" in a)]
+        existing_pub = [a for a in attr_list if isinstance(a, dict) and "id" in a and "values" in a]
+        merged = {_to_int(a["id"]): a for a in existing_pub if _to_int(a.get("id")) > 0}
+        for a in new_attrs:
+            merged[_to_int(a["id"])] = a
+        patch["attributes"] = passthrough + list(merged.values())
+        self.store.update_draft(draft_id, patch)
+        self.store.set_ai_proposal(draft_id, None)
+        updated = self.store.get_draft(draft_id)
+        return {"ok": True, "draft": updated, "unmapped": unmapped}
+
+    def patch_ai_proposal(self, draft_id: int, patch: dict) -> dict:
+        """编辑/删除草案某项，或 discard 清空整份草案，写回 ai_proposal_json。
+        op: edit_field{key,value} / delete_field{key} / edit_attr{id,value} /
+            delete_attr{id} / discard。无草案 → ValueError；未知 op → ValueError。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        proposal = draft.get("ai_proposal")
+        if not proposal:
+            raise ValueError("没有待确认的 AI 草案")
+        op = str((patch or {}).get("op") or "")
+        if op == "discard":
+            self.store.set_ai_proposal(draft_id, None)
+            return {"ok": True, "proposal": None}
+        fields = dict(proposal.get("fields") or {})
+        attrs = list(proposal.get("attributes") or [])
+        if op == "edit_field":
+            fields[str(patch["key"])] = patch.get("value")
+        elif op == "delete_field":
+            fields.pop(str(patch.get("key")), None)
+        elif op == "edit_attr":
+            aid = _to_int(patch.get("id")); val = str(patch.get("value") or "")
+            for a in attrs:
+                if _to_int(a.get("id")) == aid:
+                    a["value"] = val
+                    break
+        elif op == "delete_attr":
+            aid = _to_int(patch.get("id"))
+            attrs = [a for a in attrs if _to_int(a.get("id")) != aid]
+        else:
+            raise ValueError(f"未知操作: {op}")
+        proposal["fields"] = fields
+        proposal["attributes"] = attrs
+        self.store.set_ai_proposal(draft_id, proposal)
+        return {"ok": True, "proposal": proposal}
+
+    def get_commission_map(self, cat_id: int, type_id: int) -> dict:
+        """取某 Ozon 类目记住的 realFBS 佣金类目（命中返回 {parent_en, sub_en, rfbs}）。"""
+        return self.store.load_commission_map(cat_id, type_id) or {}
+
+    def save_commission_map(self, payload: dict) -> dict:
+        cat = _to_int(payload.get("cat"))
+        typ = _to_int(payload.get("type"))
+        if not cat or not typ:
+            return {"error": "cat/type 必填"}
+        self.store.save_commission_map(
+            cat, typ, str(payload.get("parent_en") or ""), str(payload.get("sub_en") or ""),
+            payload.get("rfbs") if isinstance(payload.get("rfbs"), list) else [],
+        )
+        return {"ok": True}
+
+    def brand_search(self, cat_id: int, type_id: int, attr_id: int, query: str, language: str = "ZH_HANS") -> dict:
+        lang = _attr_language(language)
+        # 本地优先：命中即返回；本地没有再调 Ozon 并写回缓存
+        local = self.store.find_attribute_values(cat_id, type_id, attr_id, query, lang)
+        if local:
+            return {"result": local, "source": "local", "count": len(local), "language": lang}
+        # Ozon 要求搜索词 ≥2 个字符(runes)，不足就只给本地缓存，不打 API（否则 400）
+        if len(query.strip()) < 2:
+            return {"result": [], "source": "local", "count": 0,
+                    "hint": "输入至少 2 个字符搜索品牌", "language": lang}
+        resp = search_attribute_values(self.store.get_settings(), cat_id, type_id, attr_id, query, language=lang)
+        values = resp.get("result") or []
+        if values:
+            self.store.save_attribute_values(cat_id, type_id, attr_id, values, lang)
+        return {"result": values, "source": "ozon", "count": len(values), "language": lang}
+
+    def _scid_of(self, store_client_id: str | None) -> str:
+        """把(可能为空的)目标店解析成实际 client_id：空→默认店。仓库/订单按它隔离。"""
+        return str(self._settings_for_store(store_client_id).get("ozon_client_id") or "")
+
+    def list_warehouses(self, store_client_id: str | None = None) -> dict:
+        scid = self._scid_of(store_client_id)
+        return {"warehouses": self.store.list_warehouses(scid)}
+
+    def sync_warehouses(self, store_client_id: str | None = None) -> dict:
+        from backend.ozon_client_adapter import fetch_warehouses  # noqa: PLC0415
+        settings = self._settings_for_store(store_client_id)
+        scid = str(settings.get("ozon_client_id") or "")
+        items = fetch_warehouses(settings)
+        self.store.upsert_warehouses(items, scid)
+        return {"synced": len(items), "warehouses": self.store.list_warehouses(scid)}
+
+    def set_default_warehouse(self, warehouse_id: int, store_client_id: str | None = None) -> dict:
+        scid = self._scid_of(store_client_id)
+        self.store.set_default_warehouse(int(warehouse_id), scid)
+        return {"warehouses": self.store.list_warehouses(scid)}
+
+    # ---------- 功能⑤：FBS 备货发货 ----------
+    def pull_fbs(self, status: str = "awaiting_packaging", days: int = 14,
+                 store_client_id: str | None = None) -> dict:
+        from backend.ozon_client_adapter import pull_fbs_postings  # noqa: PLC0415
+        settings = self._settings_for_store(store_client_id)
+        scid = str(settings.get("ozon_client_id") or "")
+        items = pull_fbs_postings(settings, status, days)
+        self.store.upsert_postings(items, scid)
+        self.store.rebuild_procurement(scid)
+        return {"synced": len(items), "procurement": self.store.list_procurement(scid)}
+
+    def list_procurement(self, store_client_id: str | None = None) -> dict:
+        scid = self._scid_of(store_client_id)
+        return {"procurement": self.store.list_procurement(scid)}
+
+    def set_procurement_state(self, pid: int, purchase_state: str, note: str = "",
+                              store_client_id: str | None = None) -> dict:
+        self.store.set_procurement_state(int(pid), purchase_state, note=note)
+        return {"procurement": self.store.list_procurement(self._scid_of(store_client_id))}
+
+    def ship_posting(self, posting_number: str, store_client_id: str | None = None) -> dict:
+        """按 posting 的商品组成一个包发货。不可逆。
+        Ozon 发货请求要 product_id（swagger 里与 sku 是不同 ID）；而待发货单只带
+        offer_id/sku，没有 product_id。故先用 offer_id 反查真实 product_id（info.id），
+        绝不拿 sku 顶替——否则会发错货或被 Ozon 拒。"""
+        from backend.ozon_client_adapter import get_ozon_info, ship_fbs  # noqa: PLC0415
+        posting = self.store.get_posting(posting_number)
+        if not posting:
+            raise KeyError(f"posting {posting_number} not found")
+        items = posting.get("products") or []
+        offer_ids = [str(p.get("offer_id")) for p in items if p.get("offer_id")]
+        if not offer_ids:
+            raise ValueError("该 posting 无 offer_id，无法解析 product_id")
+        settings = self._settings_for_store(store_client_id)
+        try:
+            info = get_ozon_info(settings, offer_ids)   # {offer_id: {id=product_id, ...}}
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"拉取商品信息失败，无法发货: {exc}") from exc
+        products, missing = [], []
+        for p in items:
+            oid = str(p.get("offer_id") or "")
+            pid = (info.get(oid) or {}).get("id")
+            if not pid:
+                missing.append(oid or "?")
+                continue
+            products.append({"product_id": int(pid), "quantity": int(p.get("quantity") or 1)})
+        if missing:
+            raise ValueError(f"无法解析 product_id 的商品: {', '.join(missing)}")
+        if not products:
+            raise ValueError("该 posting 无可发货商品")
+        # warehouse_id 不传给 Ozon：/v4/posting/fbs/ship 接口只接受 posting_number + packages，
+        # Ozon 从 posting 本身推断仓库，无需（也不接受）warehouse_id 参数。
+        r = ship_fbs(settings, posting_number, [{"products": products}])
+        return {"result": r.get("result") or [], "shipped": True, "response": r}
+
+    def publish_variant_group(
+        self,
+        variant_group: str,
+        store_client_id: str | None = None,
+        model_name: str | None = None,
+    ) -> dict:
+        """把同一 variant_group 的所有草稿合并成一张 Ozon 多变体卡批量发布（批量 import）。
+        颜色/尺寸字典值通过 search_attribute_values 实时解析；型号名(9048)作合并 key。
+        **不可逆外部写**，由路由层二次确认后调用。"""
+        from backend.variant_publish import build_group_items  # noqa: PLC0415
+        drafts = self.store.list_drafts_by_variant_group(variant_group)
+        if not drafts:
+            raise ValueError("该分组没有草稿")
+        store_settings = self._settings_for_store(store_client_id)
+        # 类目取第一条（同组同类目）
+        first = drafts[0]
+        cat = int(str(first.get("category_id") or "0") or 0)
+        typ = int(str(first.get("type_id") or "0") or 0)
+        if not cat or not typ:
+            raise ValueError("草稿缺类目，无法合并发布（先在编辑器选类目/AI匹配）")
+        category_attrs = self._category_attrs(cat, typ)
+        # 型号名(合并 key)：默认用分组键(主 SKU)，保证组内一致→合并
+        mname = (model_name or "").strip() or str(variant_group)
+
+        def resolve_dict(attr_id: int, dictionary_id: int, text: str) -> dict | None:
+            try:
+                r = search_attribute_values(store_settings, cat, typ, int(attr_id), str(text), limit=5)
+                vals = (r or {}).get("result") if isinstance(r, dict) else None
+                vals = vals or []
+                if vals:
+                    v0 = vals[0]
+                    vid = v0.get("id") or v0.get("dictionary_value_id")
+                    if vid:
+                        return {"dictionary_value_id": int(vid), "value": v0.get("value") or text}
+            except Exception:  # noqa: BLE001
+                return None
+            return None
+
+        items = build_group_items(drafts, category_attrs, mname, resolve_dict)
+        # 币种换算（内部统一 CNY → 目标店币种；与 publish() 保持一致）
+        currency = str(store_settings.get("contract_currency") or "CNY").upper()
+        if currency == "RUB":
+            rate = float(store_settings.get("rub_cny") or 0) or None
+            if rate:
+                for it in items:
+                    it["currency_code"] = "RUB"
+                    it["price"] = str(round(float(it.get("price") or 0) / rate, 2))
+                    if it.get("old_price"):
+                        it["old_price"] = str(round(float(it["old_price"]) / rate, 2))
+        else:
+            for it in items:
+                it["currency_code"] = currency
+        response = publish_items(store_settings, items)
+        return {
+            "published": True,
+            "count": len(items),
+            "variant_group": variant_group,
+            "model_name": mname,
+            "response": response,
+        }
+
+    def fbs_label(self, posting_number: str, store_client_id: str | None = None) -> bytes:
+        from backend.ozon_client_adapter import fbs_label_pdf  # noqa: PLC0415
+        return fbs_label_pdf(self._settings_for_store(store_client_id), [posting_number])
+
+    def delete(self, draft_id: int) -> dict:
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        # 删除草稿只清理本地工作台记录，不级联下架/删除 Ozon 线上商品。
+        # 线上商品的下架、归档、删除必须走单独的显式操作，避免误删已发布商品。
+        self.store.delete_draft(draft_id)
+        return {
+            "deleted": True,
+            "id": draft_id,
+            "ozon_deleted": False,
+            "ozon_response": None,
+            "ozon_error": None,
+            "drafts": self.store.list_drafts(),
+        }

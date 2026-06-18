@@ -1,0 +1,145 @@
+/* 浅色玻璃态主题 + 设计 token 体系。
+   token 分两层：
+   1) 规范层 --c-* / --sp-* / --r-* / --e-* / --fs-*（新组件/迁移目标，单一真相源）
+   2) 兼容层 --gp-*（存量 42 处引用，值保持不变，零视觉变化；后续逐文件迁到规范层） */
+
+:root {
+  /* ===== 颜色·品牌 ===== */
+  --c-brand: #8b5cf6;
+  --c-brand-soft: #f5f3ff;
+  --c-brand-strong: #7c3aed;
+  /* ===== 颜色·语义（每个语义只一个值，全站统一，消灭 3 红/2 绿） ===== */
+  --c-success: #10b981;
+  --c-warning: #f59e0b;
+  --c-danger: #ef4444;
+  --c-info: #3b82f6;
+  /* ===== 颜色·中性阶梯（替掉 #999/#555/#909399/#9aa6b5 四种灰） ===== */
+  --c-text: #1f2733;          /* 主文本 */
+  --c-text-2: #5b6675;        /* 次文本 */
+  --c-text-3: #8a94a3;        /* 弱/muted */
+  --c-text-disabled: #b8c0cc;
+  --c-bg: #f4f6fb;            /* 页面底 */
+  --c-surface: #ffffff;       /* 卡片面 */
+  --c-surface-2: #f7f9fc;     /* 次级面/弱填充 */
+  --c-border: rgba(0, 0, 0, 0.1);
+  --c-border-soft: rgba(0, 0, 0, 0.06);
+  --c-glass: rgba(255, 255, 255, 0.72);
+
+  /* ===== 间距阶梯 ===== */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  /* ===== 圆角（7 种随手值 → 3 档） ===== */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  /* ===== 阴影/高度 ===== */
+  --e-1: 0 1px 2px rgba(20, 34, 59, 0.06);
+  --e-2: 0 8px 24px rgba(20, 34, 59, 0.08);
+  --e-3: 0 16px 40px rgba(20, 34, 59, 0.12);
+  /* ===== 字号（8 种 → 6 档） ===== */
+  --fs-xs: 12px; --fs-sm: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px;
+
+  /* ===== 兼容层：旧 --gp-* 保持原值，零视觉变化（迁移完成后可改成引用规范层并删除） ===== */
+  --gp-bg: #f4f6fb;
+  --gp-purple: #8b5cf6;
+  --gp-purple-soft: #7c3aed;
+  --gp-blue: #3b82f6;
+  --gp-text: #1f2733;
+  --gp-muted: #6b7685;
+  --gp-faint: #9aa4b2;
+  --gp-dim: #b8c0cc;
+  --gp-success: #10b981;
+  --gp-danger: #ef4444;
+  --gp-warning: #f59e0b;
+  --gp-glass: rgba(255, 255, 255, 0.72);
+  --gp-glass-solid: #ffffff;
+  --gp-line: rgba(0, 0, 0, 0.1);
+  --gp-line-soft: rgba(0, 0, 0, 0.06);
+  --gp-input-bg: #ffffff;
+
+  /* 主色改成紫色，贴合原型点缀色 */
+  --el-color-primary: #8b5cf6;
+  --el-color-primary-light-3: #a78bfa;
+  --el-color-primary-light-5: #c4b5fd;
+  --el-color-primary-light-7: #ddd6fe;
+  --el-color-primary-light-8: #ede9fe;
+  --el-color-primary-light-9: #f5f3ff;
+  --el-color-primary-dark-2: #7c3aed;
+}
+
+/* 全局浅色背景：淡紫/淡蓝辉光 */
+html,
+body,
+#app {
+  background-color: var(--gp-bg);
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 40%);
+  background-attachment: fixed;
+  color: var(--gp-text);
+}
+
+/* 玻璃面板（浅色：白色半透明） */
+.glass-panel {
+  background: var(--gp-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--gp-line);
+}
+
+/* 状态脉冲点（顶栏连接状态） */
+.gp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  position: relative;
+  background: var(--gp-success);
+}
+.gp-dot.off { background: var(--gp-dim); }
+.gp-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: var(--gp-success);
+  opacity: 0.35;
+  animation: gp-pulse 2s infinite;
+}
+.gp-dot.off::after { display: none; }
+@keyframes gp-pulse {
+  0% { transform: scale(1); opacity: 0.35; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* 渐变品牌字 */
+.gp-brand-text {
+  background: linear-gradient(to right, #8b5cf6, #6366f1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+/* ===== 通用工具类（迁移目标：替掉各组件里重复的 padding/border/shadow 与硬编码灰） ===== */
+
+/* 标准面板：白底卡片，统一圆角/阴影/内距。替代各处自写的 background+border+padding */
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-1);
+  padding: var(--sp-5);
+}
+
+/* 弱文本：替掉 #999 / #555 / #909399 / #9aa6b5 等各种灰 */
+.muted { color: var(--c-text-3); }
+
+/* 状态点：三态（已填绿 / 缺失红 / 中性白描边）。迁移特征点/连接点用 */
+.dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+  background: var(--c-text-disabled);
+}
+.dot.is-success { background: var(--c-success); }
+.dot.is-danger { background: var(--c-danger); }
+.dot.is-neutral { background: var(--c-surface); box-shadow: 0 0 0 1px var(--c-border) inset; }

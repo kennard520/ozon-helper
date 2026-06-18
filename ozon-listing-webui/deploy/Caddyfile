@@ -1,0 +1,10 @@
+# Caddy 反向代理 + 自动 HTTPS（Let's Encrypt）。把域名换成你的。
+# 用法：把本文件放到 /etc/caddy/Caddyfile，sudo systemctl reload caddy
+app.你的域名.com {
+    reverse_proxy 127.0.0.1:8585
+    encode gzip
+    # 上传商品图较大，放宽请求体上限
+    request_body {
+        max_size 50MB
+    }
+}

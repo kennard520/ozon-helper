@@ -1,0 +1,5 @@
+{"tariffs":[
+ {"id":"0","providerId":"1778","providerName":"ATC Express Premium Small","description":"ATC Express Premium Small to Ozon courier delivery","price":112,"weightType":"weight","isDropOff":true,"hasBattery":false,"templateType":"global","clusterDeliverySpeeds":[{"min":5,"max":10,"clusterName":"F"}]},
+ {"id":"0","providerId":"1728","providerName":"Ural Kazakhstan Economy","description":"Ural Kazakhstan Economy Premium Small","price":74.88,"weightType":"weight","isDropOff":false,"hasBattery":false,"templateType":"global","clusterDeliverySpeeds":[]},
+ {"id":"0","providerId":"1292","providerName":"ZTO Standard Premium Small","description":"ZTO Standard","price":95.68,"weightType":"weight","isDropOff":false,"hasBattery":true,"templateType":"global","clusterDeliverySpeeds":[{"min":15,"max":20,"clusterName":"F"}]}
+]}

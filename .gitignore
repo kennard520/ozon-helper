@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node / 前端
+node_modules/
+ozon-listing-webui/frontend/dist/
+.vite/
+
+# 运行时数据（含密钥/草稿/媒体缓存，绝不入库）
+ozon-listing-webui/data/
+**/data/products.db
+.auth/
+
+# 杂项
+.DS_Store
+*.log
+.idea/
+.vscode/

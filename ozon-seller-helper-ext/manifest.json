@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Ozon 助手",
+  "version": "0.1.0",
+  "description": "在 Ozon 商品页就地显示跟卖数与被跟价（登录态不出本机）",
+  "background": { "service_worker": "background.js" },
+  "host_permissions": ["https://www.ozon.ru/*", "https://seller.ozon.ru/*", "http://127.0.0.1/*", "<all_urls>"],
+  "permissions": ["storage", "cookies", "tabs"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.ozon.ru/*",
+        "https://*.1688.com/*",
+        "https://*.yangkeduo.com/*",
+        "https://*.pinduoduo.com/*",
+        "https://www.wildberries.ru/*"
+      ],
+      "js": ["common/site.js", "common/parse-other-offers.js", "common/bridge.js", "common/product-parse.js", "common/wb.js", "common/media-upload.js", "common/collect-flow.js", "common/listing-util.js", "content/panel.js", "content/listing.js"],
+      "css": ["content/panel.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Ozon 助手"
+  }
+}
