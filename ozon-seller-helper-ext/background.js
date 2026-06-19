@@ -75,19 +75,26 @@ function _fileName(url, i) {
   return 'media_' + i + '.jpg'
 }
 
+// 带超时的 fetch：源图 CDN 或上传接口挂起时不会永久卡死（超时即 abort，视为该图失败、跳过保留原链接）
+function _fetchT(url, opts, ms) {
+  const c = new AbortController()
+  const t = setTimeout(() => c.abort(), ms || 30000)
+  return fetch(url, Object.assign({}, opts || {}, { signal: c.signal })).finally(() => clearTimeout(t))
+}
+
 // 下载一个源 URL → 直传卖家媒体库 → 返回 ir.ozone.ru URL（失败抛错）
 async function _uploadOne(url, i, companyId) {
-  const dl = await fetch(url) // host_permissions <all_urls> 绕过页面 CORS
+  const dl = await _fetchT(url, {}, 30000) // host_permissions <all_urls> 绕过页面 CORS
   if (!dl.ok) throw new Error('download ' + dl.status)
   const blob = await dl.blob()
   const fd = new FormData()
   fd.append('file_name', _fileName(url, i))
   fd.append('tmp', 'true')
   fd.append('body', blob, _fileName(url, i))
-  const up = await fetch(SELLER + '/api/media-storage/upload-file', {
+  const up = await _fetchT(SELLER + '/api/media-storage/upload-file', {
     method: 'POST', credentials: 'include',
     headers: { 'x-o3-company-id': String(companyId) }, body: fd
-  })
+  }, 45000)
   const text = await up.text()
   if (!up.ok) throw new Error('upload ' + up.status + ': ' + text.slice(0, 160))
   let irUrl = null
