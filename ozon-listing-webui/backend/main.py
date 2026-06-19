@@ -205,6 +205,27 @@ def media(path: str) -> FileResponse:
     return FileResponse(fpath)
 
 
+# 图片下载代理：服务器用 OSS「内网 endpoint」取图后吐给客户端，省 OSS 外网出流量
+# （ECS 固定带宽包月，等于免费）。只代理 ozon-media/ 前缀（内容哈希命名）。
+# 上传仍是插件预签名直传 OSS 外网，不走这里。
+@app.get("/oss/{key:path}")
+def oss_proxy(key: str) -> Response:
+    if not key.startswith("ozon-media/"):
+        raise HTTPException(status_code=404, detail="not found")
+    from backend.oss import OssClient  # noqa: PLC0415
+    oss = OssClient(APP.store.get_settings())
+    if not oss.configured():
+        raise HTTPException(status_code=503, detail="OSS 未配置")
+    try:
+        data, ct = oss.get_object(key)
+    except Exception:
+        raise HTTPException(status_code=404, detail="对象不存在")
+    return Response(
+        content=data, media_type=ct,
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
 # 前端入口：Vue 构建产物 frontend/dist/index.html。
 # dist 是构建产物（.gitignore），首次运行前需 `cd frontend && npm run build`。
 @app.get("/")

@@ -3,6 +3,7 @@ bucket 可注入便于单测（不依赖真实 oss2/网络）。"""
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import os
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -47,6 +48,36 @@ class OssClient:
 
     def public_url(self, key: str) -> str:
         return self._public_url(key)
+
+    # ---- 服务器侧用「内网 endpoint」取对象，给 /oss 图片代理用（免 OSS 外网出流量）----
+    def _internal_endpoint(self) -> str:
+        env = _clean(os.environ.get("OZON_OSS_INTERNAL_ENDPOINT"))
+        if env:
+            return env.replace("https://", "").replace("http://", "").rstrip("/")
+        ep = self.endpoint
+        # 外网 endpoint 自动推内网：oss-cn-x.aliyuncs.com -> oss-cn-x-internal.aliyuncs.com
+        if ep.endswith(".aliyuncs.com") and "-internal" not in ep:
+            return ep.replace(".aliyuncs.com", "-internal.aliyuncs.com")
+        return ep
+
+    def _internal_bucket(self):
+        import oss2  # noqa: PLC0415
+        auth = oss2.Auth(self.ak, self.sk)
+        return oss2.Bucket(auth, f"https://{self._internal_endpoint()}", self.bucket_name)
+
+    def get_object(self, key: str) -> tuple[bytes, str]:
+        """走内网 endpoint 取对象（北京 ECS↔北京 OSS 内网免费）。返回 (data, content_type)。"""
+        obj = self._internal_bucket().get_object(key)
+        data = obj.read()
+        ct = ""
+        try:
+            ct = obj.headers.get("Content-Type") or obj.headers.get("content-type") or ""
+        except Exception:
+            ct = ""
+        if not ct or ct == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(key)
+            ct = guessed or ct or "application/octet-stream"
+        return data, ct
 
     def object_exists(self, key: str) -> bool:
         return bool(self._bucket_obj().object_exists(key))
