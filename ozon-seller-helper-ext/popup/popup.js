@@ -58,28 +58,8 @@ OzonHelperBridge.bgCall('ping').then((r) => {
   }
 })
 
-// 开发者：自定义后端地址（留空=用写死的生产服务器）
-async function loadBackend() {
-  try {
-    const st = await chrome.storage.local.get('ozon_backend_base')
-    if ($('backend-base')) $('backend-base').value = (st && st.ozon_backend_base) || ''
-  } catch (e) {
-    /* ignore */
-  }
-}
-$('backend-save').addEventListener('click', async () => {
-  const v = $('backend-base').value.trim().replace(/\/+$/, '')
-  if (v) {
-    await chrome.storage.local.set({ ozon_backend_base: v })
-  } else {
-    await chrome.storage.local.remove('ozon_backend_base')
-  }
-  location.reload()
-})
-$('backend-clear').addEventListener('click', async () => {
-  await chrome.storage.local.remove('ozon_backend_base')
-  location.reload()
-})
+// 开发者如需覆盖后端地址：在扩展 Service Worker 控制台执行
+//   chrome.storage.local.set({ ozon_backend_base: 'http://127.0.0.1:8585' })
+// 留空＝用写死的生产服务器（用户版不展示此入口）。
 
-loadBackend()
 refresh()
