@@ -13,6 +13,11 @@ ozon-listing-webui/frontend/dist/
 # 运行时数据（含密钥/草稿/媒体缓存，绝不入库）
 ozon-listing-webui/data/
 **/data/products.db
+# 数据库文件（任何位置都不入库，含密钥/运行时数据）
+products.db
+*.db
+*.sqlite
+*.sqlite3
 .auth/
 
 # 杂项
