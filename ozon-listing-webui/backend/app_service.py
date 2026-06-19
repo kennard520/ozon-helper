@@ -950,6 +950,21 @@ class App:
             return None
         return {"dictionary_value_id": vid, "value": str(hit.get("value") or text)}
 
+    def _resolve_pairs_concurrent(self, cat: int, typ: int,
+                                  tasks: list[tuple[int, list[str], bool]]) -> dict[int, list[dict]]:
+        """并发解析多个字典属性的值。tasks = [(attr_id, texts, is_collection), ...]。
+        返回 {attr_id: [{dictionary_value_id, value}, ...]}。本地命中不走网络，未命中并发实时搜。"""
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        if not tasks:
+            return {}
+
+        def _one(task: tuple[int, list[str], bool]) -> tuple[int, list[dict]]:
+            aid, texts, is_coll = task
+            return (aid, self._resolve_values(cat, typ, aid, texts, is_coll))
+
+        with ThreadPoolExecutor(max_workers=min(8, len(tasks))) as ex:
+            return dict(ex.map(_one, tasks))
+
     def auto_map_attributes(self, draft_id: int) -> dict:
         """采集特征(俄文) → 按俄文名对到类目属性(也取俄文) → 解析字典值，自动填进上架属性。
         属性 ID 与语言无关，填进去后中文界面的必填校验照样会减少。"""
@@ -979,6 +994,9 @@ class App:
 
         mapped: list[dict] = []
         unmapped: list[dict] = []
+        dict_tasks: list[tuple[int, list[str], bool]] = []     # (aid, texts, is_collection)
+        dict_meta: dict[int, dict] = {}                        # aid -> {name, text}
+        free_text: list[tuple[int, str, str]] = []             # (aid, text, name)
         for p in pairs:
             attr, ch = p["attr"], p["char"]
             aid = _to_int(attr.get("id"))
@@ -986,18 +1004,23 @@ class App:
                 continue
             text = str(ch.get("value") or "")
             if attr.get("dictionary_id"):
-                texts = split_collection_value(text)
-                values = self._resolve_values(cat_i, typ_i, aid,
-                                               texts, bool(attr.get("is_collection")))
-                if not values:
-                    unmapped.append({"id": aid, "name": attr.get("name"), "value": text})
-                    continue
-                publish_by_id[aid] = {"id": aid, "values": values}
-                mapped.append({"id": aid, "name": attr.get("name"),
-                               "value": " , ".join(v["value"] for v in values)})
+                dict_tasks.append((aid, split_collection_value(text), bool(attr.get("is_collection"))))
+                dict_meta[aid] = {"name": attr.get("name"), "text": text}
             else:  # 自由文本属性
-                publish_by_id[aid] = {"id": aid, "values": [{"value": text}]}
-                mapped.append({"id": aid, "name": attr.get("name"), "value": text})
+                free_text.append((aid, text, str(attr.get("name") or "")))
+
+        resolved = self._resolve_pairs_concurrent(cat_i, typ_i, dict_tasks)
+        for aid, meta in dict_meta.items():
+            values = resolved.get(aid) or []
+            if not values:
+                unmapped.append({"id": aid, "name": meta["name"], "value": meta["text"]})
+                continue
+            publish_by_id[aid] = {"id": aid, "values": values}
+            mapped.append({"id": aid, "name": meta["name"],
+                           "value": " , ".join(v["value"] for v in values)})
+        for aid, text, name in free_text:
+            publish_by_id[aid] = {"id": aid, "values": [{"value": text}]}
+            mapped.append({"id": aid, "name": name, "value": text})
 
         new_attributes = passthrough + list(publish_by_id.values())
         brand_id = draft.get("brand_id") if str(draft.get("brand_name") or "").strip() == NO_BRAND else None

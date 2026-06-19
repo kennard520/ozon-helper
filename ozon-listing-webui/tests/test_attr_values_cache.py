@@ -219,5 +219,34 @@ class ResolveValuesTest(unittest.TestCase):
                 app.store.close()
 
 
+class ResolvePairsConcurrentTest(unittest.TestCase):
+    def test_resolves_each_attr(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                app.store.save_attr_values(100, 22, 11, [{"id": 1, "value": "Красный"}], False)
+                app.store.save_attr_values(100, 22, 22, [{"id": 2, "value": "Малый"}], False)
+
+                def boom(*a, **k):
+                    raise AssertionError("本地命中不应实时搜")
+                svc.search_attribute_values = boom
+                res = app._resolve_pairs_concurrent(100, 22, [
+                    (11, ["красный"], False),
+                    (22, ["малый"], False),
+                ])
+                self.assertEqual(res[11], [{"dictionary_value_id": 1, "value": "Красный"}])
+                self.assertEqual(res[22], [{"dictionary_value_id": 2, "value": "Малый"}])
+            finally:
+                app.store.close()
+
+    def test_empty_tasks(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                self.assertEqual(app._resolve_pairs_concurrent(100, 22, []), {})
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
