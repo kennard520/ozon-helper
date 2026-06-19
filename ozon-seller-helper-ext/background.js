@@ -317,8 +317,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       opts.headers['Content-Type'] = 'application/json'
       opts.body = req.body
     }
-    // 采集要在后端跑抓取（慢）给长超时；其余短超时
-    const timeoutMs = msg.type === 'collect' ? 120000 : 8000
+    // 采集/推送要在后端建草稿+匹配类目（可能调 Ozon API，慢）给长超时；其余短超时
+    const timeoutMs = (msg.type === 'collect' || msg.type === 'collectParsed') ? 120000 : 8000
     const c = new AbortController()
     const t = setTimeout(() => c.abort(), timeoutMs)
     opts.signal = c.signal
