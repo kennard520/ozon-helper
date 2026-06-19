@@ -1,7 +1,7 @@
 # 设计：Admin 用户管理 + 店铺配额
 
 - 日期：2026-06-19
-- 状态：已通过设计评审，待写实现计划
+- 状态：已实现并上线（2026-06-19）
 - 影响范围：`ozon-listing-webui` 后端（FastAPI）+ 前端（Vue），部署在服务器（MySQL）
 
 ## 背景 / 问题
@@ -20,9 +20,10 @@
 
 ## 非目标
 
-- 不做删除用户（避免误删其草稿/钱包/快照数据）；停用走"禁用"。
 - 不做邮箱验证 / 找回密码 / 邀请码等注册流程。
 - 不改动现有店铺隔离（user_id / store_client_id）机制本身。
+
+> 实现后调整（2026-06-19）：原定"只禁用不删除"已按用户要求改为**同时支持硬删除**（级联删该用户全部数据，前端危险二次确认）；用户管理也从"设置页卡片"改为**独立页面**。下文已同步。
 
 ## 安全原则（重点）
 
@@ -59,28 +60,29 @@
 | `GET` | `/api/admin/users` | admin | 列出用户：`id, username, role, status, max_stores, store_count`（store_count = 该用户 ozon_stores 数量）|
 | `POST` | `/api/admin/users` | admin | 创建用户：入参 `username, password, max_stores`；用户名≥3、密码≥6、查重；`role=user, status=active` |
 | `PATCH` | `/api/admin/users/{id}` | admin | 按传入字段更新：`max_stores` / `status`(active/disabled) / `password`(重置)；至少传一项 |
+| `DELETE` | `/api/admin/users/{id}` | admin | 硬删除：级联删该用户 user_id 关联数据（草稿/钱包/流水/设置）+ 其店铺的仓库/订单/采购/快照。防自锁：不能删自己、不能删管理员 |
 
 其它后端改动：
 - **删除** 公开的 `POST /api/auth/register` 路由，并删除 `App.register` 方法（建用户统一走 `POST /api/admin/users`，不再有任何匿名注册入口）。
 - **登录** `App.login` 增加 `status == 'active'` 校验；非 active 报"账号已禁用"。
-- `store` 层新增/调整方法：`list_users()`、`create_user(..., max_stores)`、`set_max_stores(id, n)`、`set_status(id, s)`、`set_password_hash(id, h)`。
-- admin 不能把自己禁用 / 不能禁用最后一个 admin（防自锁）。
+- `store` 层新增/调整方法：`list_users()`、`create_user(..., max_stores)`、`set_max_stores(id, n)`、`set_status(id, s)`、`set_password_hash(id, h)`、`delete_user(id)`（级联）。
+- admin 不能把自己禁用 / 不能禁用最后一个 admin；不能删除自己 / 不能删除管理员（防自锁）。
 
 ## 前端
 
-- 设置页新增"用户管理"区块，**仅当当前用户 `role == 'admin'` 时渲染**：
+- **独立的「用户管理」页**（`views/Users.vue`），入口在右上角账号下拉菜单（⚙️设置 旁），**仅 admin 可见**；普通用户看不到、后端也 403 挡住。
   - 用户表格：用户名、角色、状态、最大店铺数、当前店数、操作按钮。
   - 创建表单：用户名 + 初始密码 + 最大店铺数。
-  - 行内操作：改最大店铺数、重置密码、禁用/启用。
-- `api.js`：移除 `register`，新增 `adminListUsers / adminCreateUser / adminUpdateUser`。
-- 去掉登录页等处的注册入口（若有）。
-- 加店保存设置时，后端返回的配额错误（400）要在前端弹出可读提示。
+  - 行内操作：改最大店铺数、重置密码（Element 弹窗）、禁用/启用、**删除（危险二次确认；admin 行不显示删除）**。
+- `api.js`：移除 `register`，新增 `adminListUsers / adminCreateUser / adminUpdateUser / adminDeleteUser`。
+- 去掉登录页的注册入口。
+- 加店保存设置时，后端返回的配额错误（400）在前端弹出可读提示。
 
 ## 默认决策（已与用户确认）
 
 - 新用户 `max_stores` 默认 **1**（admin 建号时可改）。
 - admin **豁免**店铺配额。
-- 只"禁用"不"删除"用户。
+- 删除：支持**硬删除**（连同该用户全部数据，不可逆，前端危险二次确认），同时保留"禁用"作为可恢复的软停用；不能删自己/管理员。
 
 ## 测试
 
@@ -91,9 +93,10 @@
 - 禁用的用户登录 → 失败。
 - 普通用户保存 `ozon_stores` 超过 max_stores → 400；admin 不限。
 - admin 不能禁用自己 / 最后一个 admin。
+- 硬删除用户级联删其草稿等数据；不能删自己 / 不能删管理员。
 
 前端：
-- 非 admin 看不到"用户管理"区块（但即使手动调接口也被后端 403 挡住）。
+- 非 admin 看不到"用户管理"入口（即使手动调接口也被后端 403 挡住）。
 
 ## 部署 / 迁移
 
