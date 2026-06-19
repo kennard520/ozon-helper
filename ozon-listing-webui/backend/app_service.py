@@ -1520,12 +1520,11 @@ class App:
                 patch["attributes"] = merged_attrs
             if patch:
                 self.store.update_draft(existing["id"], patch)
-            # 视频走 OSS（插件已传）；属性自动映射(auto-map)挪到编辑器「自动填充」按需做——
-            # 它要逐个属性跨境查 Ozon(曾达 20s+)，绝不能卡在采集流程里。
+            self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
             return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True}
         saved = self.store.insert_draft(new_draft)
-        # 视频走 OSS（插件已传，data.video_url 已是 OSS 直链）；属性自动映射(auto-map)挪到
-        # 编辑器「自动填充」按需做——它要逐个属性跨境查 Ozon(曾达 20s+)，绝不能卡在采集流程里。
+        # 视频走 OSS（插件已传，data.video_url 已是 OSS 直链）
+        self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
 
     def ext_add_snapshot(self, payload: dict) -> dict:

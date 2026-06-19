@@ -248,5 +248,23 @@ class ResolvePairsConcurrentTest(unittest.TestCase):
                 app.store.close()
 
 
+class CollectTriggersAutoMapTest(unittest.TestCase):
+    def test_ext_collect_parsed_calls_auto_map(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                seen = []
+                app._auto_map_safe = lambda did: seen.append(did)
+                # 跳过类目自动匹配的外部依赖
+                app._auto_match_category = lambda scraped: None
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/x-1/",
+                                              "data": {"title": "t"}})
+                created = res.get("created") or []
+                self.assertTrue(created)
+                self.assertEqual(seen, [created[0]["id"]])  # 新建草稿后调了一次自动映射
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
