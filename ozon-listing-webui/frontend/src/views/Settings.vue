@@ -3,6 +3,7 @@ import { reactive, ref, watch, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/app.js'
 import { api } from '../api.js'
+import { getUser } from '../auth.js'
 
 const store = useAppStore()
 
@@ -110,6 +111,48 @@ async function removeStore(client_id) {
   ElMessage.success('已删除')
 }
 
+// ---- 用户管理（仅 admin；后端强制 admin 鉴权，前端隐藏只是 UX）----
+const isAdmin = computed(() => (getUser() || {}).role === 'admin')
+const users = ref([])
+const newUser = reactive({ username: '', password: '', max_stores: 1 })
+
+async function loadUsers() {
+  if (!isAdmin.value) return
+  try { users.value = (await api.adminListUsers()).users } catch (e) { /* 非 admin 被后端 403，忽略 */ }
+}
+onMounted(loadUsers)
+
+async function createUser() {
+  if (!newUser.username || !newUser.password) { ElMessage.warning('填用户名和密码'); return }
+  try {
+    await api.adminCreateUser(newUser.username.trim(), newUser.password, Number(newUser.max_stores) || 1)
+    ElMessage.success('已创建用户')
+    newUser.username = ''; newUser.password = ''; newUser.max_stores = 1
+    await loadUsers()
+  } catch (e) { ElMessage.error(e.message || '创建失败') }
+}
+
+async function updateMaxStores(u) {
+  try { await api.adminUpdateUser(u.id, { max_stores: Number(u.max_stores) || 1 }); ElMessage.success('已更新上限') }
+  catch (e) { ElMessage.error(e.message || '更新失败') }
+}
+
+async function resetPassword(u) {
+  const pw = window.prompt(`给 ${u.username} 设新密码（≥6 位）`)
+  if (!pw) return
+  try { await api.adminUpdateUser(u.id, { password: pw }); ElMessage.success('密码已重置') }
+  catch (e) { ElMessage.error(e.message || '重置失败') }
+}
+
+async function toggleStatus(u) {
+  const next = u.status === 'active' ? 'disabled' : 'active'
+  try {
+    await api.adminUpdateUser(u.id, { status: next })
+    ElMessage.success(next === 'active' ? '已启用' : '已禁用')
+    await loadUsers()
+  } catch (e) { ElMessage.error(e.message || '操作失败') }
+}
+
 defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiText, aiImage, aiVideo })
 </script>
 
@@ -201,5 +244,36 @@ defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiT
         <el-button type="primary" @click="save">保存</el-button>
       </el-form-item>
     </el-form>
+
+    <el-card v-if="isAdmin" style="margin-top:16px">
+      <template #header>用户管理（仅管理员）</template>
+      <el-form :inline="true" style="margin-bottom:12px">
+        <el-form-item label="用户名"><el-input v-model="newUser.username" /></el-form-item>
+        <el-form-item label="初始密码"><el-input v-model="newUser.password" type="password" /></el-form-item>
+        <el-form-item label="最大店铺数"><el-input-number v-model="newUser.max_stores" :min="1" /></el-form-item>
+        <el-form-item><el-button type="primary" @click="createUser">创建用户</el-button></el-form-item>
+      </el-form>
+      <el-table :data="users" size="small" border>
+        <el-table-column prop="username" label="用户名" />
+        <el-table-column prop="role" label="角色" width="80" />
+        <el-table-column prop="status" label="状态" width="80" />
+        <el-table-column label="当前店数" width="80">
+          <template #default="{ row }">{{ row.store_count }}</template>
+        </el-table-column>
+        <el-table-column label="最大店铺数" width="150">
+          <template #default="{ row }">
+            <el-input-number v-model="row.max_stores" :min="1" size="small" @change="() => updateMaxStores(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button size="small" @click="resetPassword(row)">重置密码</el-button>
+            <el-button size="small" :type="row.status === 'active' ? 'danger' : 'success'" @click="toggleStatus(row)">
+              {{ row.status === 'active' ? '禁用' : '启用' }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
