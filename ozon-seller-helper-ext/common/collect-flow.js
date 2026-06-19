@@ -42,17 +42,20 @@
     return null
   }
 
-  // 媒体重托管：把草稿里所有图/视频(无论 Ozon/WB/1688/淘宝)下载后多线程直传「自己的 Ozon 店铺」媒体库，
-  // 换成 ir.ozone.ru 链接再推后端。best-effort：传失败保留原链接，不阻断采集。onStatus 可选。
+  // 媒体重托管：把草稿里所有图/视频下载后多线程直传 OSS（预签名，国内快），
+  // 换成 OSS 公网直链再推后端。best-effort：传失败保留原链接，不阻断采集。onStatus 可选。
   async function _rehostMedia(data, onStatus) {
     if (typeof OzonHelperMedia === 'undefined' || typeof OzonHelperBridge === 'undefined') return data
     const urls = OzonHelperMedia.collectMediaUrls(data)
     if (!urls.length) return data
-    if (onStatus) onStatus('上传图片到你的店铺(' + urls.length + ')…', true)
-    const r = await OzonHelperBridge.bgCall('uploadMedia', { urls })
+    if (onStatus) onStatus('上传图片(' + urls.length + ')…', true)
+    const r = await OzonHelperBridge.bgCall('uploadMediaOss', { urls })
     if (r && r.ok && r.data && r.data.map) {
-      if (r.data.error === 'no-company-id' && onStatus) onStatus('没取到店铺companyId(先登录 seller.ozon.ru),图沿用原链接', false)
-      else if ((r.data.failed || []).length && onStatus) onStatus((r.data.failed.length) + ' 张图未上传,沿用原链接', false)
+      if (r.data.error && onStatus) {
+        onStatus(/401/.test(r.data.error) ? '请先在插件登录再采集' : ('图片上传失败:' + r.data.error + '，沿用原链接'), false)
+      } else if ((r.data.failed || []).length && onStatus) {
+        onStatus((r.data.failed.length) + ' 张图未上传,沿用原链接', false)
+      }
       return OzonHelperMedia.applyMediaMap(data, r.data.map)
     }
     return data

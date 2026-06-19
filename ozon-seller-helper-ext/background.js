@@ -123,6 +123,84 @@ async function uploadMedia(urls) {
   return { map, failed, companyId }
 }
 
+// ===== 媒体重托管（OSS 预签名直传，国内快）=====
+async function _sha256Hex(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(h)).map((x) => x.toString(16).padStart(2, '0')).join('')
+}
+
+function _extOf(ct, url) {
+  const c = String(ct || '').toLowerCase()
+  if (c.includes('png')) return 'png'
+  if (c.includes('webp')) return 'webp'
+  if (c.includes('gif')) return 'gif'
+  if (c.includes('mp4')) return 'mp4'
+  if (c.includes('jpeg') || c.includes('jpg')) return 'jpg'
+  const m = String(url || '').toLowerCase().match(/\.(jpg|jpeg|png|webp|gif|mp4)\b/)
+  return m ? (m[1] === 'jpeg' ? 'jpg' : m[1]) : 'jpg'
+}
+
+// 下载源图 → sha256 当内容 key → 后端签名 → PUT 直传 OSS。返回 {map:{原url:OSS直链}, failed:[]}
+// 与 uploadMedia 同结构，给 _rehostMedia 复用。需插件已登录（presign 要 JWT）。
+async function uploadMediaOss(urls) {
+  const base = await discoverBase()
+  if (!base) return { map: {}, failed: urls || [], error: 'no backend' }
+  const jwt = await getJwt()
+  const list = Array.from(new Set((urls || []).filter(Boolean)))
+  const map = {}
+  const failed = []
+  // 1) 并发下载源图 + 算内容哈希 key
+  const dl = []   // {u, blob, key, ct}
+  let i = 0
+  async function dlWorker() {
+    while (i < list.length) {
+      const u = list[i++]
+      try {
+        const r = await _fetchT(u, {}, 30000)
+        if (!r.ok) { failed.push(u); continue }
+        const blob = await r.blob()
+        const buf = await blob.arrayBuffer()
+        const ct = blob.type || ('image/' + _extOf('', u))
+        const key = 'ozon-media/' + (await _sha256Hex(buf)) + '.' + _extOf(ct, u)
+        dl.push({ u, blob, key, ct })
+      } catch (e) { failed.push(u) }
+    }
+  }
+  await Promise.all([0, 1, 2, 3, 4, 5].map(() => dlWorker()))
+  if (!dl.length) return { map, failed }
+  // 2) 一次性向后端要预签名（需登录 JWT）
+  let results = []
+  try {
+    const pr = await _fetchT(base + '/api/media/presign', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, jwt ? { Authorization: 'Bearer ' + jwt } : {}),
+      body: JSON.stringify({ items: dl.map((d) => ({ key: d.key, content_type: d.ct })) })
+    }, 15000)
+    if (!pr.ok) return { map, failed: list, error: 'presign ' + pr.status }
+    results = ((await pr.json()) || {}).results || []
+  } catch (e) { return { map, failed: list, error: String(e) } }
+  const byKey = {}
+  results.forEach((p) => { byKey[p.key] = p })
+  // 3) 并发 PUT 直传 OSS（已存在的 upload_url 为 null，直接用 url，不重传）
+  let j = 0
+  async function upWorker() {
+    while (j < dl.length) {
+      const d = dl[j++]
+      const p = byKey[d.key]
+      if (!p) { failed.push(d.u); continue }
+      try {
+        if (p.upload_url) {
+          const put = await _fetchT(p.upload_url, { method: 'PUT', headers: { 'Content-Type': d.ct }, body: d.blob }, 45000)
+          if (!put.ok) { failed.push(d.u); continue }
+        }
+        map[d.u] = p.url
+      } catch (e) { failed.push(d.u) }
+    }
+  }
+  await Promise.all([0, 1, 2, 3, 4, 5].map(() => upWorker()))
+  return { map, failed }
+}
+
 // 多用户：插件存登录用户的 JWT，所有后端请求带上
 async function getJwt() {
   try {
@@ -189,6 +267,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.type === 'uploadMedia') {
       try {
         const res = await uploadMedia(msg.payload && msg.payload.urls)
+        sendResponse({ ok: true, data: res })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) })
+      }
+      return
+    }
+
+    // 媒体重托管（OSS 预签名直传，国内快）：下载源图 → 直传 OSS → 回 {map}
+    if (msg && msg.type === 'uploadMediaOss') {
+      try {
+        const res = await uploadMediaOss(msg.payload && msg.payload.urls)
         sendResponse({ ok: true, data: res })
       } catch (e) {
         sendResponse({ ok: false, error: String(e) })
