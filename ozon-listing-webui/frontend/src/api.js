@@ -72,6 +72,7 @@ export const api = {
   adminListUsers: () => req('GET', '/api/admin/users'),
   adminCreateUser: (username, password, max_stores) => req('POST', '/api/admin/users', { username, password, max_stores }),
   adminUpdateUser: (id, patch) => req('PATCH', `/api/admin/users/${id}`, patch),
+  adminDeleteUser: (id) => req('DELETE', `/api/admin/users/${id}`),
   wallet: () => req('GET', '/api/wallet'),
   walletRecharge: (amount, remark = '') => req('POST', '/api/wallet/recharge', { amount, remark }),
 }

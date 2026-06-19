@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from './stores/app.js'
 import Collect from './views/Collect.vue'
 import Settings from './views/Settings.vue'
+import Users from './views/Users.vue'
 import Warehouses from './views/Warehouses.vue'
 import Fulfillment from './views/Fulfillment.vue'
 import Wallet from './views/Wallet.vue'
@@ -141,6 +142,7 @@ onUnmounted(() => window.removeEventListener('auth:logout', handleAuthEvent))
               <el-dropdown-menu>
                 <el-dropdown-item command="wallet">💰 我的钱包</el-dropdown-item>
                 <el-dropdown-item command="settings">⚙️ 设置</el-dropdown-item>
+                <el-dropdown-item v-if="user && user.role === 'admin'" command="users">👥 用户管理</el-dropdown-item>
                 <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -153,6 +155,7 @@ onUnmounted(() => window.removeEventListener('auth:logout', handleAuthEvent))
         <Fulfillment v-else-if="activeView === 'fulfillment'" />
         <Wallet v-else-if="activeView === 'wallet'" />
         <Settings v-else-if="activeView === 'settings'" />
+        <Users v-else-if="activeView === 'users'" />
       </el-main>
     </el-container>
   </el-container>
