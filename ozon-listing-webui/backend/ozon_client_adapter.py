@@ -52,6 +52,15 @@ def search_attribute_values(
     )
 
 
+def get_attribute_values(
+    settings: dict[str, Any], description_category_id: int, type_id: int,
+    attribute_id: int, *, language: str = "RU", max_total: int = 2000,
+) -> dict[str, Any]:
+    return _client(settings).get_attribute_values(
+        description_category_id, type_id, attribute_id, language=language, max_total=max_total
+    )
+
+
 # ---------- 功能①：拉取 Ozon 已有商品 ----------
 def list_ozon_products(settings: dict, visibility: str = "ALL") -> list[dict]:
     """分页拉全部 (product_id, offer_id)。"""

@@ -64,5 +64,28 @@ class GetAttributeValuesTest(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
 
 
+import backend.ozon_client_adapter as adapter  # noqa: E402
+
+
+class AdapterGetAttributeValuesTest(unittest.TestCase):
+    def test_forwards_to_client(self):
+        captured = {}
+
+        class _C:
+            def get_attribute_values(self, cat, typ, aid, *, language, max_total):
+                captured.update(cat=cat, typ=typ, aid=aid, language=language, max_total=max_total)
+                return {"values": [{"id": 5, "value": "x"}], "oversized": False}
+
+        orig = adapter._client
+        adapter._client = lambda settings: _C()
+        try:
+            out = adapter.get_attribute_values({"ozon_client_id": "1", "ozon_api_key": "k"},
+                                               100, 22, 99, language="RU", max_total=2000)
+        finally:
+            adapter._client = orig
+        self.assertEqual(out["values"][0]["id"], 5)
+        self.assertEqual(captured, {"cat": 100, "typ": 22, "aid": 99, "language": "RU", "max_total": 2000})
+
+
 if __name__ == "__main__":
     unittest.main()
