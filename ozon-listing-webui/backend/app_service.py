@@ -1379,7 +1379,7 @@ class App:
             scraped["attributes"] = attrs_list
         # 按买家面包屑路径自动匹配卖家类目 → 填 category_id/type_id（没配 key/无匹配则跳过，回退编辑器手选）
         try:
-            self._auto_match_category(scraped)
+            self._auto_match_category(scraped)   # 类目匹配走本地缓存，快(~0.06s)，保留
         except Exception:  # noqa: BLE001
             pass
         platform = str(data.get("source_platform") or "ozon").strip() or "ozon"
@@ -1452,12 +1452,12 @@ class App:
                 patch["attributes"] = merged_attrs
             if patch:
                 self.store.update_draft(existing["id"], patch)
-            self._ext_cache_video(existing["id"], data.get("video_url"))
-            self._auto_map_safe(existing["id"])   # 采集后自动映射属性
+            # 视频走 OSS（插件已传）；属性自动映射(auto-map)挪到编辑器「自动填充」按需做——
+            # 它要逐个属性跨境查 Ozon(曾达 20s+)，绝不能卡在采集流程里。
             return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True}
         saved = self.store.insert_draft(new_draft)
-        self._ext_cache_video(saved["id"], data.get("video_url"))
-        self._auto_map_safe(saved["id"])   # 采集后自动映射属性
+        # 视频走 OSS（插件已传，data.video_url 已是 OSS 直链）；属性自动映射(auto-map)挪到
+        # 编辑器「自动填充」按需做——它要逐个属性跨境查 Ozon(曾达 20s+)，绝不能卡在采集流程里。
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
 
     def ext_add_snapshot(self, payload: dict) -> dict:
