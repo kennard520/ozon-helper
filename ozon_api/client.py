@@ -160,9 +160,10 @@ class OzonSellerClient:
 
     def get_attribute_values(
         self, description_category_id: int, type_id: int, attribute_id: int,
-        *, language: str = "RU", page_size: int = 100, max_total: int = 2000,
+        *, language: str = "ZH_HANS", page_size: int = 100, max_total: int = 2000,
     ) -> dict[str, Any]:
-        """分页拉某属性的全部字典值。累计超过 max_total 即停止并标 oversized。
+        """分页拉某属性的全部字典值。累计超过 max_total 即停止并标 oversized
+        （此时 values 截断到 max_total；调用方应据 oversized 决定是否使用）。
         返回 {"values": [{"id": int, "value": str}, ...], "oversized": bool}。"""
         values: list[dict[str, Any]] = []
         last_value_id = 0
@@ -187,6 +188,7 @@ class OzonSellerClient:
                 values.append({"id": int(vid), "value": str(it.get("value") or "")})
             if len(values) > max_total:
                 oversized = True
+                del values[max_total:]   # 不返回超额数据：契约保证 values 永不超过 max_total
                 break
             if not resp.get("has_next") or not batch:
                 break

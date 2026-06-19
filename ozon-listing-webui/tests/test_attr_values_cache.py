@@ -1,5 +1,6 @@
 from __future__ import annotations
-import sys, unittest
+import sys
+import unittest
 from pathlib import Path
 
 # 让 `import ozon_api` 可用（ozon_api 在仓库根 = tests 的 parents[2]）
@@ -42,6 +43,25 @@ class GetAttributeValuesTest(unittest.TestCase):
         c = OzonSellerClient("1", "k", transport=transport)
         out = c.get_attribute_values(100, 22, 99, language="RU", page_size=100, max_total=2)
         self.assertTrue(out["oversized"])
+        self.assertLessEqual(len(out["values"]), 2)  # 截断到 max_total，不返回超额
+
+    def test_empty_attribute_single_call(self):
+        transport = _FakeTransport([{"result": [], "has_next": False}])
+        c = OzonSellerClient("1", "k", transport=transport)
+        out = c.get_attribute_values(100, 22, 99, language="RU")
+        self.assertEqual(out["values"], [])
+        self.assertFalse(out["oversized"])
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_single_page(self):
+        transport = _FakeTransport([
+            {"result": [{"id": 7, "value": "хлопок"}], "has_next": False},
+        ])
+        c = OzonSellerClient("1", "k", transport=transport)
+        out = c.get_attribute_values(100, 22, 99, language="RU")
+        self.assertEqual(out["values"], [{"id": 7, "value": "хлопок"}])
+        self.assertFalse(out["oversized"])
+        self.assertEqual(len(transport.calls), 1)
 
 
 if __name__ == "__main__":
