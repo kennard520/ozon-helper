@@ -129,6 +129,14 @@ def admin_users_update(user_id: int, body: AdminUpdateUserIn,
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.delete("/api/admin/users/{user_id}")
+def admin_users_delete(user_id: int, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return APP.admin_delete_user(user, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 # ---------- 钱包 ----------
 @app.get("/api/wallet")
 def wallet_get(user: dict = Depends(get_current_user)) -> dict:

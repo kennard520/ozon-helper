@@ -170,6 +170,17 @@ class App:
         return {**self._public_user(u), "max_stores": u["max_stores"],
                 "status": u["status"], "store_count": cnt}
 
+    def admin_delete_user(self, actor: dict, user_id: int) -> dict:
+        target = self.store.get_user_by_id(int(user_id))
+        if not target:
+            raise ValueError("用户不存在")
+        if int(actor["id"]) == int(user_id):
+            raise ValueError("不能删除自己")
+        if target.get("role") == "admin":
+            raise ValueError("不能删除管理员账号")
+        self.store.delete_user(int(user_id))
+        return {"deleted": True, "id": int(user_id)}
+
     # ---------- 钱包 ----------
     def wallet_state(self) -> dict:
         """当前用户钱包：账户 + 最近流水。"""

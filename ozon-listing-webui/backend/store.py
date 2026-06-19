@@ -661,6 +661,35 @@ class Store:
             )
             self.conn.commit()
 
+    def delete_user(self, user_id: int) -> None:
+        """硬删用户：连同 user_id 关联数据（草稿/钱包/流水/设置）+ 其店铺的
+        store_client_id 关联数据（仓库/订单/采购/快照）一起删。不可逆。"""
+        uid = int(user_id)
+        with self.lock:
+            cids: set[str] = set()
+            row = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=? AND key='ozon_stores'", (uid,)
+            ).fetchone()
+            if row:
+                for st in (loads_json(row["value"], []) or []):
+                    c = str((st or {}).get("client_id") or "").strip()
+                    if c:
+                        cids.add(c)
+            row2 = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=? AND key='ozon_client_id'", (uid,)
+            ).fetchone()
+            if row2:
+                c = str(loads_json(row2["value"], "") or "").strip()
+                if c:
+                    cids.add(c)
+            for t in ("warehouses", "postings", "procurement", "offer_snapshots"):
+                for c in cids:
+                    self.conn.execute(f"DELETE FROM {t} WHERE store_client_id=?", (c,))
+            for t in ("drafts", "accounts", "account_txns", "settings"):
+                self.conn.execute(f"DELETE FROM {t} WHERE user_id=?", (uid,))
+            self.conn.execute("DELETE FROM users WHERE id=?", (uid,))
+            self.conn.commit()
+
     # ---- 钱包（按 user_id 隔离，contextvar 默认）----
     def get_account(self, user_id: int | None = None) -> dict[str, Any]:
         """取账户，没有则开户（余额0）。"""

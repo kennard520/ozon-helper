@@ -184,6 +184,37 @@ class AdminApiTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_admin_delete_user_cascades(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                uid = client.post("/api/admin/users", headers=H,
+                                  json={"username": "henry", "password": "secret1"}).json()["id"]
+                # 给 henry 插一条草稿
+                from backend.drafts import create_draft_from_url
+                self._main.APP.store.insert_draft(
+                    create_draft_from_url("https://detail.1688.com/offer/h.html"), user_id=uid)
+                self.assertEqual(len(self._main.APP.store.list_drafts(user_id=uid)), 1)
+                # 删用户 → 用户没了 + 草稿级联删除
+                r = client.delete(f"/api/admin/users/{uid}", headers=H)
+                self.assertEqual(r.status_code, 200)
+                self.assertIsNone(self._main.APP.store.get_user_by_id(uid))
+                self.assertEqual(self._main.APP.store.list_drafts(user_id=uid), [])
+            finally:
+                self._main.APP.store.close()
+
+    def test_admin_cannot_delete_self_or_admin(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                me = client.get("/api/auth/me", headers=H).json()["user"]
+                # 不能删自己（自己就是 admin）
+                self.assertEqual(client.delete(f"/api/admin/users/{me['id']}", headers=H).status_code, 400)
+            finally:
+                self._main.APP.store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
