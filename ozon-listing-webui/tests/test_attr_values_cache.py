@@ -170,5 +170,21 @@ class EnsureAttrValuesTest(unittest.TestCase):
                 app.store.close()
 
 
+class LocalMatchTest(unittest.TestCase):
+    def test_exact_case_insensitive(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                vals = [{"id": 1, "value": "Красный"}, {"id": 2, "value": "Синий"}]
+                self.assertEqual(app._local_match_value(vals, "красный"),
+                                 {"dictionary_value_id": 1, "value": "Красный"})
+                self.assertEqual(app._local_match_value(vals, "  СИНИЙ "),
+                                 {"dictionary_value_id": 2, "value": "Синий"})
+                self.assertIsNone(app._local_match_value(vals, "зелёный"))
+                self.assertIsNone(app._local_match_value(vals, "a"))  # <2 字符
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

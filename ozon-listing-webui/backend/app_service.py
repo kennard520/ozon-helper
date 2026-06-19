@@ -901,6 +901,18 @@ class App:
         self.store.save_attr_values(cat, typ, attr_id, store_values, oversized, language="RU")
         return (store_values, oversized)
 
+    @staticmethod
+    def _local_match_value(values: list[dict], text: str) -> dict | None:
+        """在缓存的字典值里按俄文精确匹配（strip+lower 相等）。
+        命中返回 {"dictionary_value_id": id, "value": value}，否则 None。"""
+        t = str(text or "").strip().lower()
+        if len(t) < 2:
+            return None
+        for v in values:
+            if str(v.get("value") or "").strip().lower() == t:
+                return {"dictionary_value_id": int(v["id"]), "value": str(v.get("value") or text)}
+        return None
+
     def _resolve_values(self, cat: int, typ: int, attr_id: int, texts: list[str],
                         is_collection: bool) -> list[dict]:
         """把(俄文)文本值解析成 Ozon 字典值 [{dictionary_value_id, value}]，按俄文搜，精确匹配优先。"""
