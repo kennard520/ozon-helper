@@ -186,5 +186,38 @@ class LocalMatchTest(unittest.TestCase):
                 app.store.close()
 
 
+class ResolveValuesTest(unittest.TestCase):
+    def test_local_hit_skips_search(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                app.store.save_attr_values(100, 22, 99, [{"id": 5, "value": "Хлопок"}], False)
+
+                def boom(*a, **k):
+                    raise AssertionError("不应调用实时搜")
+                svc.search_attribute_values = boom
+                out = app._resolve_values(100, 22, 99, ["хлопок"], False)
+                self.assertEqual(out, [{"dictionary_value_id": 5, "value": "Хлопок"}])
+            finally:
+                app.store.close()
+
+    def test_local_miss_falls_back_to_search(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                app.store.save_attr_values(100, 22, 99, [{"id": 5, "value": "Хлопок"}], False)
+                calls = []
+
+                def fake_search(settings, cat, typ, aid, value, language="RU"):
+                    calls.append(value)
+                    return {"result": [{"id": 8, "value": "Шёлк"}]}
+                svc.search_attribute_values = fake_search
+                out = app._resolve_values(100, 22, 99, ["шёлк"], False)
+                self.assertEqual(out, [{"dictionary_value_id": 8, "value": "Шёлк"}])
+                self.assertEqual(calls, ["шёлк"])
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

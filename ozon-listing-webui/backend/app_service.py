@@ -915,27 +915,40 @@ class App:
 
     def _resolve_values(self, cat: int, typ: int, attr_id: int, texts: list[str],
                         is_collection: bool) -> list[dict]:
-        """把(俄文)文本值解析成 Ozon 字典值 [{dictionary_value_id, value}]，按俄文搜，精确匹配优先。"""
-        settings = self.store.get_settings()
-        values: list[dict] = []
+        """把(俄文)文本值解析成 Ozon 字典值 [{dictionary_value_id, value}]。
+        先用本地缓存的全量字典值精确匹配；没命中或字典超大(oversized)才实时 search。"""
+        values, oversized = self._ensure_attr_values(cat, typ, attr_id)
+        out: list[dict] = []
         seen: set[int] = set()
         for t in (texts if is_collection else texts[:1]):
-            if len(t.strip()) < 2:
+            if len(str(t).strip()) < 2:
                 continue
-            try:
-                resp = search_attribute_values(settings, cat, typ, attr_id, t, language="RU")
-                res = resp.get("result") or []
-            except Exception:  # noqa: BLE001
-                res = []
-            if not res:
+            hit = None if oversized else self._local_match_value(values, t)
+            if hit is None:
+                hit = self._search_one_value(cat, typ, attr_id, t)
+            if not hit:
                 continue
-            hit = next((r for r in res if str(r.get("value") or "").strip().lower()
-                        == t.strip().lower()), res[0])
-            vid = _to_int(hit.get("id"))
+            vid = int(hit["dictionary_value_id"])
             if vid and vid not in seen:
                 seen.add(vid)
-                values.append({"dictionary_value_id": vid, "value": str(hit.get("value") or t)})
-        return values
+                out.append({"dictionary_value_id": vid, "value": hit["value"]})
+        return out
+
+    def _search_one_value(self, cat: int, typ: int, attr_id: int, text: str) -> dict | None:
+        """实时搜单个值（兜底）。精确优先，否则取第一个结果。失败/无结果返回 None。"""
+        try:
+            resp = search_attribute_values(self.store.get_settings(), cat, typ, attr_id, text, language="RU")
+            res = resp.get("result") or []
+        except Exception:  # noqa: BLE001
+            return None
+        if not res:
+            return None
+        t = str(text).strip().lower()
+        hit = next((r for r in res if str(r.get("value") or "").strip().lower() == t), res[0])
+        vid = _to_int(hit.get("id"))
+        if not vid:
+            return None
+        return {"dictionary_value_id": vid, "value": str(hit.get("value") or text)}
 
     def auto_map_attributes(self, draft_id: int) -> dict:
         """采集特征(俄文) → 按俄文名对到类目属性(也取俄文) → 解析字典值，自动填进上架属性。
