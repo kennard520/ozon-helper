@@ -271,17 +271,18 @@ class ExtBridgeTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
-    def test_collect_parsed_downloads_local_video_copy(self):
+    def test_collect_parsed_does_not_download_local_video(self):
+        # 视频走 OSS（插件已传，video_url 是 OSS 直链）：后端不再下载本地副本（已去掉 _ext_cache_video）
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client = self._client(tmp)
             import backend.media as media_mod  # noqa: PLC0415
-            captured = {}
+            called = {"n": 0}
             orig = media_mod.download_video
-            media_mod.download_video = lambda url, key, **kw: (captured.update(url=url, key=key) or "media/draft-x/video.mp4")
+            media_mod.download_video = lambda url, key, **kw: (called.update(n=called["n"] + 1) or "media/x/video.mp4")
             try:
                 payload = {"url": "https://www.ozon.ru/product/vid-1/",
                            "data": {"title": "T", "price": "100", "images": ["https://ir.ozone.ru/a.jpg"],
-                                    "video_url": "https://v-1.ozone.ru/vod/v/asset_2_h264.mp4"}}
+                                    "video_url": "https://cdn.example.com/v.mp4"}}
                 r = client.post("/api/ext/collect-parsed", json=payload)
                 did = r.json()["created"][0]["id"]
                 d = [x for x in client.get("/api/drafts").json()["drafts"] if x["id"] == did][0]
@@ -289,9 +290,8 @@ class ExtBridgeTest(unittest.TestCase):
                 if isinstance(sr, str):
                     import json as _json
                     sr = _json.loads(sr)
-                self.assertEqual(sr.get("video_local"), "media/draft-x/video.mp4")
-                self.assertEqual(captured["url"], "https://v-1.ozone.ru/vod/v/asset_2_h264.mp4")
-                self.assertEqual(captured["key"], f"draft-{did}")
+                self.assertEqual(called["n"], 0)                  # 后端没下载本地视频
+                self.assertIsNone((sr or {}).get("video_local"))  # 没有本地副本路径
             finally:
                 media_mod.download_video = orig
                 self._main.APP.store.close()
