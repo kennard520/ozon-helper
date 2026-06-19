@@ -93,6 +93,78 @@ class AdminApiTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_admin_endpoints_require_admin(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                # 无 token → 401/403
+                self.assertIn(client.get("/api/admin/users").status_code, (401, 403))
+                # 普通用户 token → 403
+                from backend.auth import hash_password
+                self._main.APP.store.create_user("dave", hash_password("secret1"))
+                t = client.post("/api/auth/login", json={"username": "dave", "password": "secret1"}).json()["token"]
+                r = client.get("/api/admin/users", headers={"Authorization": "Bearer " + t})
+                self.assertEqual(r.status_code, 403)
+            finally:
+                self._main.APP.store.close()
+
+    def test_admin_crud_user(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                # 创建
+                r = client.post("/api/admin/users", headers=H,
+                                json={"username": "erin", "password": "secret1", "max_stores": 4})
+                self.assertEqual(r.status_code, 200)
+                uid = r.json()["id"]
+                self.assertEqual(r.json()["max_stores"], 4)
+                # 列出含 store_count
+                rows = client.get("/api/admin/users", headers=H).json()["users"]
+                erin = [x for x in rows if x["id"] == uid][0]
+                self.assertEqual(erin["max_stores"], 4)
+                self.assertIn("store_count", erin)
+                # 改上限
+                client.patch(f"/api/admin/users/{uid}", headers=H, json={"max_stores": 7})
+                rows = client.get("/api/admin/users", headers=H).json()["users"]
+                self.assertEqual([x for x in rows if x["id"] == uid][0]["max_stores"], 7)
+                # 重置密码 → 新密码可登录
+                client.patch(f"/api/admin/users/{uid}", headers=H, json={"password": "newpass1"})
+                self.assertEqual(client.post("/api/auth/login",
+                                 json={"username": "erin", "password": "newpass1"}).status_code, 200)
+                # 禁用 → 登录失败
+                client.patch(f"/api/admin/users/{uid}", headers=H, json={"status": "disabled"})
+                self.assertEqual(client.post("/api/auth/login",
+                                 json={"username": "erin", "password": "newpass1"}).status_code, 400)
+            finally:
+                self._main.APP.store.close()
+
+    def test_admin_create_validation(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                self.assertEqual(client.post("/api/admin/users", headers=H,
+                                 json={"username": "ab", "password": "secret1"}).status_code, 400)   # 名太短
+                self.assertEqual(client.post("/api/admin/users", headers=H,
+                                 json={"username": "frank", "password": "123"}).status_code, 400)     # 密码太短
+                client.post("/api/admin/users", headers=H, json={"username": "grace", "password": "secret1"})
+                self.assertEqual(client.post("/api/admin/users", headers=H,
+                                 json={"username": "grace", "password": "secret1"}).status_code, 400)  # 重名
+            finally:
+                self._main.APP.store.close()
+
+    def test_admin_cannot_disable_self(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                me = client.get("/api/auth/me", headers=H).json()["user"]
+                r = client.patch(f"/api/admin/users/{me['id']}", headers=H, json={"status": "disabled"})
+                self.assertEqual(r.status_code, 400)
+            finally:
+                self._main.APP.store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

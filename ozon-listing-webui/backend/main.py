@@ -31,6 +31,8 @@ from backend.models import (
     PublishIn,
     SettingsIn,
     ShipIn,
+    AdminCreateUserIn,
+    AdminUpdateUserIn,
 )
 from backend.media import media_file
 
@@ -84,6 +86,13 @@ def get_current_user(request: Request) -> dict:
     return user
 
 
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    """要求当前用户是管理员，否则 403。所有 /api/admin/* 用它（后端强制，非靠前端隐藏）。"""
+    if (user or {}).get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+
 @app.post("/api/auth/login")
 def auth_login(body: AuthIn) -> dict:
     try:
@@ -95,6 +104,29 @@ def auth_login(body: AuthIn) -> dict:
 @app.get("/api/auth/me")
 def auth_me(user: dict = Depends(get_current_user)) -> dict:
     return {"user": user}
+
+
+# ---------- 用户管理（仅 admin）----------
+@app.get("/api/admin/users")
+def admin_users_list(user: dict = Depends(require_admin)) -> dict:
+    return APP.admin_list_users()
+
+
+@app.post("/api/admin/users")
+def admin_users_create(body: AdminCreateUserIn, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return APP.admin_create_user(body.username, body.password, body.max_stores)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_users_update(user_id: int, body: AdminUpdateUserIn,
+                       user: dict = Depends(require_admin)) -> dict:
+    try:
+        return APP.admin_update_user(user, user_id, body.max_stores, body.status, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ---------- 钱包 ----------

@@ -117,6 +117,59 @@ class App:
     def _public_user(user: dict) -> dict:
         return {"id": user["id"], "username": user["username"], "role": user.get("role", "user")}
 
+    # ---------- 用户管理（仅 admin）----------
+    def admin_list_users(self) -> dict:
+        out = []
+        for u in self.store.list_users():
+            cnt = len(self.store.get_settings(u["id"]).get("ozon_stores") or [])
+            out.append({**u, "store_count": cnt})
+        return {"users": out}
+
+    def admin_create_user(self, username: str, password: str, max_stores: int = 1) -> dict:
+        username = (username or "").strip()
+        if len(username) < 3:
+            raise ValueError("用户名至少 3 个字符")
+        if len(password or "") < 6:
+            raise ValueError("密码至少 6 位")
+        if self.store.get_user_by_username(username):
+            raise ValueError("用户名已存在")
+        from backend.auth import hash_password  # noqa: PLC0415
+        u = self.store.create_user(username, hash_password(password),
+                                   role="user", max_stores=max(1, int(max_stores)))
+        return {**self._public_user(u), "max_stores": u["max_stores"], "store_count": 0}
+
+    def admin_update_user(self, actor: dict, user_id: int,
+                          max_stores: int | None = None,
+                          status: str | None = None,
+                          password: str | None = None) -> dict:
+        target = self.store.get_user_by_id(int(user_id))
+        if not target:
+            raise ValueError("用户不存在")
+        if status is not None:
+            status = str(status).strip()
+            if status not in ("active", "disabled"):
+                raise ValueError("status 只能是 active/disabled")
+            if status == "disabled":
+                if int(actor["id"]) == int(user_id):
+                    raise ValueError("不能禁用自己")
+                if target.get("role") == "admin":
+                    active_admins = [u for u in self.store.list_users()
+                                     if u.get("role") == "admin" and (u.get("status") or "active") == "active"]
+                    if len(active_admins) <= 1:
+                        raise ValueError("不能禁用最后一个管理员")
+            self.store.set_status(user_id, status)
+        if max_stores is not None:
+            self.store.set_max_stores(user_id, max(1, int(max_stores)))
+        if password is not None:
+            if len(password) < 6:
+                raise ValueError("密码至少 6 位")
+            from backend.auth import hash_password  # noqa: PLC0415
+            self.store.set_password_hash(user_id, hash_password(password))
+        u = self.store.get_user_by_id(int(user_id))
+        cnt = len(self.store.get_settings(u["id"]).get("ozon_stores") or [])
+        return {**self._public_user(u), "max_stores": u["max_stores"],
+                "status": u["status"], "store_count": cnt}
+
     # ---------- 钱包 ----------
     def wallet_state(self) -> dict:
         """当前用户钱包：账户 + 最近流水。"""
