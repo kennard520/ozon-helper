@@ -33,6 +33,7 @@ from backend.drafts import (  # noqa: E402
 )
 from backend.ozon_client_adapter import (  # noqa: E402
     build_client,
+    get_attribute_values,
     get_category_attributes,
     get_import_info,
     publish_items,
@@ -880,6 +881,25 @@ class App:
         for m in missing:
             errors.append(f"缺必填属性：{m['name']}")
         return {"errors": errors, "required": required, "optional": optional, "missing": missing, "language": lang}
+
+    def _ensure_attr_values(self, cat: int, typ: int, attr_id: int) -> tuple[list[dict], bool]:
+        """确保本地有该属性的全部字典值。返回 (values, oversized)。
+        命中缓存直接返回；未命中拉全量并存库；oversized 时 values 存空、走实时搜；
+        拉取失败返回 ([], False)（不写缓存，调用方回退实时 search）。
+        注：本方法使用「全量字典值缓存」(category_attr_values_cache 表, save/load_attr_values)，
+        区别于前端 LIKE 模糊搜用的 attribute_values_cache 表 (save_attribute_values/find_attribute_values)。"""
+        cached = self.store.load_attr_values(cat, typ, attr_id, language="RU")
+        if cached is not None:
+            return cached
+        try:
+            out = get_attribute_values(self.store.get_settings(), cat, typ, attr_id,
+                                       language="RU", max_total=2000)
+        except Exception:  # noqa: BLE001
+            return ([], False)
+        oversized = bool(out.get("oversized"))
+        store_values: list[dict] = [] if oversized else (out.get("values") or [])
+        self.store.save_attr_values(cat, typ, attr_id, store_values, oversized, language="RU")
+        return (store_values, oversized)
 
     def _resolve_values(self, cat: int, typ: int, attr_id: int, texts: list[str],
                         is_collection: bool) -> list[dict]:

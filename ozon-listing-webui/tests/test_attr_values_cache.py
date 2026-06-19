@@ -110,5 +110,65 @@ class AttrValuesStoreTest(unittest.TestCase):
             store.close()
 
 
+import importlib  # noqa: E402
+
+
+def _make_app(tmp):
+    import backend.store as store_mod
+    store_mod.DEFAULT_DB = Path(tmp) / "app.db"
+    import backend.app_service as svc
+    importlib.reload(svc)
+    app = svc.App()
+    app.store.save_settings({"ozon_client_id": "1", "ozon_api_key": "k"})
+    return svc, app
+
+
+class EnsureAttrValuesTest(unittest.TestCase):
+    def test_fetches_then_caches(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                calls = []
+
+                def fake_get(settings, cat, typ, aid, *, language="RU", max_total=2000):
+                    calls.append((cat, typ, aid))
+                    return {"values": [{"id": 7, "value": "хлопок"}], "oversized": False}
+
+                svc.get_attribute_values = fake_get
+                vals, over = app._ensure_attr_values(100, 22, 99)
+                self.assertEqual(vals, [{"id": 7, "value": "хлопок"}])
+                self.assertFalse(over)
+                # 第二次走缓存，不再调 get
+                vals2, _ = app._ensure_attr_values(100, 22, 99)
+                self.assertEqual(vals2, [{"id": 7, "value": "хлопок"}])
+                self.assertEqual(len(calls), 1)
+            finally:
+                app.store.close()
+
+    def test_oversized_cached_empty(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                svc.get_attribute_values = lambda *a, **k: {"values": [{"id": 1, "value": "x"}], "oversized": True}
+                vals, over = app._ensure_attr_values(100, 22, 99)
+                self.assertEqual(vals, [])
+                self.assertTrue(over)
+                self.assertEqual(app.store.load_attr_values(100, 22, 99), ([], True))
+            finally:
+                app.store.close()
+
+    def test_fetch_error_returns_empty_not_cached(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                def boom(*a, **k):
+                    raise RuntimeError("limit")
+                svc.get_attribute_values = boom
+                self.assertEqual(app._ensure_attr_values(100, 22, 99), ([], False))
+                self.assertIsNone(app.store.load_attr_values(100, 22, 99))  # 失败不写缓存
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
