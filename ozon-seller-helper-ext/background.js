@@ -14,10 +14,27 @@ function _ping(base) {
   })
 }
 
+// 开发可在 popup 填“自定义后端地址”覆盖（存 chrome.storage.local.ozon_backend_base）
+async function getBackendOverride() {
+  try {
+    const st = await chrome.storage.local.get('ozon_backend_base')
+    const b = (st && st.ozon_backend_base) || ''
+    return b ? String(b).replace(/\/+$/, '') : ''
+  } catch (e) {
+    return ''
+  }
+}
+
 async function discoverBase() {
   if (DISCOVERED && (await _ping(DISCOVERED))) return DISCOVERED
   DISCOVERED = null
-  for (const base of self.OzonHelperBridge.candidateBases()) {
+  // 顺序：开发自定义地址 → 生产写死服务器 → 本机端口探测(本地开发兜底)
+  const bases = []
+  const override = await getBackendOverride()
+  if (override) bases.push(override)
+  bases.push(self.OzonHelperBridge.PROD_BASE)
+  bases.push(...self.OzonHelperBridge.candidateBases())
+  for (const base of bases) {
     if (await _ping(base)) {
       DISCOVERED = base
       return base

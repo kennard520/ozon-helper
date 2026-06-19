@@ -135,9 +135,17 @@
     </div>
 
     <div id="bk-card" class="status">
-      <div><span class="dot"></span><span id="bk-status">检测本地服务...</span></div>
+      <div><span class="dot"></span><span id="bk-status">检测后端...</span></div>
       <span id="bk-port" class="sub"></span>
     </div>
+
+    <details class="card" id="dev-box">
+      <summary class="card-title" style="cursor:pointer; list-style:none">开发者：自定义后端地址</summary>
+      <input id="backend-base" placeholder="如 http://127.0.0.1:8585（留空=默认服务器）" />
+      <button id="backend-save">保存并重连</button>
+      <button id="backend-clear" class="ghost">清除（恢复默认服务器）</button>
+      <p class="hint" style="margin:8px 0 0">用户版默认直连服务器；本地开发时填本机地址即可覆盖。</p>
+    </details>
 
     <div class="card">
       <div class="card-title">工作流</div>

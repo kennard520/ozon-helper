@@ -48,14 +48,38 @@ OzonHelperBridge.bgCall('ping').then((r) => {
   if (r && r.ok && r.data && r.data.ok) {
     card.classList.add('ok')
     card.classList.remove('bad')
-    status.textContent = '本地服务已连接'
+    status.textContent = '后端已连接'
     port.textContent = r.data.version ? `v${r.data.version}` : ''
   } else {
     card.classList.add('bad')
     card.classList.remove('ok')
-    status.textContent = '本地服务未连接'
-    port.textContent = '启动后台后刷新'
+    status.textContent = '后端未连接'
+    port.textContent = '检查网络/地址后刷新'
   }
 })
 
+// 开发者：自定义后端地址（留空=用写死的生产服务器）
+async function loadBackend() {
+  try {
+    const st = await chrome.storage.local.get('ozon_backend_base')
+    if ($('backend-base')) $('backend-base').value = (st && st.ozon_backend_base) || ''
+  } catch (e) {
+    /* ignore */
+  }
+}
+$('backend-save').addEventListener('click', async () => {
+  const v = $('backend-base').value.trim().replace(/\/+$/, '')
+  if (v) {
+    await chrome.storage.local.set({ ozon_backend_base: v })
+  } else {
+    await chrome.storage.local.remove('ozon_backend_base')
+  }
+  location.reload()
+})
+$('backend-clear').addEventListener('click', async () => {
+  await chrome.storage.local.remove('ozon_backend_base')
+  location.reload()
+})
+
+loadBackend()
 refresh()

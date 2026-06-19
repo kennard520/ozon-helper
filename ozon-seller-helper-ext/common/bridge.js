@@ -5,6 +5,9 @@
   root.OzonHelperBridge = api
 })(typeof globalThis !== 'undefined' ? globalThis : self, function () {
   const CANDIDATE_PORTS = [8585, 8787, 5050, 7373, 6464, 9911, 8123, 5151, 19283, 28282]
+  // 生产：写死服务器地址（用户版直连）。开发时可在 popup 填“自定义后端地址”覆盖。
+  // 注意：HTTP 明文，正式对外建议换成 https://你的域名（服务器套 Caddy）。
+  const PROD_BASE = 'http://8.152.196.119:8585'
   const PATHS = {
     ping: '/api/ext/ping',
     collect: '/api/ext/collect',
@@ -53,5 +56,5 @@
     })
   }
 
-  return { CANDIDATE_PORTS, candidateBases, buildExtRequest, bgCall, authHeader }
+  return { CANDIDATE_PORTS, PROD_BASE, candidateBases, buildExtRequest, bgCall, authHeader }
 })
