@@ -5,7 +5,6 @@ import { api } from '../api.js'
 import { setAuth } from '../auth.js'
 
 const emit = defineEmits(['logged-in'])
-const mode = ref('login')        // login | register
 const form = ref({ username: '', password: '' })
 const loading = ref(false)
 
@@ -16,10 +15,9 @@ async function submit() {
   }
   loading.value = true
   try {
-    const fn = mode.value === 'login' ? api.login : api.register
-    const r = await fn(form.value.username, form.value.password)
+    const r = await api.login(form.value.username, form.value.password)
     setAuth(r.token, r.user)
-    ElMessage.success(mode.value === 'login' ? '登录成功' : '注册成功')
+    ElMessage.success('登录成功')
     emit('logged-in', r.user)
   } catch (e) {
     ElMessage.error(e.message || '失败')
@@ -41,14 +39,9 @@ async function submit() {
           <el-input v-model="form.password" type="password" placeholder="密码" show-password @keyup.enter="submit" />
         </el-form-item>
         <el-button type="primary" :loading="loading" style="width:100%" @click="submit">
-          {{ mode === 'login' ? '登录' : '注册' }}
+          登录
         </el-button>
       </el-form>
-      <div class="switch">
-        <el-link type="primary" @click="mode = mode === 'login' ? 'register' : 'login'">
-          {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
-        </el-link>
-      </div>
     </el-card>
   </div>
 </template>

@@ -67,9 +67,11 @@ export const api = {
   fbsShip: (posting_number, store_client_id) => req('POST', `/api/fbs/ship${_sq(store_client_id)}`, { posting_number }),
   fbsLabelUrl: (posting, store_client_id) => `/api/fbs/label?posting=${encodeURIComponent(posting)}${store_client_id ? '&store_client_id=' + encodeURIComponent(store_client_id) : ''}`,
   // 鉴权 + 钱包
-  register: (username, password) => req('POST', '/api/auth/register', { username, password }),
   login: (username, password) => req('POST', '/api/auth/login', { username, password }),
   me: () => req('GET', '/api/auth/me'),
+  adminListUsers: () => req('GET', '/api/admin/users'),
+  adminCreateUser: (username, password, max_stores) => req('POST', '/api/admin/users', { username, password, max_stores }),
+  adminUpdateUser: (id, patch) => req('PATCH', `/api/admin/users/${id}`, patch),
   wallet: () => req('GET', '/api/wallet'),
   walletRecharge: (amount, remark = '') => req('POST', '/api/wallet/recharge', { amount, remark }),
 }
