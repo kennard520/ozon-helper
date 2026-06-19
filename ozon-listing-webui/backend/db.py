@@ -170,6 +170,7 @@ MYSQL_DDL = [
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(32) NOT NULL DEFAULT 'user',
         status VARCHAR(32) NOT NULL DEFAULT 'active',
+        max_stores INT NOT NULL DEFAULT 1,
         created_at VARCHAR(40) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
@@ -346,9 +347,21 @@ MYSQL_DDL = [
 ]
 
 
+def _ensure_mysql_column(conn: "MySQLConn", table: str, column: str, ddl: str) -> None:
+    """MySQL 的 CREATE TABLE IF NOT EXISTS 不会给已有表加列，手动探测补列。"""
+    cur = conn.execute(
+        "SELECT COUNT(*) c FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?",
+        (table, column),
+    )
+    if cur.fetchone()["c"] == 0:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init_mysql(conn: MySQLConn) -> None:
     for ddl in MYSQL_DDL:
         conn.execute(ddl)
+    _ensure_mysql_column(conn, "users", "max_stores", "INT NOT NULL DEFAULT 1")
     conn.commit()
 
 

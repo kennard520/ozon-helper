@@ -110,6 +110,7 @@ class Store:
                 )
                 """
             )
+            self._ensure_column("users", "max_stores", "INTEGER NOT NULL DEFAULT 1")
             # 钱包：账户（每用户一条）+ 流水
             self.conn.execute(
                 """
@@ -600,12 +601,13 @@ class Store:
         return self.get_settings(user_id)
 
     # ---- 用户（多用户鉴权）----
-    def create_user(self, username: str, password_hash: str, role: str = "user") -> dict[str, Any]:
+    def create_user(self, username: str, password_hash: str, role: str = "user",
+                    max_stores: int = 1) -> dict[str, Any]:
         with self.lock:
             cur = self.conn.execute(
-                "INSERT INTO users(username, password_hash, role, status, created_at) "
-                "VALUES(?, ?, ?, 'active', ?)",
-                (username, password_hash, role, utc_now_iso()),
+                "INSERT INTO users(username, password_hash, role, status, created_at, max_stores) "
+                "VALUES(?, ?, ?, 'active', ?, ?)",
+                (username, password_hash, role, utc_now_iso(), int(max_stores)),
             )
             self.conn.commit()
             uid = cur.lastrowid
