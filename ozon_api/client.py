@@ -158,6 +158,41 @@ class OzonSellerClient:
             },
         )
 
+    def get_attribute_values(
+        self, description_category_id: int, type_id: int, attribute_id: int,
+        *, language: str = "RU", page_size: int = 100, max_total: int = 2000,
+    ) -> dict[str, Any]:
+        """分页拉某属性的全部字典值。累计超过 max_total 即停止并标 oversized。
+        返回 {"values": [{"id": int, "value": str}, ...], "oversized": bool}。"""
+        values: list[dict[str, Any]] = []
+        last_value_id = 0
+        oversized = False
+        while True:
+            resp = self.request(
+                "/v1/description-category/attribute/values",
+                {
+                    "description_category_id": description_category_id,
+                    "type_id": type_id,
+                    "attribute_id": attribute_id,
+                    "language": language,
+                    "limit": page_size,
+                    "last_value_id": last_value_id,
+                },
+            )
+            batch = resp.get("result") or []
+            for it in batch:
+                vid = it.get("id")
+                if vid is None:
+                    continue
+                values.append({"id": int(vid), "value": str(it.get("value") or "")})
+            if len(values) > max_total:
+                oversized = True
+                break
+            if not resp.get("has_next") or not batch:
+                break
+            last_value_id = int(batch[-1].get("id") or 0)
+        return {"values": values, "oversized": oversized}
+
     def archive_products(self, product_ids: list[int]) -> dict[str, Any]:
         return self.request("/v1/product/archive", {"product_id": product_ids})
 
