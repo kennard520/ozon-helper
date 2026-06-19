@@ -95,19 +95,6 @@ class App:
     def auth_secret(self) -> str:
         return str(self.store.get_settings().get("jwt_secret") or "")
 
-    def register(self, username: str, password: str) -> dict:
-        username = (username or "").strip()
-        if len(username) < 3:
-            raise ValueError("用户名至少 3 个字符")
-        if len(password or "") < 6:
-            raise ValueError("密码至少 6 位")
-        if self.store.get_user_by_username(username):
-            raise ValueError("用户名已存在")
-        from backend.auth import hash_password, make_token  # noqa: PLC0415
-        user = self.store.create_user(username, hash_password(password), role="user")
-        token = make_token(user["id"], self.auth_secret())
-        return {"token": token, "user": self._public_user(user)}
-
     def login(self, username: str, password: str) -> dict:
         from backend.auth import verify_password, make_token  # noqa: PLC0415
         user = self.store.get_user_by_username((username or "").strip())

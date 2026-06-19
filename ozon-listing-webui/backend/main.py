@@ -84,14 +84,6 @@ def get_current_user(request: Request) -> dict:
     return user
 
 
-@app.post("/api/auth/register")
-def auth_register(body: AuthIn) -> dict:
-    try:
-        return APP.register(body.username, body.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
 @app.post("/api/auth/login")
 def auth_login(body: AuthIn) -> dict:
     try:

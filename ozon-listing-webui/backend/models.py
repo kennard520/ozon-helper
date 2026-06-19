@@ -164,3 +164,15 @@ class PublishGroupIn(BaseModel):
     variant_group: str
     store_client_id: str | None = None
     model_name: str | None = None
+
+
+class AdminCreateUserIn(BaseModel):
+    username: str
+    password: str
+    max_stores: int = 1
+
+
+class AdminUpdateUserIn(BaseModel):
+    max_stores: int | None = None
+    status: str | None = None   # active / disabled
+    password: str | None = None

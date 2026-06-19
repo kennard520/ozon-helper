@@ -55,19 +55,18 @@ class AuthFlowTest(unittest.TestCase):
             finally:
                 app.store.close()
 
-    def test_register_then_login(self):
+    def test_create_then_login(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             app = self._app(tmp)
             try:
-                r = app.register("alice", "secret1")
-                self.assertEqual(r["user"]["username"], "alice")
-                self.assertTrue(r["token"])
-                # token 能解析回该用户
-                me = app.user_from_token(r["token"])
-                self.assertEqual(me["username"], "alice")
-                # 登录拿到 token
+                from backend.auth import hash_password
+                app.store.create_user("alice", hash_password("secret1"))
                 lg = app.login("alice", "secret1")
+                self.assertEqual(lg["user"]["username"], "alice")
                 self.assertTrue(lg["token"])
+                # token 能解析回该用户
+                me = app.user_from_token(lg["token"])
+                self.assertEqual(me["username"], "alice")
             finally:
                 app.store.close()
 
@@ -75,23 +74,10 @@ class AuthFlowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             app = self._app(tmp)
             try:
-                app.register("bob", "secret1")
+                from backend.auth import hash_password
+                app.store.create_user("bob", hash_password("secret1"))
                 with self.assertRaises(ValueError):
                     app.login("bob", "nope")
-            finally:
-                app.store.close()
-
-    def test_register_validation(self):
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-            app = self._app(tmp)
-            try:
-                with self.assertRaises(ValueError):
-                    app.register("ab", "secret1")       # 用户名太短
-                with self.assertRaises(ValueError):
-                    app.register("carol", "123")        # 密码太短
-                app.register("carol", "secret1")
-                with self.assertRaises(ValueError):
-                    app.register("carol", "secret1")    # 重名
             finally:
                 app.store.close()
 

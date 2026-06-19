@@ -4,6 +4,14 @@ import unittest
 from pathlib import Path
 
 
+def _mkuser(main_mod, client, username, password="secret1"):
+    """注册已关闭：直接建用户再登录拿 token（替代旧的 /api/auth/register）。"""
+    from backend.auth import hash_password
+    u = main_mod.APP.store.create_user(username, hash_password(password))
+    tok = client.post("/api/auth/login", json={"username": username, "password": password}).json()["token"]
+    return {"user": u, "token": tok}
+
+
 class ApiMultiUserTest(unittest.TestCase):
     def _client(self, tmp):
         import backend.store as store_mod
@@ -22,8 +30,8 @@ class ApiMultiUserTest(unittest.TestCase):
             try:
                 from backend.drafts import create_draft_from_url
                 # 两个用户注册
-                ta = client.post("/api/auth/register", json={"username": "alice", "password": "secret1"}).json()
-                tb = client.post("/api/auth/register", json={"username": "bob", "password": "secret1"}).json()
+                ta = _mkuser(self._main, client, "alice")
+                tb = _mkuser(self._main, client, "bob")
                 ua, ub = ta["user"]["id"], tb["user"]["id"]
                 self.assertNotEqual(ua, ub)
                 # 各自插一条草稿（直接走 store，带各自 user_id）
@@ -58,7 +66,7 @@ class ApiMultiUserTest(unittest.TestCase):
             client = self._client(tmp)
             try:
                 self.assertEqual(client.get("/api/auth/me").status_code, 401)
-                t = client.post("/api/auth/register", json={"username": "carol", "password": "secret1"}).json()
+                t = _mkuser(self._main, client, "carol")
                 r = client.get("/api/auth/me", headers={"Authorization": "Bearer " + t["token"]})
                 self.assertEqual(r.status_code, 200)
                 self.assertEqual(r.json()["user"]["username"], "carol")

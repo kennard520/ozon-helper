@@ -55,5 +55,44 @@ class StoreUserTest(unittest.TestCase):
                 s.close()
 
 
+class AdminApiTest(unittest.TestCase):
+    def _client(self, tmp):
+        import backend.store as store_mod
+        store_mod.DEFAULT_DB = Path(tmp) / "api.db"
+        import backend.app_service as svc
+        importlib.reload(svc)
+        import backend.main as main_mod
+        importlib.reload(main_mod)
+        from fastapi.testclient import TestClient
+        self._main = main_mod
+        return TestClient(main_mod.app)
+
+    def _admin_token(self, client):
+        # 首启自动建 admin/admin
+        return client.post("/api/auth/login", json={"username": "admin", "password": "admin"}).json()["token"]
+
+    def test_public_register_removed(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                r = client.post("/api/auth/register", json={"username": "x", "password": "secret1"})
+                # 路由已删除：POST 落到根静态 catch-all（只允许 GET/HEAD）→ 405；总之非 2xx
+                self.assertIn(r.status_code, (404, 405))
+            finally:
+                self._main.APP.store.close()
+
+    def test_disabled_user_cannot_login(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                from backend.auth import hash_password
+                u = self._main.APP.store.create_user("carol", hash_password("secret1"))
+                self._main.APP.store.set_status(u["id"], "disabled")
+                r = client.post("/api/auth/login", json={"username": "carol", "password": "secret1"})
+                self.assertEqual(r.status_code, 400)
+            finally:
+                self._main.APP.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
