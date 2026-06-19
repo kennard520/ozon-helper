@@ -631,6 +631,36 @@ class Store:
         with self.lock:
             return int(self.conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
 
+    # ---- 用户管理（仅 admin 用；不返回 password_hash）----
+    def list_users(self) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT id, username, role, status, max_stores, created_at "
+                "FROM users ORDER BY id"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_max_stores(self, user_id: int, max_stores: int) -> None:
+        with self.lock:
+            self.conn.execute(
+                "UPDATE users SET max_stores=? WHERE id=?", (int(max_stores), int(user_id))
+            )
+            self.conn.commit()
+
+    def set_status(self, user_id: int, status: str) -> None:
+        with self.lock:
+            self.conn.execute(
+                "UPDATE users SET status=? WHERE id=?", (str(status), int(user_id))
+            )
+            self.conn.commit()
+
+    def set_password_hash(self, user_id: int, password_hash: str) -> None:
+        with self.lock:
+            self.conn.execute(
+                "UPDATE users SET password_hash=? WHERE id=?", (str(password_hash), int(user_id))
+            )
+            self.conn.commit()
+
     # ---- 钱包（按 user_id 隔离，contextvar 默认）----
     def get_account(self, user_id: int | None = None) -> dict[str, Any]:
         """取账户，没有则开户（余额0）。"""

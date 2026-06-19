@@ -32,6 +32,28 @@ class StoreUserTest(unittest.TestCase):
             finally:
                 s.close()
 
+    def test_list_and_mutate_users(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            s = fresh_store(tmp)
+            try:
+                a = s.create_user("alice", "h1", max_stores=2)
+                s.create_user("bob", "h2", max_stores=5)
+                rows = s.list_users()
+                names = {r["username"] for r in rows}
+                self.assertEqual(names, {"alice", "bob"})
+                self.assertTrue(all("password_hash" not in r for r in rows))  # 不外泄哈希
+
+                s.set_max_stores(a["id"], 9)
+                self.assertEqual(s.get_user_by_id(a["id"])["max_stores"], 9)
+
+                s.set_status(a["id"], "disabled")
+                self.assertEqual(s.get_user_by_id(a["id"])["status"], "disabled")
+
+                s.set_password_hash(a["id"], "newhash")
+                self.assertEqual(s.get_user_by_id(a["id"])["password_hash"], "newhash")
+            finally:
+                s.close()
+
 
 if __name__ == "__main__":
     unittest.main()
