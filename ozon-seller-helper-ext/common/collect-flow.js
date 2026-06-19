@@ -97,7 +97,7 @@
     let rate = 0
     if (_pageCurrency() === 'RUB') { // 卢布站才需汇率换算；人民币站(1688/拼多多)直接发
       const rt = await _fetchRate()
-      if (!rt.ok) { if (onStatus) onStatus('本机程序没开?双击启动后端.bat', false); return }
+      if (!rt.ok) { if (onStatus) onStatus('连不上后端服务器，请检查网络或联系管理员', false); return }
       if (!rt.rate) { if (onStatus) onStatus('未配置汇率:先在 webui 设置填 RUB/CNY', false); return }
       rate = rt.rate
     }
@@ -108,7 +108,7 @@
       const draftId = Array.isArray(created) && created[0] ? created[0].id : null
       OzonHelperBridge.bgCall('openEditor', { draftId })
     } else if (onStatus) {
-      onStatus('本机程序没开?双击启动后端.bat', false)
+      onStatus('连不上后端服务器，请检查网络或联系管理员', false)
     }
   }
 
@@ -118,7 +118,7 @@
     if (onStatus) onStatus('采集中…', true)
     // WB 是卢布站 → 必须先有汇率才能把价换成人民币(与 Ozon 一致，绝不发原始卢布)
     const rt = await _fetchRate()
-    if (!rt.ok) { if (onStatus) onStatus('本机程序没开?双击启动后端.bat', false); return }
+    if (!rt.ok) { if (onStatus) onStatus('连不上后端服务器，请检查网络或联系管理员', false); return }
     if (!rt.rate) { if (onStatus) onStatus('未配置汇率:先在 webui 设置填 RUB/CNY', false); return }
     // 1) card.json → 解析正文(标题/描述/属性/图/克重尺寸)
     const cr = await OzonHelperBridge.bgCall('wbResolveCard', { nm })
@@ -145,7 +145,7 @@
       const draftId = Array.isArray(created) && created[0] ? created[0].id : null
       OzonHelperBridge.bgCall('openEditor', { draftId })
     } else if (onStatus) {
-      onStatus('采集失败:' + ((r && r.error) || '本机程序没开?'), false)
+      onStatus('采集失败:' + ((r && r.error) || '连不上后端服务器'), false)
     }
   }
 
@@ -161,7 +161,7 @@
     let rate = 0
     if (_pageCurrency() === 'RUB') {
       const rt = await _fetchRate()
-      if (!rt.ok) { onProgress(0, 0, '本机程序没开?'); return { collected: 0, stopped: false, noRate: true } }
+      if (!rt.ok) { onProgress(0, 0, '连不上后端服务器'); return { collected: 0, stopped: false, noRate: true } }
       if (!rt.rate) { onProgress(0, 0, '未配置汇率(webui 设置填 RUB/CNY)'); return { collected: 0, stopped: false, noRate: true } }
       rate = rt.rate
     }
