@@ -1,0 +1,294 @@
+{
+  "_meta": {
+    "last_updated": "2026-05-11",
+    "fx_fetched_at": "2026-06-10 20:34",
+    "note": "可手动编辑此文件更新参数；汇率可通过 calc.py 自动刷新"
+  },
+  "exchange_rates": {
+    "USD_CNY": 6.7853,
+    "RUB_CNY": 0.0929,
+    "THB_CNY": 0.2066,
+    "MYR_CNY": 1.6707,
+    "IDR_CNY": 0.000373
+  },
+  "categories": {
+    "家居装饰": {
+      "return_handling": 10
+    },
+    "收纳整理": {
+      "return_handling": 10
+    },
+    "宠物配件": {
+      "return_handling": 10
+    },
+    "办公文具": {
+      "return_handling": 8
+    },
+    "节日礼品": {
+      "return_handling": 15
+    },
+    "定制类": {
+      "return_handling": 0
+    },
+    "美妆": {
+      "return_handling": 20
+    },
+    "服装": {
+      "return_handling": 30
+    },
+    "通用": {
+      "return_handling": 15
+    }
+  },
+  "return_rate": {
+    "_note": "平台×类目 退货率（2026-05 数据源：行业报告+平台公开数据+卖家社区）",
+    "ali": {
+      "_note": "AliExpress 对退货率<3.7%给排名加权，实际跨境退货率偏低",
+      "家居装饰": 0.06,
+      "收纳整理": 0.04,
+      "宠物配件": 0.04,
+      "办公文具": 0.03,
+      "节日礼品": 0.05,
+      "定制类": 0.02,
+      "美妆": 0.08,
+      "服装": 0.12,
+      "通用": 0.05
+    },
+    "temu_y2": {
+      "_note": "Temu半托管整体退货率4.2%(2026-04数据)，平台控价+品控较严",
+      "家居装饰": 0.04,
+      "收纳整理": 0.03,
+      "宠物配件": 0.03,
+      "办公文具": 0.02,
+      "节日礼品": 0.04,
+      "定制类": 0.02,
+      "美妆": 0.06,
+      "服装": 0.1,
+      "通用": 0.04
+    },
+    "tt_sea": {
+      "_note": "东南亚COD拒收率高，退货+拒收合计偏高",
+      "家居装饰": 0.1,
+      "收纳整理": 0.07,
+      "宠物配件": 0.06,
+      "办公文具": 0.05,
+      "节日礼品": 0.08,
+      "定制类": 0.03,
+      "美妆": 0.12,
+      "服装": 0.2,
+      "通用": 0.08
+    },
+    "ozon": {
+      "_note": "Ozon俄罗斯退货率整体偏高，服装类极高(有卖家报70%)，2026推出退货转售服务",
+      "家居装饰": 0.12,
+      "收纳整理": 0.08,
+      "宠物配件": 0.08,
+      "办公文具": 0.06,
+      "节日礼品": 0.1,
+      "定制类": 0.03,
+      "美妆": 0.15,
+      "服装": 0.35,
+      "通用": 0.1
+    }
+  },
+  "commission": {
+    "ali": {
+      "家居装饰": 0.08,
+      "收纳整理": 0.08,
+      "宠物配件": 0.05,
+      "办公文具": 0.08,
+      "节日礼品": 0.08,
+      "定制类": 0.08,
+      "美妆": 0.1,
+      "服装": 0.1,
+      "通用": 0.08
+    },
+    "temu_y2": {
+      "家居装饰": 0,
+      "收纳整理": 0,
+      "宠物配件": 0,
+      "办公文具": 0,
+      "节日礼品": 0,
+      "定制类": 0,
+      "美妆": 0,
+      "服装": 0,
+      "通用": 0
+    },
+    "tt_sea": {
+      "家居装饰": 0.06,
+      "收纳整理": 0.06,
+      "宠物配件": 0.05,
+      "办公文具": 0.06,
+      "节日礼品": 0.06,
+      "定制类": 0.06,
+      "美妆": 0.08,
+      "服装": 0.08,
+      "通用": 0.06
+    },
+    "ozon": {
+      "家居装饰": 0.14,
+      "收纳整理": 0.12,
+      "宠物配件": 0.08,
+      "办公文具": 0.1,
+      "节日礼品": 0.12,
+      "定制类": 0.12,
+      "美妆": 0.12,
+      "服装": 0.15,
+      "通用": 0.12
+    }
+  },
+  "shipping_brackets": {
+    "ali": [
+      [
+        60,
+        15
+      ],
+      [
+        200,
+        30
+      ],
+      [
+        500,
+        65
+      ],
+      [
+        1000,
+        110
+      ],
+      [
+        null,
+        0.1
+      ]
+    ],
+    "temu_y2": [
+      [
+        200,
+        5
+      ],
+      [
+        500,
+        8
+      ],
+      [
+        1000,
+        15
+      ],
+      [
+        null,
+        0.01
+      ]
+    ],
+    "tt_sea": [
+      [
+        60,
+        10
+      ],
+      [
+        200,
+        22
+      ],
+      [
+        500,
+        45
+      ],
+      [
+        1000,
+        85
+      ],
+      [
+        null,
+        0.08
+      ]
+    ],
+    "ozon": [
+      [
+        60,
+        23
+      ],
+      [
+        200,
+        44
+      ],
+      [
+        500,
+        94
+      ],
+      [
+        1000,
+        163
+      ],
+      [
+        null,
+        0.12
+      ]
+    ]
+  },
+  "platforms": {
+    "ali": {
+      "display": "AliExpress",
+      "payment_fee": 0.01,
+      "fx_buffer": 0.03,
+      "promo_discount": 0.05,
+      "currency": "USD",
+      "symbol": "$",
+      "note": "菜鸟标准"
+    },
+    "temu_y2": {
+      "display": "Temu Y2",
+      "payment_fee": 0.004,
+      "fx_buffer": 0.0,
+      "promo_discount": 0.0,
+      "currency": "USD",
+      "symbol": "$",
+      "note": "0佣金 平台控价 国际段补贴 (价格=供货价，消费者价由平台加价)"
+    },
+    "tt_sea": {
+      "display": "TikTok SEA",
+      "payment_fee": 0.01,
+      "fx_buffer": 0.03,
+      "promo_discount": 0.05,
+      "currency": "THB",
+      "symbol": "฿",
+      "note": "含2026-02起5%技术支持费"
+    },
+    "ozon": {
+      "display": "Ozon rFBS",
+      "payment_fee": 0.004,
+      "fx_buffer": 0.0,
+      "promo_discount": 0.05,
+      "currency": "RUB",
+      "symbol": "₽",
+      "note": "rFBS=卖家自配送(默认), FBP=合作伙伴仓; 跨境只这两种。佣金/运费实时从 Tarifs_CN/China_post xlsx 读"
+    }
+  },
+  "reality_defaults": {
+    "ad_pct": 0.0,
+    "factory_loss": 0.02,
+    "warehouse_error": 0.02,
+    "malicious_return": 0.01,
+    "affiliate_pct": 0.0,
+    "seasonal_surcharge": 0.0,
+    "domestic_ship": 0.0,
+    "packing_fee": 3.0,
+    "import_tax": 0.0
+  },
+  "margin_target": 0.3,
+  "rfbs_addons": {
+    "_note": "Ozon rFBS 模式专属附加费。来源：fulfillment__rfbs__logistic-settings__pick-up-service.md + accounting__receiving-payments__settlements.md + 行业第三方支付报价。",
+    "settlement_fee": 0.011,
+    "settlement_fee_note": "PingPong / 连连 / PandaPay 跨境收款代理费，约 1.0-1.2%，跟 Ozon 平台 payment_fee 0.4% 分列",
+    "pickup_fee_per_order": 0.0,
+    "pickup_fee_note": "用户实操：rFBS 揽收免费（2026-06-10 确认）。成本=货款+国内首程快递费(domestic_ship，采集 1688 时一并抓)，无揽收费。原 ¥20 估值作废。",
+    "pickup_waive_min_pieces": 50,
+    "pickup_waive_min_kg": 10
+  },
+  "ozon_price_index": {
+    "_note": "Ozon 价格指数阈值（target_cny / market_price 比值）。绿区拿+7.5%曝光加权，红区无加权。来源：ozon/pricing-rules.md §1。",
+    "green_max": 1.02,
+    "yellow_max": 1.05,
+    "red_force_threshold": 1.3,
+    "boost_green": 0.075,
+    "boost_yellow": 0.05,
+    "boost_red": 0.0
+  }
+}

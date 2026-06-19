@@ -1,0 +1,4 @@
+output/
+_last.json
+_secret.json
+__pycache__/
