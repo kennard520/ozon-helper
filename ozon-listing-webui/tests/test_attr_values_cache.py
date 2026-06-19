@@ -266,5 +266,29 @@ class CollectTriggersAutoMapTest(unittest.TestCase):
                 app.store.close()
 
 
+class ConcurrentContextVarTest(unittest.TestCase):
+    def test_propagates_current_user_to_threads(self):
+        # ThreadPoolExecutor 默认不传播 ContextVar；_resolve_pairs_concurrent 用 copy_context
+        # 确保子线程能看到父线程设的 current_user_id（否则多用户下会用错 Ozon 凭证）。
+        from backend.store import current_user_id  # noqa: PLC0415
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                seen = {}
+
+                def fake_resolve(cat, typ, aid, texts, is_coll):
+                    seen[aid] = current_user_id.get()
+                    return []
+                app._resolve_values = fake_resolve
+                token = current_user_id.set(42)
+                try:
+                    app._resolve_pairs_concurrent(100, 22, [(11, ["x"], False), (22, ["y"], False)])
+                finally:
+                    current_user_id.reset(token)
+                self.assertEqual(seen, {11: 42, 22: 42})  # 子线程看到父线程设的 user 42（非默认 1）
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

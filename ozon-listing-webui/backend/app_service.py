@@ -910,7 +910,9 @@ class App:
             return None
         for v in values:
             if str(v.get("value") or "").strip().lower() == t:
-                return {"dictionary_value_id": int(v["id"]), "value": str(v.get("value") or text)}
+                vid = int(v.get("id") or 0)
+                if vid:
+                    return {"dictionary_value_id": vid, "value": str(v.get("value") or text)}
         return None
 
     def _resolve_values(self, cat: int, typ: int, attr_id: int, texts: list[str],
@@ -955,6 +957,7 @@ class App:
         """并发解析多个字典属性的值。tasks = [(attr_id, texts, is_collection), ...]。
         返回 {attr_id: [{dictionary_value_id, value}, ...]}。本地命中不走网络，未命中并发实时搜。"""
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        import contextvars  # noqa: PLC0415
         if not tasks:
             return {}
 
@@ -962,8 +965,12 @@ class App:
             aid, texts, is_coll = task
             return (aid, self._resolve_values(cat, typ, aid, texts, is_coll))
 
+        # ThreadPoolExecutor 不会把父线程的 ContextVar(current_user_id)带进子线程，否则子线程
+        # get_settings() 会拿到默认用户、用错 Ozon 凭证。给每个任务复制一份独立的父线程 context
+        # （独立副本才能被多个子线程并发 run），在该 context 里执行解析。
+        ctxs = [contextvars.copy_context() for _ in tasks]
         with ThreadPoolExecutor(max_workers=min(8, len(tasks))) as ex:
-            return dict(ex.map(_one, tasks))
+            return dict(ex.map(lambda c, t: c.run(_one, t), ctxs, tasks))
 
     def auto_map_attributes(self, draft_id: int) -> dict:
         """采集特征(俄文) → 按俄文名对到类目属性(也取俄文) → 解析字典值，自动填进上架属性。
@@ -1010,13 +1017,13 @@ class App:
                 free_text.append((aid, text, str(attr.get("name") or "")))
 
         resolved = self._resolve_pairs_concurrent(cat_i, typ_i, dict_tasks)
-        for aid, meta in dict_meta.items():
+        for aid, m in dict_meta.items():
             values = resolved.get(aid) or []
             if not values:
-                unmapped.append({"id": aid, "name": meta["name"], "value": meta["text"]})
+                unmapped.append({"id": aid, "name": m["name"], "value": m["text"]})
                 continue
             publish_by_id[aid] = {"id": aid, "values": values}
-            mapped.append({"id": aid, "name": meta["name"],
+            mapped.append({"id": aid, "name": m["name"],
                            "value": " , ".join(v["value"] for v in values)})
         for aid, text, name in free_text:
             publish_by_id[aid] = {"id": aid, "values": [{"value": text}]}
