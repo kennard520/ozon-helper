@@ -267,6 +267,18 @@ MYSQL_DDL = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
     """
+    CREATE TABLE IF NOT EXISTS category_attr_values_cache (
+        description_category_id BIGINT NOT NULL,
+        type_id BIGINT NOT NULL,
+        attribute_id BIGINT NOT NULL,
+        language VARCHAR(32) NOT NULL DEFAULT 'RU',
+        values_json LONGTEXT NOT NULL,
+        oversized INT NOT NULL DEFAULT 0,
+        fetched_at VARCHAR(40) NOT NULL,
+        PRIMARY KEY (description_category_id, type_id, attribute_id, language)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
     CREATE TABLE IF NOT EXISTS attribute_values_cache (
         description_category_id BIGINT NOT NULL,
         type_id BIGINT NOT NULL,

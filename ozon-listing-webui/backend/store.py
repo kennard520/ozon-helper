@@ -202,6 +202,13 @@ class Store:
                 "language TEXT PRIMARY KEY, tree_json TEXT NOT NULL, fetched_at TEXT NOT NULL)"
             )
             self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS category_attr_values_cache ("
+                "description_category_id INTEGER, type_id INTEGER, attribute_id INTEGER, "
+                "language TEXT NOT NULL DEFAULT 'RU', values_json TEXT NOT NULL, "
+                "oversized INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL, "
+                "PRIMARY KEY(description_category_id, type_id, attribute_id, language))"
+            )
+            self.conn.execute(
                 "CREATE TABLE IF NOT EXISTS attribute_values_cache ("
                 "description_category_id INTEGER, type_id INTEGER, attribute_id INTEGER, language TEXT NOT NULL DEFAULT 'ZH_HANS', "
                 "dictionary_value_id INTEGER, value TEXT, info TEXT, fetched_at TEXT, "
@@ -329,6 +336,37 @@ class Store:
         if not attrs:
             return None
         return attrs
+
+    def save_attr_values(self, cat: int, type_id: int, attr_id: int,
+                         values: list[dict[str, Any]], oversized: bool,
+                         language: str = "RU") -> None:
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO category_attr_values_cache"
+                "(description_category_id, type_id, attribute_id, language, values_json, oversized, fetched_at) "
+                "VALUES(?,?,?,?,?,?,?) "
+                "ON CONFLICT(description_category_id, type_id, attribute_id, language) "
+                "DO UPDATE SET values_json=excluded.values_json, oversized=excluded.oversized, "
+                "fetched_at=excluded.fetched_at",
+                (int(cat), int(type_id), int(attr_id), str(language or "RU"),
+                 dumps_json(values), 1 if oversized else 0, utc_now_iso()),
+            )
+            self.conn.commit()
+
+    def load_attr_values(self, cat: int, type_id: int, attr_id: int,
+                         language: str = "RU") -> tuple[list[dict[str, Any]], bool] | None:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT values_json, oversized FROM category_attr_values_cache "
+                "WHERE description_category_id=? AND type_id=? AND attribute_id=? AND language=?",
+                (int(cat), int(type_id), int(attr_id), str(language or "RU")),
+            ).fetchone()
+        if not row:
+            return None
+        vals = loads_json(row["values_json"], None)
+        if vals is None:
+            return None
+        return (vals, bool(row["oversized"]))
 
     # ---------- 佣金类目映射（按 Ozon 类目记住对应的 realFBS 佣金类目）----------
     def save_commission_map(

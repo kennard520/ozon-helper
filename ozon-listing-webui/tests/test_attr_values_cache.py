@@ -87,5 +87,28 @@ class AdapterGetAttributeValuesTest(unittest.TestCase):
         self.assertEqual(captured, {"cat": 100, "typ": 22, "aid": 99, "language": "RU", "max_total": 2000})
 
 
+import tempfile  # noqa: E402
+from backend.store import Store  # noqa: E402
+
+
+class AttrValuesStoreTest(unittest.TestCase):
+    def test_save_load_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "s.db")
+            self.assertIsNone(store.load_attr_values(100, 22, 99))
+            vals = [{"id": 1, "value": "красный"}, {"id": 2, "value": "синий"}]
+            store.save_attr_values(100, 22, 99, vals, False)
+            got = store.load_attr_values(100, 22, 99)
+            self.assertEqual(got, (vals, False))
+            store.close()
+
+    def test_oversized_persisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "s.db")
+            store.save_attr_values(100, 22, 99, [], True)
+            self.assertEqual(store.load_attr_values(100, 22, 99), ([], True))
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
