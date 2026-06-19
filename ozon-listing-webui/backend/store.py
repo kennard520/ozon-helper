@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from backend import db
 from backend.drafts import dumps_json, loads_json, utc_now_iso, validate_draft
 
 # 当前请求的用户 ID（多用户隔离）。HTTP 中间件按 JWT 设置；非请求上下文(测试/启动)默认 1(admin)。
@@ -59,19 +60,30 @@ def _to_float_or_none(value: Any) -> float | None:
 
 class Store:
     def __init__(self, path: Path | str | None = None) -> None:
-        # 调用时读模块级 DEFAULT_DB（而非定义时绑定默认参数），
-        # 这样测试 `store.DEFAULT_DB = 临时库` 能真正生效、不污染主库。
-        self.path = Path(path) if path is not None else Path(DEFAULT_DB)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        # 部署到服务器(容器设了 OZON_MYSQL_*) 走 MySQL；否则本地 SQLite（行为不变）。
+        if db.mysql_enabled():
+            self.path = None
+            self._is_mysql = True
+            self.conn = db.make_mysql_conn()
+        else:
+            # 调用时读模块级 DEFAULT_DB（而非定义时绑定默认参数），
+            # 这样测试 `store.DEFAULT_DB = 临时库` 能真正生效、不污染主库。
+            self.path = Path(path) if path is not None else Path(DEFAULT_DB)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._is_mysql = False
+            self.conn = sqlite3.connect(self.path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
         self.init()
 
     def close(self) -> None:
         self.conn.close()
 
     def init(self) -> None:
+        if self._is_mysql:
+            # MySQL：直接建最终形态表结构，跳过 SQLite 的 PRAGMA/RENAME 迁移
+            db.init_mysql(self.conn)
+            return
         with self.lock:
             # 多用户：settings 按 user_id 隔离（user_id=0 为系统级全局）
             self.conn.execute(

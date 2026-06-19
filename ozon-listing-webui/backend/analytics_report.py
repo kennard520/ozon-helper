@@ -11,7 +11,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 TOOLS = HERE.parents[2]                       # backend → webui → tools
+WEBUI = HERE.parents[1]                        # ozon-listing-webui（让 `from backend import db` 可用）
 sys.path.insert(0, str(TOOLS))
+sys.path.insert(0, str(WEBUI))
 from ozon_api.client import OzonSellerClient, OzonApiError  # noqa: E402
 
 DB = HERE.parents[1] / "data" / "products.db"
@@ -31,8 +33,19 @@ FULL_METRICS = [
 BASE_METRICS = [("ordered_units", "下单件数"), ("revenue", "销售额")]
 
 
+def _load_settings_raw() -> dict:
+    """凭证设置 {key: value_raw}。容器里设了 OZON_MYSQL_* 走 MySQL，否则读本地 SQLite。"""
+    try:
+        from backend import db
+        if db.mysql_enabled():
+            return db.load_raw_settings()
+    except Exception:
+        pass
+    return dict(sqlite3.connect(DB).execute("SELECT key,value FROM settings").fetchall())
+
+
 def load_client() -> OzonSellerClient:
-    rows = dict(sqlite3.connect(DB).execute("SELECT key,value FROM settings").fetchall())
+    rows = _load_settings_raw()
     def g(k):
         v = rows.get(k)
         try: v = json.loads(v)

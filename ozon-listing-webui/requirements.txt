@@ -6,3 +6,4 @@ pydantic>=2.5
 python-multipart>=0.0.9
 openai>=1.30
 oss2>=2.18
+PyMySQL>=1.1        # MySQL 后端（部署到服务器时用；本地 SQLite 不需要）
