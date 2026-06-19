@@ -265,7 +265,10 @@ def index() -> FileResponse:
 
 @app.post("/api/settings")
 def save_settings(payload: SettingsIn) -> dict:
-    return APP.save_settings(payload.model_dump(exclude_none=True))
+    try:
+        return APP.save_settings(payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # 服务器端采集已停用——采集全部由浏览器插件就地完成（推送 /api/ext/collect-parsed）。

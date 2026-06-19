@@ -389,6 +389,13 @@ class App:
                     incoming.append({"name": name, "client_id": cid, "api_key": key,
                                      "is_default": bool(st.get("is_default"))})
             stores = normalize_stores({"ozon_stores": incoming})
+            # 店铺配额：非 admin 按 max_stores 限制店铺数（admin 豁免）。后端强制。
+            from backend.store import current_user_id  # noqa: PLC0415
+            actor = self.store.get_user_by_id(current_user_id.get())
+            if actor and actor.get("role") != "admin":
+                limit = int(actor.get("max_stores") or 1)
+                if len(stores) > limit:
+                    raise ValueError(f"最多 {limit} 个店铺，请联系管理员调整上限")
             allowed["ozon_stores"] = stores
             mcid, mkey = mirror_of(stores)
             allowed["ozon_client_id"] = mcid

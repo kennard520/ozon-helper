@@ -165,6 +165,25 @@ class AdminApiTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_store_quota_enforced(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                H = {"Authorization": "Bearer " + self._admin_token(client)}
+                client.post("/api/admin/users", headers=H,
+                            json={"username": "frank", "password": "secret1", "max_stores": 1})
+                ft = client.post("/api/auth/login", json={"username": "frank", "password": "secret1"}).json()["token"]
+                FH = {"Authorization": "Bearer " + ft}
+                two = [{"name": "s1", "client_id": "111", "api_key": "k1", "is_default": True},
+                       {"name": "s2", "client_id": "222", "api_key": "k2"}]
+                r = client.post("/api/settings", headers=FH, json={"ozon_stores": two})
+                self.assertEqual(r.status_code, 400)
+                # admin 不受限
+                r2 = client.post("/api/settings", headers=H, json={"ozon_stores": two})
+                self.assertEqual(r2.status_code, 200)
+            finally:
+                self._main.APP.store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
