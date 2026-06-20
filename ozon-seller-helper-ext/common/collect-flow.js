@@ -172,12 +172,15 @@
     let firstDraftId = null
     let autoPublish = false
     let ok = 0
+    let lastErr = ''
     for (let i = 0; i < variants.length; i++) {
       if (onStatus) onStatus('采集 ' + (i + 1) + '/' + variants.length + '…', true)
-      const cd = variants[i]   // 像 WB 一样直发解析产出（不经 buildCollectData，保留 source_raw/rich_content_json）
+      const cd = variants[i]
       if (group) cd.variant_group = group
+      const skuId = cd.source_raw && cd.source_raw.sku_id
+      const variantUrl = OzonHelperParse1688.variantSourceUrl(url, skuId)  // 唯一化，防后端按 source_url 去重收敛
       try {
-        const r = await OzonHelperBridge.bgCall('collectParsed', { url, data: cd })
+        const r = await OzonHelperBridge.bgCall('collectParsed', { url: variantUrl, data: cd })
         if (r && r.ok) {
           ok++
           if (firstDraftId == null) {
@@ -185,10 +188,10 @@
             firstDraftId = Array.isArray(created) && created[0] ? created[0].id : null
             autoPublish = !!(r.data && r.data.auto_publish)
           }
-        }
-      } catch (e) { /* 单个失败跳过 */ }
+        } else if (r && r.error) { lastErr = r.error }
+      } catch (e) { lastErr = (e && e.message) || lastErr }
     }
-    if (!ok) { if (onStatus) onStatus('采集失败：连不上后端服务器，请检查网络或联系管理员', false); return }
+    if (!ok) { if (onStatus) onStatus('采集失败:' + (lastErr || '连不上后端服务器，请检查网络或联系管理员'), false); return }
     OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传图/视频到 OSS
     if (onStatus) onStatus('已采集 ' + ok + '/' + variants.length + ' ✓', true)
     if (!autoPublish) OzonHelperBridge.bgCall('openEditor', { draftId: firstDraftId })

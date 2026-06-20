@@ -85,6 +85,7 @@
     const imgs = Array.isArray(images) ? images.filter((u) => typeof u === 'string' && u) : []
     const video = _get(data, ['gallery', 'fields', 'video']) || {}
     const priceDisplay = _get(data, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) || ''
+    const attrs = parseAttributes(attrHtml)
     return {
       source_platform: '1688',
       title: title,
@@ -93,7 +94,7 @@
       detail_images: [],
       rich_content_json: buildRichContent(parseDetailImages(detailHtml)),
       video_url: typeof video.videoUrl === 'string' ? video.videoUrl : '',
-      attributes: parseAttributes(attrHtml),
+      attributes: attrs,
       price: '', old_price: '',              // 变体展开时填
       weight_g: null, length_mm: null, width_mm: null, height_mm: null,  // 变体展开时按 skuId 填
       category_path: '',
@@ -101,7 +102,7 @@
         offer_id: extractOfferId(url),
         price_display: priceDisplay,
         video_cover: typeof video.coverUrl === 'string' ? video.coverUrl : '',
-        attributes: parseAttributes(attrHtml)
+        attributes: attrs
       }
     }
   }
@@ -131,10 +132,13 @@
     return ''
   }
 
-  // 区间最低价（"18.79-141.63" → "18.79"）
+  // 区间最低价（"18.79-141.63" 或乱序 → 最低；保留原始字符串格式，不做 Number 往返丢精度）
   function _lowestFromDisplay(disp) {
     const nums = String(disp || '').match(/\d+(?:\.\d+)?/g)
-    return nums && nums.length ? nums[0] : ''
+    if (!nums || !nums.length) return ''
+    let lo = nums[0]
+    for (const n of nums) if (Number(n) < Number(lo)) lo = n
+    return lo
   }
 
   // 全量 SKU 展开 → 变体草稿数组
@@ -177,5 +181,11 @@
     })
   }
 
-  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base, expandSkus }
+  // 多 SKU 各建独立草稿：拼 #sku=<skuId> 让 source_url 唯一（后端按 source_url 去重，否则 N 变体收敛成 1 张）
+  function variantSourceUrl(baseUrl, skuId) {
+    const b = String(baseUrl || '')
+    return skuId ? (b + '#sku=' + skuId) : b
+  }
+
+  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base, expandSkus, variantSourceUrl }
 })

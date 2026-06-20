@@ -169,3 +169,23 @@ describe('parse1688Base', () => {
     expect(b.rich_content_json).toBe(null)
   })
 })
+
+const { variantSourceUrl } = OzonHelperParse1688
+describe('variantSourceUrl', () => {
+  it('带 skuId → 拼 #sku= 唯一化', () => {
+    expect(variantSourceUrl('https://detail.1688.com/offer/795554901999.html', 5595723402563))
+      .toBe('https://detail.1688.com/offer/795554901999.html#sku=5595723402563')
+  })
+  it('无 skuId → 原样', () => {
+    expect(variantSourceUrl('https://x/o.html', null)).toBe('https://x/o.html')
+    expect(variantSourceUrl('https://x/o.html', '')).toBe('https://x/o.html')
+  })
+})
+
+describe('expandSkus 区间最低价（乱序）', () => {
+  it('price_display 乱序也取最低', () => {
+    const list = expandSkus(mockData(), { source_raw: { price_display: '141.63-18.79' }, images: [] })
+    expect(list.length).toBe(1)
+    expect(list[0].price).toBe('18.79')
+  })
+})
