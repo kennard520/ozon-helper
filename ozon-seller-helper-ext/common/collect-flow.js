@@ -155,6 +155,45 @@
     }
   }
 
+  // 1688：全插件采集——读页面全局数据(window.context/offer_details) + DOM 属性 → 全量 SKU 各建一草稿。
+  // 1688 是人民币站，不换汇；图/视频/富文本图走后台异步传 OSS。
+  async function collect1688AndEdit(url, onStatus) {
+    if (typeof OzonHelperParse1688 === 'undefined' || typeof OzonHelperBridge === 'undefined') return
+    if (onStatus) onStatus('采集中…', true)
+    const data = (typeof window !== 'undefined' && window.context && window.context.result && window.context.result.data) || null
+    if (!data) { if (onStatus) onStatus('请等商品详情加载完再采集（未读到页面数据）', false); return }
+    const detailHtml = (typeof window !== 'undefined' && window.offer_details && window.offer_details.content) || ''
+    const attrEl = (typeof document !== 'undefined') ? document.querySelector('.module-od-product-attributes') : null
+    const attrHtml = attrEl ? attrEl.outerHTML : ''
+    const base = OzonHelperParse1688.parse1688Base(data, detailHtml, attrHtml, url)
+    if (!base.title) { if (onStatus) onStatus('未识别到 1688 商品（标题为空）', false); return }
+    const group = OzonHelperParse1688.extractOfferId(url)
+    const variants = OzonHelperParse1688.expandSkus(data, base)
+    let firstDraftId = null
+    let autoPublish = false
+    let ok = 0
+    for (let i = 0; i < variants.length; i++) {
+      if (onStatus) onStatus('采集 ' + (i + 1) + '/' + variants.length + '…', true)
+      const cd = variants[i]   // 像 WB 一样直发解析产出（不经 buildCollectData，保留 source_raw/rich_content_json）
+      if (group) cd.variant_group = group
+      try {
+        const r = await OzonHelperBridge.bgCall('collectParsed', { url, data: cd })
+        if (r && r.ok) {
+          ok++
+          if (firstDraftId == null) {
+            const created = r.data && r.data.created
+            firstDraftId = Array.isArray(created) && created[0] ? created[0].id : null
+            autoPublish = !!(r.data && r.data.auto_publish)
+          }
+        }
+      } catch (e) { /* 单个失败跳过 */ }
+    }
+    if (!ok) { if (onStatus) onStatus('采集失败：连不上后端服务器，请检查网络或联系管理员', false); return }
+    OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传图/视频到 OSS
+    if (onStatus) onStatus('已采集 ' + ok + '/' + variants.length + ' ✓', true)
+    if (!autoPublish) OzonHelperBridge.bgCall('openEditor', { draftId: firstDraftId })
+  }
+
   // 串行限速爬取所有变体；每个变体 → 一个草稿(带 variant_group=主商品SKU)
   // onProgress(done,total,label); getStop()→true 则停。返回 {collected, stopped}
   async function collectAllVariants(currentUrl, opts) {
@@ -200,5 +239,5 @@
     return { collected, stopped: false }
   }
 
-  root.OzonHelperCollect = { collectAndEdit, collectAllVariants, collectWbAndEdit }
+  root.OzonHelperCollect = { collectAndEdit, collectAllVariants, collectWbAndEdit, collect1688AndEdit }
 })(typeof globalThis !== 'undefined' ? globalThis : self)
