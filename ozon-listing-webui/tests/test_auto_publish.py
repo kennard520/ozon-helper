@@ -159,6 +159,25 @@ class CollectAutoPublishWiringTest(unittest.TestCase):
             finally:
                 app.store.close()
 
+    def test_response_carries_auto_publish_flag(self):
+        # 插件据此决定采集后弹不弹 webui 编辑器：开着不弹、关着弹
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, _ = self._app(tmp, auto=True)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-flag-on/",
+                                              "data": {"title": "t", "images": []}})
+                self.assertIs(res["auto_publish"], True)
+            finally:
+                app.store.close()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, _ = self._app(tmp, auto=False)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-flag-off/",
+                                              "data": {"title": "t", "images": []}})
+                self.assertIs(res["auto_publish"], False)
+            finally:
+                app.store.close()
+
     def test_collect_survives_dispatch_failure(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             app, _ = self._app(tmp, auto=True)

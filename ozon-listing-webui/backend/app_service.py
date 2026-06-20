@@ -1588,13 +1588,15 @@ class App:
                 self.store.set_media_status(existing["id"], "pending")  # 媒体待插件后台传 OSS
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
             self._maybe_auto_publish(existing["id"])   # 开了 auto_publish 则后台发布
-            return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True}
+            return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True,
+                    "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
         saved = self.store.insert_draft(new_draft)
         if _has_media:
             self.store.set_media_status(saved["id"], "pending")  # 媒体待插件后台传 OSS
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         self._maybe_auto_publish(saved["id"])   # 开了 auto_publish 则后台发布
-        return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
+        return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": [],
+                "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
 
     def update_draft_media(self, payload: dict) -> dict:
         """插件后台把媒体传完 OSS 后回调：把草稿里命中的原 URL 换成 OSS URL，置 media_status=done。"""
