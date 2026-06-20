@@ -15,7 +15,7 @@
         "https://*.pinduoduo.com/*",
         "https://www.wildberries.ru/*"
       ],
-      "js": ["common/site.js", "common/parse-other-offers.js", "common/bridge.js", "common/product-parse.js", "common/wb.js", "common/media-upload.js", "common/collect-flow.js", "common/listing-util.js", "content/panel.js", "content/listing.js"],
+      "js": ["common/site.js", "common/parse-other-offers.js", "common/bridge.js", "common/product-parse.js", "common/wb.js", "common/parse-1688.js", "common/media-upload.js", "common/collect-flow.js", "common/listing-util.js", "content/panel.js", "content/listing.js"],
       "css": ["content/panel.css"],
       "run_at": "document_idle"
     }
