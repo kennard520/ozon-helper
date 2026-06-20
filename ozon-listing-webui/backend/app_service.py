@@ -307,6 +307,8 @@ class App:
                 "translate_api_key_saved": bool(settings.get("translate_api_key")),
                 # AI 卡片应用模式（功能③）：true=自动应用 / false=人工确认（默认）
                 "ai_auto_apply": bool(settings.get("ai_auto_apply")),
+                # 采集后自动发布到 Ozon：true=采集即自动发 / false=只建草稿（默认）
+                "auto_publish": bool(settings.get("auto_publish")),
                 # 卡片生成聊天引擎：remote=沿用翻译引擎配置(DeepSeek) / agnes=Agnes-2.0-Flash
                 "ai_chat_provider": settings.get("ai_chat_provider", "remote"),
                 # agnes 时是否把商品图发给模型做图片理解（标题/属性更贴图）
@@ -369,6 +371,9 @@ class App:
         # AI 卡片自动应用开关：False 是有意义的值，用 is not None 判断（不能 falsy 判断，否则关不掉）
         if payload.get("ai_auto_apply") is not None:
             allowed["ai_auto_apply"] = bool(payload["ai_auto_apply"])
+        # 采集后自动发布开关：False 是有意义的值，用 is not None 判断（不能 falsy 判断，否则关不掉）
+        if payload.get("auto_publish") is not None:
+            allowed["auto_publish"] = bool(payload["auto_publish"])
         # Agnes AI：provider/base/model 非空才存（空字段不覆盖已存值）；key 走 _clean_secret
         if payload.get("ai_chat_provider"):
             allowed["ai_chat_provider"] = str(payload["ai_chat_provider"]).strip().lower()

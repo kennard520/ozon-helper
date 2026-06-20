@@ -20,6 +20,7 @@ class SettingsIn(BaseModel):
     translate_api_key: str | None = None
     translate_model: str | None = None
     ai_auto_apply: bool | None = None
+    auto_publish: bool | None = None
     ai_chat_provider: str | None = None
     ai_card_vision: bool | None = None
     agnes_api_base: str | None = None
