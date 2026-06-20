@@ -46,7 +46,7 @@ describe('DraftDetail', () => {
     expect(w.vm.collectPatch().attributes).toEqual([])
   })
 
-  it('可选属性里过滤已外置的简介和主题标签', async () => {
+  it('空的非必填属性默认隐藏，展开未填项后才显示', async () => {
     vi.spyOn(api, 'requiredCheck').mockResolvedValue({
       required: [],
       missing: [],
@@ -61,9 +61,13 @@ describe('DraftDetail', () => {
       props: { draft: { ...draft, category_id: '1', type_id: '2' } },
     })
     await flushPromises()
-    expect(w.text()).toContain('简介')
+    expect(w.text()).toContain('简介')        // 外置的简介行始终在
     expect(w.text()).toContain('主题标签')
-    expect(w.text()).toContain('可选（0/1 已填）')  // 已去折叠：可选直接展开
+    expect(w.text()).toContain('可选（0/1 已填）')
+    // 型号名称是空的非必填 → 默认不显示在通用可选列表
+    expect(w.findAll('.optional-list .req-attr-item')).toHaveLength(0)
+    // 点「展开未填项」后才显示空的可选属性
+    w.vm.showOptional = true
     await flushPromises()
     const optionItems = w.findAll('.optional-list .req-attr-item').map((x) => x.text())
     expect(optionItems).toEqual([expect.stringContaining('型号名称')])

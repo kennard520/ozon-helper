@@ -233,10 +233,15 @@
               </div>
             </div>
 
-            <div v-if="optional.length" class="attr-group-label">可选（{{ optionalFilledCount }}/{{ optional.length }} 已填）</div>
-            <div v-if="optional.length" class="req-attr-list optional-list">
+            <div v-if="optional.length" class="attr-group-label">
+              可选（{{ optionalFilledCount }}/{{ optional.length }} 已填）
+              <el-button link type="primary" size="small" @click="showOptional = !showOptional">
+                {{ showOptional ? '收起未填项' : '展开未填项' }}
+              </el-button>
+            </div>
+            <div v-if="optionalShown.length" class="req-attr-list optional-list">
               <div
-                v-for="a in optional"
+                v-for="a in optionalShown"
                 :key="a.id"
                 class="req-attr-item"
                 :class="{ 'opt-filled': !!attrInputs[a.id] }"
@@ -554,6 +559,9 @@ const attrLoading = reactive({})
 const missingIds = computed(() => new Set(missing.value.map((m) => m.id)))
 const optionalFilledCount = computed(
   () => optional.value.filter((a) => !!attrInputs[a.id]).length)
+// 默认只显示有值的可选属性（空的非必填收起，减少干扰）；点「展开未填项」才显示全部
+const optionalShown = computed(
+  () => (showOptional.value ? optional.value : optional.value.filter((a) => !!attrInputs[a.id])))
 
 // --- AI 待确认草案 ---
 const proposalActive = computed(() => !!(props.draft && props.draft.ai_proposal))
