@@ -658,6 +658,8 @@ class App:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
+        if str(draft.get("media_status") or "done") == "pending":
+            raise ValueError("图片还在上传，请稍候再发布")
         # 草稿绑定店：优先发到草稿自带店；旧草稿(无 store_client_id)回退入参/默认店
         target_store = str(draft.get("store_client_id") or "") or store_client_id
         store_settings = self._settings_for_store(target_store)
