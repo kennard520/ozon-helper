@@ -1434,6 +1434,7 @@ class App:
         if not url:
             raise ValueError("url required")
         data = payload.get("data") or {}
+        _has_media = bool((data.get("images") or [])) or bool(str(data.get("video_url") or "").strip())
         from backend.drafts import create_draft_from_url  # noqa: PLC0415
         scraped = {
             "source_title": data.get("title"),
@@ -1542,10 +1543,13 @@ class App:
                 patch["attributes"] = merged_attrs
             if patch:
                 self.store.update_draft(existing["id"], patch)
+            if _has_media:
+                self.store.set_media_status(existing["id"], "pending")  # 媒体待插件后台传 OSS
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
             return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True}
         saved = self.store.insert_draft(new_draft)
-        # 视频走 OSS（插件已传，data.video_url 已是 OSS 直链）
+        if _has_media:
+            self.store.set_media_status(saved["id"], "pending")  # 媒体待插件后台传 OSS
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
 
