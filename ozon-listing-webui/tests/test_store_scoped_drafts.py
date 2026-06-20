@@ -70,7 +70,8 @@ class ExtCollectStoreBindingTest(unittest.TestCase):
                 # 列表按店过滤
                 self.assertEqual(app.list_drafts(store_client_id="S1")["total"], 1)
                 self.assertEqual(app.list_drafts(store_client_id="DEF")["total"], 1)
-                self.assertEqual(app.list_drafts()["total"], 2)
+                # 不带店 → 回退默认店 DEF（不再"全店混列"）→ 只 DEF 的 1 条
+                self.assertEqual(app.list_drafts()["total"], 1)
             finally:
                 app.store.close()
 

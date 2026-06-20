@@ -1042,6 +1042,7 @@ class App:
             mapped.append({"id": aid, "name": name, "value": text})
 
         self._force_country_to_china(cat_i, typ_i, meta, publish_by_id, mapped)  # 原产国一律中国
+        self._fill_model_name(meta, draft, publish_by_id, mapped)  # 型号名称：单品自动填唯一随机值
         new_attributes = passthrough + list(publish_by_id.values())
         brand_id = draft.get("brand_id") if str(draft.get("brand_name") or "").strip() == NO_BRAND else None
         patch: dict = {
@@ -1067,6 +1068,25 @@ class App:
             if cvals:
                 publish_by_id[caid] = {"id": caid, "values": cvals}
                 mapped.append({"id": caid, "name": attr.get("name"), "value": "Китай"})
+
+    def _fill_model_name(self, meta: list[dict], draft: dict,
+                         publish_by_id: dict, mapped: list[dict]) -> None:
+        """型号名称(9048)：单品自动填一个唯一随机值，让每个单品成独立卡片、并满足必填。
+        - 已有 9048（用户填过/竞品采到）不动；
+        - 类目没有 9048 这个属性则不填（不塞无效属性）；
+        - 变体组草稿跳过：其 9048 在合并发布时由 variant_group 统一填（保证组内合并为一张卡）。"""
+        from backend.variant_publish import MODEL_NAME_ATTR_ID  # noqa: PLC0415  # 9048
+        if MODEL_NAME_ATTR_ID in publish_by_id:
+            return
+        if not any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID for a in (meta or [])):
+            return
+        sr = draft.get("source_raw")
+        if isinstance(sr, dict) and str(sr.get("variant_group") or "").strip():
+            return
+        import uuid  # noqa: PLC0415
+        token = "M-" + uuid.uuid4().hex[:8].upper()
+        publish_by_id[MODEL_NAME_ATTR_ID] = {"id": MODEL_NAME_ATTR_ID, "values": [{"value": token}]}
+        mapped.append({"id": MODEL_NAME_ATTR_ID, "name": "型号名称", "value": token})
 
     def _no_brand_value(self, cat: int, typ: int) -> dict | None:
         """解析"无品牌"(Нет бренда)的字典值，attr 85。找不到返回 None。"""
