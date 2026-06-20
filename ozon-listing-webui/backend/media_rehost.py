@@ -122,3 +122,67 @@ def rehost_draft_media(draft: dict, upload, *, max_workers: int = 8) -> tuple[di
         _apply_rich(rich, mapping)
         out["source_raw"] = {**sr, "rich_content_json": rich}
     return out, stats
+
+
+# ===== 发布前把我们 OSS 的「代理地址」换成「公网直链」=====
+# oss_public_base 是国内 ECS 代理(http://ip:8585/oss)，给 webui 省流量用；但 Ozon 抓图服务器
+# (俄罗斯) 够不到国内 HTTP:8585 → 商品图空白。发布时统一换成 OSS 公网直链(HTTPS、全球可达)。
+RICH_CONTENT_ATTR_ID = 11254
+VIDEO_LINK_ATTR_ID = 21841
+
+
+def public_oss_url(url, settings: dict) -> str:
+    """代理地址 {oss_public_base}/{key} → 公网直链 https://{bucket}.{endpoint}/{key}。其它原样返回。"""
+    s = settings or {}
+    base = str(s.get("oss_public_base") or "").rstrip("/")
+    bucket = str(s.get("oss_bucket") or "")
+    endpoint = str(s.get("oss_endpoint") or "")
+    u = str(url or "")
+    if base and bucket and endpoint and u.startswith(base + "/"):
+        return "https://" + bucket + "." + endpoint + "/" + u[len(base) + 1:]
+    return u
+
+
+def _map_rich_urls(node, fn) -> None:
+    """对富文本里所有内嵌图 url(img.src/srcMobile)应用 fn。"""
+    if isinstance(node, list):
+        for x in node:
+            _map_rich_urls(x, fn)
+    elif isinstance(node, dict):
+        img = node.get("img")
+        if isinstance(img, dict):
+            for k in ("src", "srcMobile"):
+                if isinstance(img.get(k), str) and img[k].strip():
+                    img[k] = fn(img[k])
+        for k, v in node.items():
+            if k != "img":
+                _map_rich_urls(v, fn)
+
+
+def rewrite_item_media(item: dict, settings: dict) -> dict:
+    """发布前把 import item 里所有媒体 URL(图集/视频/富文本内嵌图)换成 OSS 公网直链。返回副本。"""
+    import json  # noqa: PLC0415
+    it = copy.deepcopy(item or {})
+
+    def fn(u):
+        return public_oss_url(u, settings)
+
+    it["images"] = [fn(u) for u in (it.get("images") or [])]
+    for ca in (it.get("complex_attributes") or []):
+        for a in (ca.get("attributes") or []):
+            if str(a.get("id")) == str(VIDEO_LINK_ATTR_ID):
+                for v in (a.get("values") or []):
+                    if isinstance(v.get("value"), str) and v["value"].strip():
+                        v["value"] = fn(v["value"])
+    for a in (it.get("attributes") or []):
+        if str(a.get("id")) == str(RICH_CONTENT_ATTR_ID):
+            for v in (a.get("values") or []):
+                raw = v.get("value")
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        node = json.loads(raw)
+                        _map_rich_urls(node, fn)
+                        v["value"] = json.dumps(node, ensure_ascii=False, separators=(",", ":"))
+                    except Exception:  # noqa: BLE001
+                        pass
+    return it

@@ -23,6 +23,9 @@ _client = build_client  # 兼容旧引用
 
 
 def publish_items(settings: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    # 发布前把媒体 URL 从国内 ECS 代理换成 OSS 公网直链（Ozon 抓图服务器够不到代理地址→图空白）
+    from backend.media_rehost import rewrite_item_media  # noqa: PLC0415
+    items = [rewrite_item_media(it, settings) for it in (items or [])]
     return _client(settings).import_products(items)
 
 
