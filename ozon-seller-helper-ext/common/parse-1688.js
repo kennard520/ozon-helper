@@ -66,5 +66,45 @@
     return out
   }
 
-  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes }
+  // 安全取嵌套字段
+  function _get(obj, path) {
+    let cur = obj
+    for (const k of path) {
+      if (cur == null) return undefined
+      cur = cur[k]
+    }
+    return cur
+  }
+
+  // 主数据：全商品共用字段（变体专属的价/克重/变体图见 expandSkus）
+  // data = window.context.result.data；detailHtml = window.offer_details.content；attrHtml = 属性容器 outerHTML
+  function parse1688Base(data, detailHtml, attrHtml, url) {
+    data = data || {}
+    const title = _get(data, ['productTitle', 'fields', 'title']) || ''
+    const images = _get(data, ['gallery', 'fields', 'offerImgList'])
+    const imgs = Array.isArray(images) ? images.filter((u) => typeof u === 'string' && u) : []
+    const video = _get(data, ['gallery', 'fields', 'video']) || {}
+    const priceDisplay = _get(data, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) || ''
+    return {
+      source_platform: '1688',
+      title: title,
+      description: '',                       // 留空，webui AI 生成俄语
+      images: imgs,
+      detail_images: [],
+      rich_content_json: buildRichContent(parseDetailImages(detailHtml)),
+      video_url: typeof video.videoUrl === 'string' ? video.videoUrl : '',
+      attributes: parseAttributes(attrHtml),
+      price: '', old_price: '',              // 变体展开时填
+      weight_g: null, length_mm: null, width_mm: null, height_mm: null,  // 变体展开时按 skuId 填
+      category_path: '',
+      source_raw: {
+        offer_id: extractOfferId(url),
+        price_display: priceDisplay,
+        video_cover: typeof video.coverUrl === 'string' ? video.coverUrl : '',
+        attributes: parseAttributes(attrHtml)
+      }
+    }
+  }
+
+  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base }
 })

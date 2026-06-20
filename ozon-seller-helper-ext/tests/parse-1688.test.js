@@ -84,3 +84,40 @@ describe('parseAttributes', () => {
     expect(parseAttributes('<div>无属性</div>')).toEqual([])
   })
 })
+
+const { parse1688Base } = OzonHelperParse1688
+
+function mockData() {
+  return {
+    productTitle: { fields: { title: '加厚铁油桶汽油桶' } },
+    mainPrice: { fields: { priceModel: { originalPriceDisplay: '18.79-141.63' } } },
+    gallery: { fields: {
+      offerImgList: ['https://cbu01.alicdn.com/m1.jpg', 'https://cbu01.alicdn.com/m2.jpg'],
+      video: { coverUrl: 'https://img.alicdn.com/cover.jpg', videoId: 428131987474,
+               videoUrl: 'https://cloud.video.taobao.com/play/x/428131987474.mp4' }
+    } },
+    productPackInfo: { fields: { pieceWeightScale: { pieceWeightScaleInfo: [] } } },
+    Root: { fields: { dataJson: { skuModel: { skuProps: [], skuInfoMap: {} }, offerBaseInfo: {} } } }
+  }
+}
+const DETAIL = '<div><img src="https://cbu01.alicdn.com/d1.jpg"><img src="https://cbu01.alicdn.com/d2.jpg"></div>'
+
+describe('parse1688Base', () => {
+  it('标题/主图/视频/富文本/source_raw', () => {
+    const b = parse1688Base(mockData(), DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    expect(b.source_platform).toBe('1688')
+    expect(b.title).toBe('加厚铁油桶汽油桶')
+    expect(b.images).toEqual(['https://cbu01.alicdn.com/m1.jpg', 'https://cbu01.alicdn.com/m2.jpg'])
+    expect(b.video_url).toBe('https://cloud.video.taobao.com/play/x/428131987474.mp4')
+    expect(b.rich_content_json.content.length).toBe(2)        // 2 张详情图
+    expect(b.source_raw.offer_id).toBe('795554901999')
+    expect(b.source_raw.price_display).toBe('18.79-141.63')
+  })
+  it('缺字段不抛错，降级为空', () => {
+    const b = parse1688Base({}, '', '', '')
+    expect(b.title).toBe('')
+    expect(b.images).toEqual([])
+    expect(b.video_url).toBe('')
+    expect(b.rich_content_json).toBe(null)
+  })
+})
