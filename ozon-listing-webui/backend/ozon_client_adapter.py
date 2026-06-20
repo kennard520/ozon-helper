@@ -16,7 +16,7 @@ def build_client(settings: dict[str, Any]) -> OzonSellerClient:
     api_key = str(settings.get("ozon_api_key") or "").strip()
     if not client_id or not api_key:
         raise ValueError("请先在设置里保存 Ozon Client-Id 和 Api-Key")
-    return OzonSellerClient(client_id=client_id, api_key=api_key)
+    return OzonSellerClient(client_id=client_id, api_key=api_key, timeout=60.0)
 
 
 _client = build_client  # 兼容旧引用
