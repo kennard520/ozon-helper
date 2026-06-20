@@ -71,20 +71,6 @@
     </div>
   </section>
 
-  <section class="md-section">
-    <div class="md-head">
-      <h4>富内容</h4>
-      <el-button>打开编辑器</el-button>
-    </div>
-    <p class="rich-hint">带有照片、视频和链接的丰富描述。系统会保留正文用于搜索，简介可在发布前隐藏。</p>
-    <el-input
-      type="textarea"
-      :rows="5"
-      spellcheck="false"
-      placeholder="JSON 富内容"
-      model-value='{"content":[{"blocks":[{"img":{"alt":"","heightMobile":900,"position":"width_full","src":"https://cdn1.ozone.ru/..."}}]}]}'
-    />
-  </section>
 </template>
 
 <script setup>
