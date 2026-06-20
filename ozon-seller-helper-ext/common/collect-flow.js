@@ -109,7 +109,8 @@
       if (onStatus) onStatus('已采集 ✓', true)
       const created = result.data && result.data.created
       const draftId = Array.isArray(created) && created[0] ? created[0].id : null
-      OzonHelperBridge.bgCall('openEditor', { draftId })
+      // 开了「采集后自动发布」就不弹 webui 编辑器（采集即发到 Ozon，不需要 webui）
+      if (!(result.data && result.data.auto_publish)) OzonHelperBridge.bgCall('openEditor', { draftId })
     } else if (onStatus) {
       onStatus('连不上后端服务器，请检查网络或联系管理员', false)
     }
@@ -146,7 +147,8 @@
       if (onStatus) onStatus(wp ? '已采集 ✓' : '已采集(价格没取到,请手填)', true)
       const created = r.data && r.data.created
       const draftId = Array.isArray(created) && created[0] ? created[0].id : null
-      OzonHelperBridge.bgCall('openEditor', { draftId })
+      // 开了「采集后自动发布」就不弹 webui 编辑器（采集即发到 Ozon，不需要 webui）
+      if (!(r.data && r.data.auto_publish)) OzonHelperBridge.bgCall('openEditor', { draftId })
     } else if (onStatus) {
       onStatus('采集失败:' + ((r && r.error) || '连不上后端服务器'), false)
     }
