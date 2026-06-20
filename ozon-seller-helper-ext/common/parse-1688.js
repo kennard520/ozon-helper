@@ -12,5 +12,21 @@
     return m ? m[1] : ''
   }
 
-  return { extractOfferId }
+  // 从详情 HTML 提取 <img src>，只留 http(s)，去 query，按出现顺序去重
+  function parseDetailImages(html) {
+    if (typeof html !== 'string' || !html) return []
+    const out = []
+    const seen = new Set()
+    const re = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi
+    let m
+    while ((m = re.exec(html))) {
+      let u = (m[1] || '').trim()
+      if (!/^https?:\/\//i.test(u)) continue
+      u = u.split('?')[0]
+      if (!seen.has(u)) { seen.add(u); out.push(u) }
+    }
+    return out
+  }
+
+  return { extractOfferId, parseDetailImages }
 })
