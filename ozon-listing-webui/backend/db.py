@@ -374,6 +374,7 @@ def init_mysql(conn: MySQLConn) -> None:
     for ddl in MYSQL_DDL:
         conn.execute(ddl)
     _ensure_mysql_column(conn, "users", "max_stores", "INT NOT NULL DEFAULT 1")
+    _ensure_mysql_column(conn, "drafts", "media_status", "VARCHAR(16) NOT NULL DEFAULT 'done'")
     conn.commit()
 
 

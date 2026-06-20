@@ -185,6 +185,7 @@ class Store:
             self._ensure_column("drafts", "warehouse_id", "INTEGER")                        # 本地关联的发货仓(④仓库)，批量设置用
             self._ensure_column("drafts", "source_raw_json", "TEXT")   # 采集原始全量(喂 AI)
             self._ensure_column("drafts", "ai_proposal_json", "TEXT")   # AI 待确认草案(整份JSON)，应用后清空
+            self._ensure_column("drafts", "media_status", "TEXT NOT NULL DEFAULT 'done'")  # 媒体异步：pending/done
             self._migrate_drafts_multiuser()   # 加 user_id + 把 source_url 全局唯一改成 (user_id,source_url) 唯一
             self._migrate_drafts_store_scoped()  # 加 store_client_id（草稿绑定店）+ 唯一键改成 (user_id,store_client_id,source_url)
             self.conn.execute(
@@ -875,6 +876,38 @@ class Store:
             self.conn.commit()
             return self.find_by_source_url(draft["source_url"], user_id) or draft
 
+    def set_media_status(self, draft_id: int, status: str) -> None:
+        with self.lock:
+            self.conn.execute("UPDATE drafts SET media_status=?, updated_at=? WHERE id=?",
+                              (str(status), utc_now_iso(), int(draft_id)))
+            self.conn.commit()
+
+    def apply_media_oss(self, draft_id: int, media_map: dict) -> None:
+        """把草稿 images/video_url 里命中 media_map 的原 URL 换成 OSS URL，并置 media_status=done。
+        只替换命中的项，不动用户手改过的其它图。"""
+        with self.lock:
+            row = self.conn.execute("SELECT images_json, video_url FROM drafts WHERE id=?",
+                                    (int(draft_id),)).fetchone()
+            if not row:
+                return
+            imgs = loads_json(row["images_json"], []) or []
+            new_imgs = [media_map.get(u, u) for u in imgs]
+            vurl = row["video_url"] or ""
+            new_vurl = media_map.get(vurl, vurl)
+            self.conn.execute(
+                "UPDATE drafts SET images_json=?, video_url=?, media_status='done', updated_at=? WHERE id=?",
+                (dumps_json(new_imgs), new_vurl, utc_now_iso(), int(draft_id)))
+            self.conn.commit()
+
+    def list_pending_media_drafts(self, user_id: int) -> list[dict]:
+        """当前用户 media_status=pending 的草稿，返回 [{id, images, video_url}]，供插件补传。"""
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT id, images_json, video_url FROM drafts WHERE user_id=? AND media_status='pending'",
+                (int(user_id),)).fetchall()
+        return [{"id": r["id"], "images": loads_json(r["images_json"], []) or [],
+                 "video_url": r["video_url"] or ""} for r in rows]
+
     def list_drafts(self, user_id: int | None = None) -> list[dict[str, Any]]:
         user_id = _uid(user_id)
         with self.lock:
@@ -1329,6 +1362,7 @@ class Store:
             "publish_response": loads_json(row["publish_response_json"], None),
             "pricing": loads_json(row["pricing_json"], None) if "pricing_json" in row.keys() else None,
             "ai_proposal": loads_json(row["ai_proposal_json"], None) if "ai_proposal_json" in row.keys() else None,
+            "media_status": (row["media_status"] if "media_status" in row.keys() else None) or "done",
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
