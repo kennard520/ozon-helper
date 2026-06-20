@@ -192,5 +192,42 @@ class CollectAutoPublishWiringTest(unittest.TestCase):
                 app.store.close()
 
 
+class MediaOnOssIsDoneTest(unittest.TestCase):
+    """插件同步流已把媒体传 OSS → 采集即 done → auto-publish 能触发；
+    原始 ir.ozone.ru 链接 → 仍 pending（计划三后台补传后再发）。"""
+    def _app(self, tmp):
+        svc, app = _make_app(tmp)
+        app._auto_match_category = lambda s: None
+        app._auto_map_safe = lambda did: None
+        app.save_settings({"auto_publish": True, "oss_public_base": "http://oss.test/oss"})
+        calls = []
+        app._dispatch_auto_publish = lambda did: calls.append(did)
+        return app, calls
+
+    def test_oss_media_done_and_dispatches(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, calls = self._app(tmp)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/oss-1/",
+                    "data": {"title": "t", "images": ["http://oss.test/oss/a.jpg"]}})
+                did = res["created"][0]["id"]
+                self.assertEqual(app.store.get_draft(did)["media_status"], "done")
+                self.assertEqual(calls, [did])
+            finally:
+                app.store.close()
+
+    def test_raw_media_stays_pending(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, calls = self._app(tmp)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/raw-1/",
+                    "data": {"title": "t", "images": ["https://ir.ozone.ru/a.jpg"]}})
+                did = res["created"][0]["id"]
+                self.assertEqual(app.store.get_draft(did)["media_status"], "pending")
+                self.assertEqual(calls, [])
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

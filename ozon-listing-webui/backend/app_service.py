@@ -1462,6 +1462,21 @@ class App:
         except Exception:  # noqa: BLE001
             pass
 
+    def _media_needs_upload(self, draft: dict) -> bool:
+        """草稿里是否还有未传到我们 OSS 的媒体（需后台上传 → media_status=pending）。
+        插件同步流已把图直传 OSS（URL 在 oss_public_base 下）→ 不需要 → done；
+        计划三异步流推原始 ir.ozone.ru 链接 → 需要 → pending。
+        没配 oss_public_base 时，有媒体即按 pending（兼容旧行为/媒体异步测试）。"""
+        base = str((self.store.get_settings() or {}).get("oss_public_base") or "").rstrip("/")
+        urls = list(draft.get("images") or [])
+        v = str(draft.get("video_url") or "").strip()
+        if v:
+            urls.append(v)
+        urls = [str(u).strip() for u in urls if str(u or "").strip()]
+        if not urls:
+            return False
+        return any(not (base and u.startswith(base)) for u in urls)
+
     def _maybe_auto_publish(self, draft_id: int) -> None:
         """采集/媒体就绪后，若用户开了 auto_publish 且草稿可发，则后台发布到 Ozon。
         守卫：开关开 + 草稿存在 + status!=published（幂等）+ media_status!=pending（等媒体）。
@@ -1610,15 +1625,15 @@ class App:
                 patch["attributes"] = merged_attrs
             if patch:
                 self.store.update_draft(existing["id"], patch)
-            if _has_media:
-                self.store.set_media_status(existing["id"], "pending")  # 媒体待插件后台传 OSS
+            if _has_media and self._media_needs_upload(self.store.get_draft(existing["id"]) or existing):
+                self.store.set_media_status(existing["id"], "pending")  # 媒体未传 OSS，待后台补
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
             self._maybe_auto_publish(existing["id"])   # 开了 auto_publish 则后台发布
             return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True,
                     "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
         saved = self.store.insert_draft(new_draft)
-        if _has_media:
-            self.store.set_media_status(saved["id"], "pending")  # 媒体待插件后台传 OSS
+        if _has_media and self._media_needs_upload(saved):
+            self.store.set_media_status(saved["id"], "pending")  # 媒体未传 OSS，待后台补
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         self._maybe_auto_publish(saved["id"])   # 开了 auto_publish 则后台发布
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": [],
