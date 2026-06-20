@@ -1436,6 +1436,40 @@ class App:
         except Exception:  # noqa: BLE001
             pass
 
+    def _maybe_auto_publish(self, draft_id: int) -> None:
+        """采集/媒体就绪后，若用户开了 auto_publish 且草稿可发，则后台发布到 Ozon。
+        守卫：开关开 + 草稿存在 + status!=published（幂等）+ media_status!=pending（等媒体）。
+        best-effort：整段吞异常，发不出去的草稿原样留 webui 等人工。"""
+        try:
+            if not bool((self.store.get_settings() or {}).get("auto_publish")):
+                return
+            draft = self.store.get_draft(draft_id)
+            if draft is None:
+                return
+            if str(draft.get("status") or "") == "published":
+                return
+            if str(draft.get("media_status") or "done") == "pending":
+                return
+            self._dispatch_auto_publish(draft_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _dispatch_auto_publish(self, draft_id: int) -> None:
+        """派发后台线程跑 publish()，不阻塞采集（publish 会轮询 Ozon ~20s）。
+        复制父线程 context 把 current_user_id 带进子线程（否则用错 Ozon 凭证）。
+        抽成单独方法：测试 monkeypatch 本方法即可同步断言、不起真线程。"""
+        import contextvars  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        ctx = contextvars.copy_context()
+
+        def _run() -> None:
+            try:
+                ctx.run(self.publish, draft_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def ext_collect_parsed(self, payload: dict) -> dict:
         url = str(payload.get("url") or "").strip()
         if not url:
