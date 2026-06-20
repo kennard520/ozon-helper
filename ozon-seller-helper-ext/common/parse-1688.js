@@ -106,5 +106,76 @@
     }
   }
 
-  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base }
+  // 按 skuId 在 pieceWeightScaleInfo 找克重尺寸（weight 已是克、长宽高已是 mm）
+  function _packBySkuId(packInfo, skuId) {
+    for (const p of packInfo || []) {
+      if (p && p.skuId === skuId) {
+        return {
+          weight_g: typeof p.weight === 'number' ? p.weight : null,
+          length_mm: typeof p.length === 'number' ? p.length : null,
+          width_mm: typeof p.width === 'number' ? p.width : null,
+          height_mm: typeof p.height === 'number' ? p.height : null
+        }
+      }
+    }
+    return { weight_g: null, length_mm: null, width_mm: null, height_mm: null }
+  }
+
+  // 在 skuProps 维度值里按规格名找变体图（单维度：specAttrs === value.name）
+  function _variantImage(skuProps, specAttrs) {
+    for (const prop of skuProps || []) {
+      for (const v of (prop && prop.value) || []) {
+        if (v && v.name && specAttrs.indexOf(v.name) >= 0 && v.imageUrl) return v.imageUrl
+      }
+    }
+    return ''
+  }
+
+  // 区间最低价（"18.79-141.63" → "18.79"）
+  function _lowestFromDisplay(disp) {
+    const nums = String(disp || '').match(/\d+(?:\.\d+)?/g)
+    return nums && nums.length ? nums[0] : ''
+  }
+
+  // 全量 SKU 展开 → 变体草稿数组
+  function expandSkus(data, base) {
+    data = data || {}
+    base = base || {}
+    const skuModel = _get(data, ['Root', 'fields', 'dataJson', 'skuModel']) || {}
+    const infoMap = skuModel.skuInfoMap || {}
+    const skuProps = skuModel.skuProps || []
+    const packInfo = _get(data, ['productPackInfo', 'fields', 'pieceWeightScale', 'pieceWeightScaleInfo']) || []
+    const keys = Object.keys(infoMap)
+    const baseImgs = Array.isArray(base.images) ? base.images : []
+
+    if (!keys.length) {
+      // 无 SKU：单条，价取区间最低
+      const price = _lowestFromDisplay(_get(base, ['source_raw', 'price_display']))
+      return [Object.assign({}, base, { price: price })]
+    }
+
+    return keys.map((k) => {
+      const sku = infoMap[k] || {}
+      const dims = _packBySkuId(packInfo, sku.skuId)
+      const vimg = _variantImage(skuProps, sku.specAttrs || k)
+      const images = []
+      const push = (u) => { if (u && images.indexOf(u) < 0) images.push(u) }
+      push(vimg)
+      baseImgs.forEach(push)
+      return Object.assign({}, base, {
+        price: sku.price != null ? String(sku.price) : '',
+        variant_label: sku.specAttrs || k,
+        weight_g: dims.weight_g,
+        length_mm: dims.length_mm,
+        width_mm: dims.width_mm,
+        height_mm: dims.height_mm,
+        images: images,
+        source_raw: Object.assign({}, base.source_raw, {
+          sku_id: sku.skuId, spec_id: sku.specId, spec_attrs: sku.specAttrs, stock: sku.canBookCount
+        })
+      })
+    })
+  }
+
+  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base, expandSkus }
 })

@@ -86,6 +86,7 @@ describe('parseAttributes', () => {
 })
 
 const { parse1688Base } = OzonHelperParse1688
+const { expandSkus } = OzonHelperParse1688
 
 function mockData() {
   return {
@@ -101,6 +102,53 @@ function mockData() {
   }
 }
 const DETAIL = '<div><img src="https://cbu01.alicdn.com/d1.jpg"><img src="https://cbu01.alicdn.com/d2.jpg"></div>'
+
+function mockDataWithSku() {
+  const d = mockData()
+  d.Root.fields.dataJson.skuModel = {
+    skuProps: [{ fid: 1234, prop: '规格', value: [
+      { name: '摩托车专用款3升铝盖+油管', imageUrl: 'https://cbu01.alicdn.com/v3l.jpg' },
+      { name: '标准加厚铁盖立式10L+油管', imageUrl: 'https://cbu01.alicdn.com/v10l.jpg' }
+    ] }],
+    skuInfoMap: {
+      '摩托车专用款3升铝盖+油管': { specId: 's1', specAttrs: '摩托车专用款3升铝盖+油管', price: '18.79', discountPrice: '18.79', canBookCount: 9973, skuId: 5595723402563 },
+      '标准加厚铁盖立式10L+油管': { specId: 's2', specAttrs: '标准加厚铁盖立式10L+油管', price: '35.50', discountPrice: '35.50', canBookCount: 100, skuId: 5595723402566 }
+    }
+  }
+  d.productPackInfo.fields.pieceWeightScale.pieceWeightScaleInfo = [
+    { sku1: '摩托车专用款3升铝盖+油管', skuId: 5595723402563, weight: 940, length: 310, width: 180, height: 110 },
+    { sku1: '标准加厚铁盖立式10L+油管', skuId: 5595723402566, weight: 1600, length: 295, width: 130, height: 370 }
+  ]
+  return d
+}
+
+describe('expandSkus', () => {
+  it('每个 SKU 一条，含价/库存/克重尺寸/变体图', () => {
+    const data = mockDataWithSku()
+    const base = parse1688Base(data, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    const list = expandSkus(data, base)
+    expect(list.length).toBe(2)
+    const a = list[0]
+    expect(a.variant_label).toBe('摩托车专用款3升铝盖+油管')
+    expect(a.price).toBe('18.79')
+    expect(a.weight_g).toBe(940)
+    expect(a.length_mm).toBe(310)
+    expect(a.width_mm).toBe(180)
+    expect(a.height_mm).toBe(110)
+    expect(a.images[0]).toBe('https://cbu01.alicdn.com/v3l.jpg')   // 变体图置顶
+    expect(a.images).toContain('https://cbu01.alicdn.com/m1.jpg')  // 含主图
+    expect(a.source_raw.sku_id).toBe(5595723402563)
+    expect(a.source_raw.stock).toBe(9973)
+    expect(a.rich_content_json.content.length).toBe(2)             // 富文本共用
+  })
+  it('无 SKU → 单条，价取区间最低', () => {
+    const data = mockData()  // skuInfoMap 空
+    const base = parse1688Base(data, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    const list = expandSkus(data, base)
+    expect(list.length).toBe(1)
+    expect(list[0].price).toBe('18.79')   // 来自 originalPriceDisplay "18.79-141.63" 最低
+  })
+})
 
 describe('parse1688Base', () => {
   it('标题/主图/视频/富文本/source_raw', () => {
