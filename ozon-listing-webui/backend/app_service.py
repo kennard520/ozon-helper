@@ -969,7 +969,7 @@ class App:
         # get_settings() 会拿到默认用户、用错 Ozon 凭证。给每个任务复制一份独立的父线程 context
         # （独立副本才能被多个子线程并发 run），在该 context 里执行解析。
         ctxs = [contextvars.copy_context() for _ in tasks]
-        with ThreadPoolExecutor(max_workers=min(8, len(tasks))) as ex:
+        with ThreadPoolExecutor(max_workers=min(16, len(tasks))) as ex:
             return dict(ex.map(lambda c, t: c.run(_one, t), ctxs, tasks))
 
     def auto_map_attributes(self, draft_id: int) -> dict:
