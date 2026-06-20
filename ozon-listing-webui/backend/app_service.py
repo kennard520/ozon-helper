@@ -1553,6 +1553,20 @@ class App:
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": []}
 
+    def update_draft_media(self, payload: dict) -> dict:
+        """插件后台把媒体传完 OSS 后回调：把草稿里命中的原 URL 换成 OSS URL，置 media_status=done。"""
+        draft_id = _to_int(payload.get("draft_id"))
+        media_map = payload.get("media_map") or {}
+        if not draft_id:
+            raise ValueError("draft_id required")
+        self.store.apply_media_oss(draft_id, dict(media_map))
+        return {"ok": True}
+
+    def pending_media_drafts(self) -> dict:
+        """当前用户媒体待传(pending)的草稿，供插件后台补传。"""
+        from backend.store import current_user_id  # noqa: PLC0415
+        return {"drafts": self.store.list_pending_media_drafts(current_user_id.get())}
+
     def ext_add_snapshot(self, payload: dict) -> dict:
         pid = str(payload.get("product_id") or "").strip()
         if not pid:

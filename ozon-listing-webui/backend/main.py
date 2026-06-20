@@ -544,6 +544,19 @@ def ext_publish_group(body: PublishGroupIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/ext/update-draft-media")
+def ext_update_draft_media(body: dict) -> dict:
+    try:
+        return APP.update_draft_media(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/ext/pending-media-drafts")
+def ext_pending_media_drafts() -> dict:
+    return APP.pending_media_drafts()
+
+
 # catch-all 静态挂载：托管 Vue 构建产物 frontend/dist。
 # 必须放在所有 /api/* 与 /media/* 路由之后（优先级最低）。
 # check_dir=False：dist 未构建时不在导入期报错，访问时由 index() 给出 503 提示。
