@@ -983,10 +983,9 @@ class App:
         if not cat or not typ:
             return {"error": "请先选好类目再自动填充"}
         cat_i, typ_i = int(cat), int(typ)
-        # 采集数据是俄文，属性表也取俄文才能按名对上（不污染界面用的 ZH 缓存）
-        meta = normalize_category_attrs(
-            get_category_attributes(self.store.get_settings(), cat_i, typ_i, language="RU")
-        )
+        # 采集数据是俄文，属性表也取俄文才能按名对上；走 RU 维度缓存（_category_attrs 已带
+        # 缓存+写回），避免每次采集都跨境拉一遍俄文属性表（实测每次省 ~5s）。不污染界面 ZH 缓存。
+        meta = self._category_attrs(cat_i, typ_i, language="RU")
         pairs = match_chars_to_attributes(collected_chars(draft), meta)
 
         # 现有上架格式条目（{id, values}），按 id 索引，便于覆盖/合并
