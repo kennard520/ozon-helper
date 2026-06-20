@@ -167,3 +167,37 @@ class TestExtPingExposesRate(_DbBase):
         self.assertIsNone(app.ext_ping()["rub_cny"])
 
 
+
+
+class TestListDraftsDefaultsToDefaultStore(_DbBase):
+    """不带 store_client_id 时回退默认店(settings.ozon_client_id)，避免草稿忽有忽无。"""
+    def _app(self):
+        import backend.app_service as app_service
+        return app_service.App()
+
+    def _draft(self, app, store_cid):
+        from backend.drafts import create_draft_from_url
+        d = create_draft_from_url("https://www.ozon.ru/product/x-" + store_cid + "-1/")
+        d.update({"ozon_title": "t", "store_client_id": store_cid})
+        return app.store.insert_draft(d)
+
+    def test_no_store_defaults_to_settings_default_store(self):
+        app = self._app()
+        app.store.save_settings({"ozon_client_id": "111", "ozon_api_key": "K1"})
+        self._draft(app, "111")
+        self._draft(app, "222")
+        # 不带 store → 回退默认店 111，只看 111 的草稿
+        res = app.list_drafts()
+        self.assertEqual(res["total"], 1)
+        self.assertEqual([d["store_client_id"] for d in res["drafts"]], ["111"])
+        # 明确带 222 → 只看 222
+        res2 = app.list_drafts(store_client_id="222")
+        self.assertEqual(res2["total"], 1)
+        self.assertEqual([d["store_client_id"] for d in res2["drafts"]], ["222"])
+
+    def test_no_default_store_falls_back_to_all(self):
+        app = self._app()  # 没配 ozon_client_id
+        self._draft(app, "111")
+        self._draft(app, "222")
+        res = app.list_drafts()  # 没默认店 → 不过滤，全看到
+        self.assertEqual(res["total"], 2)

@@ -459,7 +459,13 @@ class App:
 
     def list_drafts(self, *, status: str = "all", page: int = 1, page_size: int = 20,
                     store_client_id: str | None = None) -> dict:
-        """草稿绑定店：store_client_id 非 None 时只返回该店草稿（计数同）。None=不按店过滤（兼容旧调用/未配店）。"""
+        """草稿绑定店：store_client_id 非 None 时只返回该店草稿（计数同）。
+        没传 store_client_id → 回退用户默认店(settings.ozon_client_id)，只查这一个店；
+        否则"不带店=全店混列"会和前端"带当前店"的请求结果打架(草稿忽有忽无)。
+        没配默认店才退回不过滤(兼容)。"""
+        if store_client_id is None:
+            default_store = str((self.store.get_settings() or {}).get("ozon_client_id") or "")
+            store_client_id = default_store or None
         scid = None if store_client_id is None else str(store_client_id or "")
         drafts, total = self.store.list_drafts_page(
             status=status, page=page, page_size=page_size, store_client_id=scid)
