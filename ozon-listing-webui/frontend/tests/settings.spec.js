@@ -54,6 +54,23 @@ describe('Settings.vue', () => {
     expect(spy.mock.calls[0][0].ai_auto_apply).toBe(true)
   })
 
+  it('保存时带 auto_publish', async () => {
+    const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: {} })
+    const w = mount(Settings, { global: { plugins: [ElementPlus] } })
+    w.vm.form.auto_publish = true
+    await w.vm.save()
+    expect(spy.mock.calls[0][0].auto_publish).toBe(true)
+  })
+
+  it('回填 auto_publish', async () => {
+    const { useAppStore } = await import('../src/stores/app.js')
+    const store = useAppStore()
+    store.settings = { auto_publish: true, contract_currency: 'CNY' }
+    const w = mount(Settings, { global: { plugins: [ElementPlus] } })
+    await w.vm.$nextTick()
+    expect(w.vm.form.auto_publish).toBe(true)
+  })
+
   it('settings 异步到达后回填 form（防止竞态导致空表）', async () => {
     const { useAppStore } = await import('../src/stores/app.js')
     const store = useAppStore()

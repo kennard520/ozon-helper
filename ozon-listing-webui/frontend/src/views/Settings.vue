@@ -10,6 +10,7 @@ const form = reactive({
   rub_cny: 0,
   contract_currency: 'CNY',
   ai_auto_apply: false,
+  auto_publish: false,
 })
 
 // 回填只做一次：settings 异步到达（loadState 未完成就切到本页）时也能填上，
@@ -20,6 +21,7 @@ function backfill(s) {
   if (s.rub_cny != null && s.rub_cny !== '') form.rub_cny = Number(s.rub_cny) || 0
   if (s.contract_currency != null) form.contract_currency = s.contract_currency
   if (s.ai_auto_apply != null) form.ai_auto_apply = s.ai_auto_apply
+  if (s.auto_publish != null) form.auto_publish = s.auto_publish
   backfilled = true
 }
 watch(() => store.settings, backfill, { immediate: true, deep: true })
@@ -52,6 +54,7 @@ async function save() {
   const rate = Number(form.rub_cny)
   if (rate > 0) payload.rub_cny = rate
   payload.ai_auto_apply = form.ai_auto_apply
+  payload.auto_publish = form.auto_publish
   // 三套 AI 配置：engine/base/model 照常发；api_key 仅非空才发（空=不改，保留旧 key）
   const aiBlock = (b) => {
     const o = { engine: b.engine, api_base: b.api_base.trim(), model: b.model.trim() }
@@ -171,6 +174,16 @@ defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiT
         </el-radio-group>
         <div style="font-size:12px;color:var(--c-text-3);margin-top:4px">
           人工确认：AI 生成后存为待确认草案，逐项可改/删，点应用才生效。自动应用：生成即合并。
+        </div>
+      </el-form-item>
+
+      <el-form-item label="采集后自动发布">
+        <el-radio-group v-model="form.auto_publish">
+          <el-radio :value="false">只建草稿</el-radio>
+          <el-radio :value="true">自动发布到 Ozon</el-radio>
+        </el-radio-group>
+        <div style="font-size:12px;color:var(--c-text-3);margin-top:4px">
+          开启后采集会直接发到 Ozon（原样直发，到 Ozon 后台再改）；发不出去的留草稿等你手动补。
         </div>
       </el-form-item>
 
