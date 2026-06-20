@@ -28,5 +28,20 @@
     return out
   }
 
-  return { extractOfferId, parseDetailImages }
+  // 详情图列表 → Ozon richAnnotationJson（A+富文本）；每张图一个 raShowcase 块。
+  // 内嵌图节点为 {img:{src,srcMobile}}，与 media-upload._collectRich 对齐 → 发布前自动传 OSS。
+  function buildRichContent(imgUrls) {
+    const list = Array.isArray(imgUrls) ? imgUrls.filter((u) => typeof u === 'string' && u) : []
+    if (!list.length) return null
+    return {
+      content: list.map((u) => ({
+        widgetName: 'raShowcase',
+        type: 'billboard',
+        blocks: [{ img: { src: u, srcMobile: u, alt: '' } }]
+      })),
+      version: 0.3
+    }
+  }
+
+  return { extractOfferId, parseDetailImages, buildRichContent }
 })
