@@ -290,5 +290,37 @@ class ConcurrentContextVarTest(unittest.TestCase):
                 app.store.close()
 
 
+class ForceCountryChinaTest(unittest.TestCase):
+    def test_fills_china_when_category_has_country_attr(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                def fake_resolve(cat, typ, aid, texts, is_coll):
+                    if texts == ["Китай"]:
+                        return [{"dictionary_value_id": 999, "value": "Китай"}]
+                    return [{"dictionary_value_id": 1, "value": texts[0]}]
+                app._resolve_values = fake_resolve
+                meta = [{"id": 4389, "name": "Страна-изготовитель"}, {"id": 100, "name": "Цвет"}]
+                publish, mapped = {}, []
+                # 即使竞品已把原产国填成别的，也要被覆盖成中国
+                publish[4389] = {"id": 4389, "values": [{"dictionary_value_id": 7, "value": "Россия"}]}
+                app._force_country_to_china(100, 22, meta, publish, mapped)
+                self.assertEqual(publish[4389], {"id": 4389, "values": [{"dictionary_value_id": 999, "value": "Китай"}]})
+            finally:
+                app.store.close()
+
+    def test_noop_when_no_country_attr(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                app._resolve_values = lambda *a, **k: [{"dictionary_value_id": 1, "value": "x"}]
+                meta = [{"id": 100, "name": "Цвет"}]
+                publish = {}
+                app._force_country_to_china(100, 22, meta, publish, [])
+                self.assertEqual(publish, {})
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

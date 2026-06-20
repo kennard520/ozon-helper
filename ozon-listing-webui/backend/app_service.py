@@ -1028,6 +1028,7 @@ class App:
             publish_by_id[aid] = {"id": aid, "values": [{"value": text}]}
             mapped.append({"id": aid, "name": name, "value": text})
 
+        self._force_country_to_china(cat_i, typ_i, meta, publish_by_id, mapped)  # 原产国一律中国
         new_attributes = passthrough + list(publish_by_id.values())
         brand_id = draft.get("brand_id") if str(draft.get("brand_name") or "").strip() == NO_BRAND else None
         patch: dict = {
@@ -1038,6 +1039,21 @@ class App:
         updated = self.store.update_draft(draft_id, patch)
         return {"draft": updated, "mapped": mapped, "unmapped": unmapped,
                 "mapped_count": len(mapped)}
+
+    def _force_country_to_china(self, cat: int, typ: int, meta: list[dict],
+                                publish_by_id: dict, mapped: list[dict]) -> None:
+        """原产国一律「中国」：类目里只要有原产国属性(俄文名含 Страна)，就把它的值强制
+        设成 Китай(中国)、覆盖竞品采到的任何值；竞品没采到也主动填。与采集内容无关。"""
+        for attr in meta:
+            if "страна" not in str(attr.get("name") or "").lower():
+                continue
+            caid = _to_int(attr.get("id"))
+            if not caid or caid == BRAND_ATTR_ID:
+                continue
+            cvals = self._resolve_values(cat, typ, caid, ["Китай"], False)
+            if cvals:
+                publish_by_id[caid] = {"id": caid, "values": cvals}
+                mapped.append({"id": caid, "name": attr.get("name"), "value": "Китай"})
 
     def _no_brand_value(self, cat: int, typ: int) -> dict | None:
         """解析"无品牌"(Нет бренда)的字典值，attr 85。找不到返回 None。"""
