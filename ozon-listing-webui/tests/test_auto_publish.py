@@ -112,5 +112,66 @@ class MaybeAutoPublishGuardTest(unittest.TestCase):
                 app.store.close()
 
 
+class CollectAutoPublishWiringTest(unittest.TestCase):
+    def _app(self, tmp, auto):
+        svc, app = _make_app(tmp)
+        app._auto_match_category = lambda scraped: None
+        app._auto_map_safe = lambda did: None
+        app.save_settings({"auto_publish": auto})
+        calls = []
+        app._dispatch_auto_publish = lambda did: calls.append(did)
+        return app, calls
+
+    def test_no_media_dispatches_on_collect(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, calls = self._app(tmp, auto=True)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-1/",
+                                              "data": {"title": "t", "images": []}})
+                did = res["created"][0]["id"]
+                self.assertEqual(calls, [did])  # 无媒体 → 采集即派发
+            finally:
+                app.store.close()
+
+    def test_has_media_defers_to_update_draft_media(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, calls = self._app(tmp, auto=True)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-2/",
+                                              "data": {"title": "t", "images": ["https://ir.ozone.ru/a.jpg"]}})
+                did = res["created"][0]["id"]
+                self.assertEqual(calls, [])  # 有媒体（pending）→ 采集时不派发
+                app.update_draft_media({"draft_id": did,
+                                        "media_map": {"https://ir.ozone.ru/a.jpg": "https://oss/a.jpg"}})
+                self.assertEqual(calls, [did])  # 媒体 done 后才派发
+            finally:
+                app.store.close()
+
+    def test_off_never_dispatches(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, calls = self._app(tmp, auto=False)
+            try:
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-3/",
+                                              "data": {"title": "t", "images": []}})
+                did = res["created"][0]["id"]
+                app.update_draft_media({"draft_id": did, "media_map": {}})
+                self.assertEqual(calls, [])
+            finally:
+                app.store.close()
+
+    def test_collect_survives_dispatch_failure(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            app, _ = self._app(tmp, auto=True)
+            try:
+                def _boom(_did):
+                    raise RuntimeError("boom")
+                app._dispatch_auto_publish = _boom
+                res = app.ext_collect_parsed({"url": "https://www.ozon.ru/product/ap-4/",
+                                              "data": {"title": "t", "images": []}})
+                self.assertTrue(res["created"])  # 采集照常返回，best-effort 吞掉
+            finally:
+                app.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
