@@ -156,7 +156,9 @@ async function uploadMediaOss(urls) {
     while (i < list.length) {
       const u = list[i++]
       try {
-        const r = await _fetchT(u, {}, 30000)
+        // 视频大、跨境下载慢（实测 2.9MB 要 38s）；给短超时，传不动就降级保留 Ozon 原链接，不卡采集
+        const isVideo = /(\.mp4|\.mov|\.webm|\/vod\/|type=pdp)/i.test(u)
+        const r = await _fetchT(u, {}, isVideo ? 12000 : 30000)
         if (!r.ok) { failed.push(u); continue }
         const blob = await r.blob()
         const buf = await blob.arrayBuffer()
@@ -190,7 +192,8 @@ async function uploadMediaOss(urls) {
       if (!p) { failed.push(d.u); continue }
       try {
         if (p.upload_url) {
-          const put = await _fetchT(p.upload_url, { method: 'PUT', headers: { 'Content-Type': d.ct }, body: d.blob }, 45000)
+          const isVid = String(d.ct || '').includes('mp4') || /(\.mp4|\.mov|\.webm)/i.test(d.u)
+          const put = await _fetchT(p.upload_url, { method: 'PUT', headers: { 'Content-Type': d.ct }, body: d.blob }, isVid ? 20000 : 45000)
           if (!put.ok) { failed.push(d.u); continue }
         }
         map[d.u] = p.url
