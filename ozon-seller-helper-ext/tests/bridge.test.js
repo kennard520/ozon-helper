@@ -33,6 +33,17 @@ describe('buildExtRequest (relative path)', () => {
   it('collectParsed → POST', () => {
     expect(buildExtRequest('collectParsed', { url: 'u', data: {} }).path).toBe('/api/ext/collect-parsed')
   })
+  it('pendingMediaDrafts → GET, 无 body', () => {
+    expect(buildExtRequest('pendingMediaDrafts')).toEqual({
+      path: '/api/ext/pending-media-drafts', method: 'GET', body: null,
+    })
+  })
+  it('updateDraftMedia → POST，body 为 JSON', () => {
+    const r = buildExtRequest('updateDraftMedia', { draft_id: 5, media_map: { a: 'b' } })
+    expect(r.method).toBe('POST')
+    expect(r.path).toBe('/api/ext/update-draft-media')
+    expect(JSON.parse(r.body)).toEqual({ draft_id: 5, media_map: { a: 'b' } })
+  })
   it('未知类型 → null', () => {
     expect(buildExtRequest('nope')).toBeNull()
   })

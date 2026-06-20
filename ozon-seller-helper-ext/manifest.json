@@ -5,7 +5,7 @@
   "description": "在 Ozon 商品页就地显示跟卖数与被跟价（登录态不出本机）",
   "background": { "service_worker": "background.js" },
   "host_permissions": ["https://www.ozon.ru/*", "https://seller.ozon.ru/*", "http://127.0.0.1/*", "<all_urls>"],
-  "permissions": ["storage", "cookies", "tabs"],
+  "permissions": ["storage", "cookies", "tabs", "alarms"],
   "content_scripts": [
     {
       "matches": [

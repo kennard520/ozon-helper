@@ -13,8 +13,11 @@
     collect: '/api/ext/collect',
     collectParsed: '/api/ext/collect-parsed',
     snapshot: '/api/ext/snapshot',
-    snapshots: '/api/ext/snapshots'
+    snapshots: '/api/ext/snapshots',
+    pendingMediaDrafts: '/api/ext/pending-media-drafts',
+    updateDraftMedia: '/api/ext/update-draft-media'
   }
+  const GET_TYPES = new Set(['ping', 'snapshots', 'pendingMediaDrafts'])
 
   // 多用户：插件以登录用户身份连后端。给定 JWT 返回鉴权头（纯函数，便于单测）。
   function authHeader(token) {
@@ -29,7 +32,7 @@
   function buildExtRequest(type, payload) {
     const p = PATHS[type]
     if (!p) return null
-    const method = type === 'ping' || type === 'snapshots' ? 'GET' : 'POST'
+    const method = GET_TYPES.has(type) ? 'GET' : 'POST'
     let path = p
     let body = null
     if (method === 'GET') {

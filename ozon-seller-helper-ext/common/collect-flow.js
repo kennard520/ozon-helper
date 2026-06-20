@@ -89,8 +89,9 @@
     let data = OzonHelperProduct.buildCollectData(OzonHelperProduct.parseOzonProduct(page1, page2))
     if (extra) Object.assign(data, extra)
     if (rate > 0) data = OzonHelperProduct.applyRubToCny(data, rate) // 卢布→人民币，后端统一 CNY
-    data = await _rehostMedia(data, onStatus) // 所有媒体 → 传自己店铺换 ir.ozone.ru
+    // 计划三：不再同步传媒体——直接推原始链接(采集秒回)，媒体由 background 后台异步传 OSS
     const r = await OzonHelperBridge.bgCall('collectParsed', { url, data })
+    if (r && r.ok) OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传，不等结果
     return { ok: !!(r && r.ok), data: r && r.data }
   }
 
@@ -140,10 +141,10 @@
       if (wp.rating != null) data.source_raw.rating = wp.rating
       if (wp.feedbacks != null) data.source_raw.feedbacks = wp.feedbacks
     }
-    // 3) 媒体传 OSS + 推送
-    data = await _rehostMedia(data, onStatus)
+    // 3) 推送（计划三：不再同步传媒体，推原始链接秒回，媒体由 background 后台异步传 OSS）
     const r = await OzonHelperBridge.bgCall('collectParsed', { url, data })
     if (r && r.ok) {
+      OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传，不等结果
       if (onStatus) onStatus(wp ? '已采集 ✓' : '已采集(价格没取到,请手填)', true)
       const created = r.data && r.data.created
       const draftId = Array.isArray(created) && created[0] ? created[0].id : null

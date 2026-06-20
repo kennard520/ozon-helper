@@ -202,6 +202,43 @@ async function uploadMediaOss(urls) {
   return { map, failed }
 }
 
+// ===== 计划三：媒体后台异步补传 =====
+// 后端 pending-media-drafts 列表就是队列：拉取 → 下载原图直传 OSS → 回报 update-draft-media。
+// 后端状态权威、天然幂等（传完即 done 掉出列表）；SW 被杀/浏览器关也不丢，醒来重拉续传。
+let _rehosting = false
+async function rehostPending() {
+  if (_rehosting) return    // 同生命周期内不并发触发（幂等，无需更复杂的锁）
+  _rehosting = true
+  try {
+    const base = await discoverBase()
+    if (!base) return
+    const auth = self.OzonHelperBridge.authHeader(await getJwt())
+    const r = await _fetchT(base + '/api/ext/pending-media-drafts', { headers: { ...auth } }, 15000)
+    if (!r.ok) return
+    const drafts = ((await r.json().catch(() => ({}))) || {}).drafts || []
+    for (const d of drafts) {
+      const urls = []
+      for (const u of (d.images || [])) if (u) urls.push(u)
+      if (d.video_url) urls.push(d.video_url)
+      // 已在我们 OSS(base 开头)的跳过，只传还是原始链接(ir.ozone.ru/1688 等)的
+      const raw = urls.filter((u) => u && String(u).indexOf(base) !== 0)
+      if (!raw.length) continue
+      const res = await uploadMediaOss(raw)
+      if (res && res.map && Object.keys(res.map).length) {
+        try {
+          await _fetchT(base + '/api/ext/update-draft-media', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, auth),
+            body: JSON.stringify({ draft_id: d.id, media_map: res.map })
+          }, 30000)
+        } catch (e) { /* 失败下轮 alarm 重试 */ }
+      }
+    }
+  } catch (e) { /* best-effort，pending 仍在 → 下轮重试 */ } finally {
+    _rehosting = false
+  }
+}
+
 // 多用户：插件存登录用户的 JWT，所有后端请求带上
 async function getJwt() {
   try {
@@ -286,6 +323,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return
     }
 
+    // 计划三：采集后踢一脚后台补传（不等结果，秒回）
+    if (msg && msg.type === 'rehostPending') {
+      rehostPending()
+      sendResponse({ ok: true })
+      return
+    }
+
     // 打开 webui（编辑器/后台）独立弹窗——带上 JWT 做单点登录(插件登过,网页免再登)
     if (msg && (msg.type === 'openEditor' || msg.type === 'openAdmin')) {
       const base = await discoverBase()
@@ -340,3 +384,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })()
   return true // 异步 sendResponse
 })
+
+// 兜底触发：浏览器启动 + 每 3 分钟定时扫 pending 补传（SW 可能被杀，醒来续传）。
+// 测试环境无 chrome.alarms/onStartup，try 包住。
+try {
+  chrome.alarms.create('rehostPending', { periodInMinutes: 3 })
+  chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === 'rehostPending') rehostPending() })
+  chrome.runtime.onStartup.addListener(() => { rehostPending() })
+} catch (e) { /* ignore */ }
