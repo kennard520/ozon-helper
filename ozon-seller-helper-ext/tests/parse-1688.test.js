@@ -38,6 +38,7 @@ describe('parseDetailImages', () => {
 })
 
 const { buildRichContent } = OzonHelperParse1688
+const { parseAttributes } = OzonHelperParse1688
 
 describe('buildRichContent', () => {
   it('每张图一个 raShowcase block，结构含 content 数组', () => {
@@ -55,5 +56,31 @@ describe('buildRichContent', () => {
   it('空列表 → null（无富文本时不应产生空属性）', () => {
     expect(buildRichContent([])).toBe(null)
     expect(buildRichContent(null)).toBe(null)
+  })
+})
+
+describe('parseAttributes', () => {
+  const html = '<div class="module-od-product-attributes"><table><tbody>' +
+    '<tr class="ant-descriptions-row">' +
+      '<th class="ant-descriptions-item-label"><span>产地</span></th>' +
+      '<td class="ant-descriptions-item-content"><span><span class="field-value">江苏</span></span></td>' +
+      '<th class="ant-descriptions-item-label"><span>是否进口</span></th>' +
+      '<td class="ant-descriptions-item-content"><span><span class="field-value">否</span></span></td>' +
+    '</tr>' +
+    '<tr class="ant-descriptions-row">' +
+      '<th class="ant-descriptions-item-label"><span>金属材质</span></th>' +
+      '<td class="ant-descriptions-item-content"><span><span class="field-value">白铁皮</span></span></td>' +
+    '</tr>' +
+    '</tbody></table></div>'
+  it('提取 name/value 名值对', () => {
+    expect(parseAttributes(html)).toEqual([
+      { name: '产地', value: '江苏' },
+      { name: '是否进口', value: '否' },
+      { name: '金属材质', value: '白铁皮' }
+    ])
+  })
+  it('空/无匹配 → 空数组', () => {
+    expect(parseAttributes('')).toEqual([])
+    expect(parseAttributes('<div>无属性</div>')).toEqual([])
   })
 })

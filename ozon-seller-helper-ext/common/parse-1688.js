@@ -43,5 +43,28 @@
     }
   }
 
-  return { extractOfferId, parseDetailImages, buildRichContent }
+  // 去标签取纯文本
+  function _text(s) {
+    return String(s == null ? '' : s).replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').trim()
+  }
+  // ant-descriptions HTML → [{name,value}]。label/content 在 HTML 里成对交替出现，按序配对。
+  function parseAttributes(html) {
+    if (typeof html !== 'string' || !html) return []
+    const tokens = []
+    const re = /ant-descriptions-item-(label|content)[^>]*>([\s\S]*?)<\/(?:th|td)>/gi
+    let m
+    while ((m = re.exec(html))) tokens.push({ kind: m[1], text: _text(m[2]) })
+    const out = []
+    for (let i = 0; i < tokens.length - 1; i++) {
+      if (tokens[i].kind === 'label' && tokens[i + 1].kind === 'content') {
+        const name = tokens[i].text
+        const value = tokens[i + 1].text
+        if (name && value) out.push({ name, value })
+        i++ // 跳过已配对的 content
+      }
+    }
+    return out
+  }
+
+  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes }
 })
