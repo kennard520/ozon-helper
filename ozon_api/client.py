@@ -122,6 +122,27 @@ class OzonSellerClient:
             body["cursor"] = cursor
         return self.request("/v2/warehouse/list", body)
 
+    def list_delivery_methods(
+        self, *, warehouse_ids: list[Any] | None = None, provider_ids: list[Any] | None = None,
+        delivery_method_ids: list[Any] | None = None, status: list[str] | None = None,
+        cursor: str = "", limit: int = 100, sort_dir: str = "ASC",
+    ) -> dict[str, Any]:
+        # /v1/delivery-method/list 将于 2026-04-07 停用 → 用 /v2。
+        # v2：filter 各字段为数组（warehouse_ids 等均为字符串），cursor 游标翻页，响应带 has_next。
+        filt: dict[str, Any] = {}
+        if warehouse_ids:
+            filt["warehouse_ids"] = [str(w) for w in warehouse_ids]
+        if provider_ids:
+            filt["provider_ids"] = [str(p) for p in provider_ids]
+        if delivery_method_ids:
+            filt["delivery_method_ids"] = [str(d) for d in delivery_method_ids]
+        if status:
+            filt["status"] = list(status)
+        body: dict[str, Any] = {"filter": filt, "limit": limit, "sort_dir": sort_dir}
+        if cursor:
+            body["cursor"] = cursor
+        return self.request("/v2/delivery-method/list", body)
+
     def import_products(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         return self.request("/v3/product/import", {"items": items})
 

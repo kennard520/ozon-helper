@@ -179,6 +179,38 @@ def fetch_warehouses(settings: dict) -> list[dict]:
     return items
 
 
+def fetch_delivery_methods(settings: dict, warehouse_ids: list[int]) -> list[dict]:
+    """拉配送方式（/v2/delivery-method/list，filter.warehouse_ids 数组 + cursor 翻页），归一成 store 入参形状。
+    v2 filter 收仓库 ID 数组，一次即可传全部仓库，无需逐仓多次调用。"""
+    wids = [w for w in (warehouse_ids or []) if w is not None]
+    if not wids:
+        return []
+    client = build_client(settings)
+    out: list[dict] = []
+    cursor = ""
+    while True:
+        r = client.list_delivery_methods(warehouse_ids=wids, cursor=cursor, limit=100)
+        batch = r.get("result") or r.get("delivery_methods") or []
+        for d in batch:
+            out.append({
+                "delivery_method_id": d.get("id"),
+                "warehouse_id": d.get("warehouse_id"),
+                "name": d.get("name"),
+                "status": d.get("status"),
+                "provider_id": d.get("provider_id"),
+                "cutoff": d.get("cutoff"),
+                "sla_cut_in": d.get("sla_cut_in"),
+                "template_id": d.get("template_id"),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "raw": d,
+            })
+        cursor = r.get("cursor") or ""
+        if not r.get("has_next") or not cursor:
+            break
+    return out
+
+
 # ---------- 功能⑤：FBS 备货发货 ----------
 def pull_fbs_postings(settings: dict, status: str = "awaiting_packaging", days: int = 14) -> list[dict]:
     """拉 FBS 待处理单（v4 游标翻页），归一成 store.upsert_postings 形状。"""

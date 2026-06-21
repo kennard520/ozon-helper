@@ -28,7 +28,7 @@ async function doSync() {
   try {
     const r = await api.syncWarehouses(store.currentStore)
     warehouses.value = r.warehouses
-    ElMessage.success(`同步成功，共 ${r.synced} 个仓库`)
+    ElMessage.success(`同步成功，共 ${r.synced} 个仓库 / ${r.delivery_methods ?? 0} 个配送方式`)
   } catch (e) {
     ElMessage.error(e.message || '同步失败')
   } finally {
@@ -60,7 +60,29 @@ defineExpose({ warehouses, doSync, makeDefault, fmtFetchedAt })
     <div style="margin-bottom: 16px">
       <el-button type="primary" :loading="syncing" @click="doSync">从 Ozon 同步仓库</el-button>
     </div>
-    <el-table :data="warehouses" v-loading="loading" style="width: 100%">
+    <el-table :data="warehouses" v-loading="loading" style="width: 100%" row-key="warehouse_id">
+      <el-table-column type="expand">
+        <template #default="{ row }">
+          <div style="padding: 8px 48px">
+            <div style="margin-bottom: 6px; color: var(--c-text-2); font-size: 13px">
+              配送方式（{{ (row.delivery_methods || []).length }}）
+            </div>
+            <el-table
+              v-if="(row.delivery_methods || []).length"
+              :data="row.delivery_methods"
+              size="small"
+              style="width: 100%"
+            >
+              <el-table-column prop="delivery_method_id" label="ID" width="120" />
+              <el-table-column prop="name" label="名称" />
+              <el-table-column prop="provider_id" label="承运商 ID" width="120" />
+              <el-table-column prop="status" label="状态" width="120" />
+              <el-table-column prop="cutoff" label="截单时间" width="160" />
+            </el-table>
+            <span v-else style="color: var(--c-text-disabled); font-size: 13px">该仓库暂无配送方式</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="warehouse_id" label="仓库 ID" width="120" />
       <el-table-column prop="name" label="名称" />
       <el-table-column label="类型" width="100">

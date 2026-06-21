@@ -1870,22 +1870,43 @@ class App:
         """把(可能为空的)目标店解析成实际 client_id：空→默认店。仓库/订单按它隔离。"""
         return str(self._settings_for_store(store_client_id).get("ozon_client_id") or "")
 
+    def _warehouses_with_delivery(self, scid: str) -> list[dict]:
+        """仓库列表，每个仓库挂上它的配送方式（本地按 warehouse_id 分组）。"""
+        warehouses = self.store.list_warehouses(scid)
+        methods = self.store.list_delivery_methods(scid)
+        by_wh: dict[int, list[dict]] = {}
+        for m in methods:
+            by_wh.setdefault(m.get("warehouse_id"), []).append(m)
+        for w in warehouses:
+            w["delivery_methods"] = by_wh.get(w.get("warehouse_id"), [])
+        return warehouses
+
     def list_warehouses(self, store_client_id: str | None = None) -> dict:
         scid = self._scid_of(store_client_id)
-        return {"warehouses": self.store.list_warehouses(scid)}
+        return {"warehouses": self._warehouses_with_delivery(scid)}
 
     def sync_warehouses(self, store_client_id: str | None = None) -> dict:
-        from backend.ozon_client_adapter import fetch_warehouses  # noqa: PLC0415
+        from backend.ozon_client_adapter import (  # noqa: PLC0415
+            fetch_delivery_methods, fetch_warehouses,
+        )
         settings = self._settings_for_store(store_client_id)
         scid = str(settings.get("ozon_client_id") or "")
         items = fetch_warehouses(settings)
         self.store.upsert_warehouses(items, scid)
-        return {"synced": len(items), "warehouses": self.store.list_warehouses(scid)}
+        # 配送方式挂在仓库下：仓库同步完后逐仓拉取，按店全量替换
+        wids = [w.get("warehouse_id") for w in self.store.list_warehouses(scid)]
+        methods = fetch_delivery_methods(settings, wids)
+        self.store.replace_delivery_methods(methods, scid)
+        return {
+            "synced": len(items),
+            "delivery_methods": len(methods),
+            "warehouses": self._warehouses_with_delivery(scid),
+        }
 
     def set_default_warehouse(self, warehouse_id: int, store_client_id: str | None = None) -> dict:
         scid = self._scid_of(store_client_id)
         self.store.set_default_warehouse(int(warehouse_id), scid)
-        return {"warehouses": self.store.list_warehouses(scid)}
+        return {"warehouses": self._warehouses_with_delivery(scid)}
 
     # ---------- 功能⑤：FBS 备货发货 ----------
     def pull_fbs(self, status: str = "awaiting_packaging", days: int = 14,

@@ -356,6 +356,24 @@ MYSQL_DDL = [
         KEY idx_offer_snap_pid (product_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    """
+    CREATE TABLE IF NOT EXISTS delivery_methods (
+        delivery_method_id BIGINT PRIMARY KEY,
+        warehouse_id BIGINT,
+        name VARCHAR(255) NOT NULL DEFAULT '',
+        status VARCHAR(64) NOT NULL DEFAULT '',
+        provider_id BIGINT,
+        cutoff VARCHAR(64),
+        sla_cut_in INT,
+        template_id BIGINT,
+        created_at VARCHAR(40),
+        updated_at VARCHAR(40),
+        fetched_at VARCHAR(40),
+        store_client_id VARCHAR(64) NOT NULL DEFAULT '',
+        raw_json LONGTEXT,
+        KEY idx_dm_store_wh (store_client_id, warehouse_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
 ]
 
 

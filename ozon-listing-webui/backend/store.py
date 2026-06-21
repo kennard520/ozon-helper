@@ -234,6 +234,18 @@ class Store:
                 "is_default INTEGER NOT NULL DEFAULT 0, fetched_at TEXT)"
             )
             self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_methods ("
+                "delivery_method_id INTEGER PRIMARY KEY, warehouse_id INTEGER, "
+                "name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', "
+                "provider_id INTEGER, cutoff TEXT, sla_cut_in INTEGER, template_id INTEGER, "
+                "created_at TEXT, updated_at TEXT, fetched_at TEXT, "
+                "store_client_id TEXT NOT NULL DEFAULT '', raw_json TEXT)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dm_store_wh "
+                "ON delivery_methods(store_client_id, warehouse_id)"
+            )
+            self.conn.execute(
                 "CREATE TABLE IF NOT EXISTS postings ("
                 "posting_number TEXT PRIMARY KEY, ozon_order_id TEXT, status TEXT, "
                 "ship_by TEXT, products_json TEXT NOT NULL DEFAULT '[]', "
@@ -629,7 +641,7 @@ class Store:
         cid = (row[0] if row and row[0] is not None else "") or ""
         if not cid:
             return
-        for t in ("warehouses", "postings", "procurement", "offer_snapshots"):
+        for t in ("warehouses", "delivery_methods", "postings", "procurement", "offer_snapshots"):
             self.conn.execute(
                 f"UPDATE {t} SET store_client_id=? WHERE store_client_id=''", (str(cid),)
             )
@@ -742,7 +754,7 @@ class Store:
                 c = str(loads_json(row2["value"], "") or "").strip()
                 if c:
                     cids.add(c)
-            for t in ("warehouses", "postings", "procurement", "offer_snapshots"):
+            for t in ("warehouses", "delivery_methods", "postings", "procurement", "offer_snapshots"):
                 for c in cids:
                     self.conn.execute(f"DELETE FROM {t} WHERE store_client_id=?", (c,))
             for t in ("drafts", "accounts", "account_txns", "settings"):
@@ -1150,6 +1162,42 @@ class Store:
                 (int(warehouse_id), scid),
             )
             self.conn.commit()
+
+    # ---------- 配送方式（功能4 附属，挂在仓库下）----------
+    def replace_delivery_methods(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
+        """按店全量替换配送方式：先清本店旧行，再插新行。Ozon 上被删/停用的本地随之消失。"""
+        now = utc_now_iso()
+        scid = str(store_client_id or "")
+        with self.lock:
+            self.conn.execute("DELETE FROM delivery_methods WHERE store_client_id=?", (scid,))
+            for d in items or []:
+                did = _to_int_or_none(d.get("delivery_method_id"))
+                if did is None:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO delivery_methods(delivery_method_id, warehouse_id, name, status, "
+                    "provider_id, cutoff, sla_cut_in, template_id, created_at, updated_at, "
+                    "fetched_at, store_client_id, raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (did, _to_int_or_none(d.get("warehouse_id")), str(d.get("name") or ""),
+                     str(d.get("status") or ""), _to_int_or_none(d.get("provider_id")),
+                     str(d.get("cutoff") or ""), _to_int_or_none(d.get("sla_cut_in")),
+                     _to_int_or_none(d.get("template_id")), str(d.get("created_at") or ""),
+                     str(d.get("updated_at") or ""), now, scid, dumps_json(d.get("raw") or {})),
+                )
+            self.conn.commit()
+
+    def list_delivery_methods(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
+        sql = ("SELECT delivery_method_id, warehouse_id, name, status, provider_id, cutoff, "
+               "sla_cut_in, template_id, created_at, updated_at, fetched_at, store_client_id "
+               "FROM delivery_methods")
+        params: list[Any] = []
+        if store_client_id is not None:
+            sql += " WHERE store_client_id = ?"
+            params.append(str(store_client_id or ""))
+        sql += " ORDER BY warehouse_id, delivery_method_id"
+        with self.lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
 
     # ---------- 订单（功能5）----------
     def upsert_postings(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:

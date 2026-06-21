@@ -102,6 +102,30 @@ class OzonSellerClientTest(unittest.TestCase):
             },
         })
 
+    def test_list_delivery_methods_builds_filter_and_cursor(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        # v2：warehouse_ids 数组(转字符串)、cursor 翻页、sort_dir
+        client.list_delivery_methods(warehouse_ids=[42, 7], cursor="CUR1", limit=50)
+
+        self.assertTrue(transport.calls[0]["url"].endswith("/v2/delivery-method/list"))
+        self.assertEqual(transport.calls[0]["json"], {
+            "filter": {"warehouse_ids": ["42", "7"]},
+            "limit": 50,
+            "sort_dir": "ASC",
+            "cursor": "CUR1",
+        })
+
+    def test_list_delivery_methods_omits_empty_cursor(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.list_delivery_methods(warehouse_ids=[1])
+
+        # 首页不带 cursor 键
+        self.assertNotIn("cursor", transport.calls[0]["json"])
+
     def test_convenience_methods_target_first_phase_endpoints(self) -> None:
         transport = FakeTransport()
         client = OzonSellerClient("123", "secret", transport=transport)
