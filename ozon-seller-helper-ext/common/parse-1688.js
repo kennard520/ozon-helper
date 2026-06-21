@@ -81,8 +81,11 @@
   function parse1688Base(data, detailHtml, attrHtml, url) {
     data = data || {}
     const title = _get(data, ['productTitle', 'fields', 'title']) || ''
-    const images = _get(data, ['gallery', 'fields', 'offerImgList'])
-    const imgs = Array.isArray(images) ? images.filter((u) => typeof u === 'string' && u) : []
+    // 主图优先 mainImage(干净的主图轮播)；offerImgList 是全量(含各尺寸变体缩略图，会"很多都一样")，仅兜底
+    const mainImg = _get(data, ['gallery', 'fields', 'mainImage'])
+    const offerImg = _get(data, ['gallery', 'fields', 'offerImgList'])
+    const pick = (Array.isArray(mainImg) && mainImg.length) ? mainImg : offerImg
+    const imgs = Array.isArray(pick) ? pick.filter((u) => typeof u === 'string' && u) : []
     const video = _get(data, ['gallery', 'fields', 'video']) || {}
     const priceDisplay = _get(data, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) || ''
     const attrs = parseAttributes(attrHtml)

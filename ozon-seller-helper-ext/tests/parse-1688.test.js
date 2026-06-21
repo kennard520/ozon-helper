@@ -151,6 +151,16 @@ describe('expandSkus', () => {
 })
 
 describe('parse1688Base', () => {
+  it('主图优先 mainImage(干净主图)而非 offerImgList(全量含变体缩略图)', () => {
+    const d = mockData()
+    d.gallery.fields.mainImage = ['https://cbu01.alicdn.com/hero1.jpg', 'https://cbu01.alicdn.com/hero2.jpg']
+    const b = parse1688Base(d, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    expect(b.images).toEqual(['https://cbu01.alicdn.com/hero1.jpg', 'https://cbu01.alicdn.com/hero2.jpg'])
+  })
+  it('无 mainImage 时兜底用 offerImgList', () => {
+    const b = parse1688Base(mockData(), DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    expect(b.images).toEqual(['https://cbu01.alicdn.com/m1.jpg', 'https://cbu01.alicdn.com/m2.jpg'])
+  })
   it('标题/主图/视频/富文本/source_raw', () => {
     const b = parse1688Base(mockData(), DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
     expect(b.source_platform).toBe('1688')

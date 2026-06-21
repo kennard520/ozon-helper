@@ -15,7 +15,7 @@
     return {
       productTitle: { fields: { title: g(d, ['productTitle', 'fields', 'title']) } },
       mainPrice: { fields: { priceModel: { originalPriceDisplay: g(d, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) } } },
-      gallery: { fields: { offerImgList: g(d, ['gallery', 'fields', 'offerImgList']), video: g(d, ['gallery', 'fields', 'video']) } },
+      gallery: { fields: { mainImage: g(d, ['gallery', 'fields', 'mainImage']), offerImgList: g(d, ['gallery', 'fields', 'offerImgList']), video: g(d, ['gallery', 'fields', 'video']) } },
       productPackInfo: { fields: { pieceWeightScale: { pieceWeightScaleInfo: g(d, ['productPackInfo', 'fields', 'pieceWeightScale', 'pieceWeightScaleInfo']) } } },
       Root: { fields: { dataJson: { skuModel: { skuProps: sku.skuProps, skuInfoMap: sku.skuInfoMap } } } }
     }
