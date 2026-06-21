@@ -32,11 +32,16 @@
   }
 
   // 每个指标一行：跟卖家数 / 最低价 / 销量(估) / 评分（缺的不出行）
+  // 注意：销量/评分与跟卖无关（来自商品页评论数），无跟卖时也要照常显示，别被"无跟卖"吞掉
   function _metricLines(state) {
     const s = state.summary
-    if (!s || s.followCount === 0) return ['无跟卖']
-    const out = [`跟卖 <b>${s.followCount}</b> 家`]
-    if (s.priceMin != null) out.push(`最低 ${s.priceMin} ₽`)
+    const out = []
+    if (!s || s.followCount === 0) {
+      out.push('无跟卖')
+    } else {
+      out.push(`跟卖 <b>${s.followCount}</b> 家`)
+      if (s.priceMin != null) out.push(`最低 ${s.priceMin} ₽`)
+    }
     if (state.estimate) out.push(`销量(估) <b>${_fmtShort(state.estimate.salesLow)}–${_fmtShort(state.estimate.salesHigh)}</b>`)
     if (state.rating != null) out.push(`★ ${state.rating}`)
     return out

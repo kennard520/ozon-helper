@@ -55,6 +55,21 @@ describe('cardHtml', () => {
   it('无评分时不出 ★', () => {
     expect(cardHtml({ summary: { followCount: 1, priceMin: 9 } })).not.toContain('★')
   })
+  it('无跟卖但有评论数据：仍显示销量(估) + 评分（不被"无跟卖"吞掉）', () => {
+    const h = cardHtml({
+      summary: { followCount: 0, priceMin: null, priceMax: null },
+      estimate: { salesLow: 111929, salesHigh: 261167 }, rating: 4.8
+    })
+    expect(h).toContain('无跟卖')
+    expect(h).toContain('销量(估)')
+    expect(h).toContain('★')
+    expect(h).toContain('4.8')
+  })
+  it('无跟卖且无评论数据：只剩无跟卖一行', () => {
+    const h = cardHtml({ summary: { followCount: 0, priceMin: null, priceMax: null } })
+    expect(h).toContain('无跟卖')
+    expect((h.match(/class="ohl-line"/g) || []).length).toBe(1)
+  })
   it('每个指标各占一行（ohl-line），不再用点号挤一行', () => {
     const h = cardHtml({
       summary: { followCount: 80, priceMin: 257 },

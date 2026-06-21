@@ -125,6 +125,42 @@
     return null
   }
 
+  // —— 新版（2026-06 改版）回退：评分/评论数字字段被置空，只剩文字串如 "4.9 • 6 365 отзывов" ——
+  // 评分：锚定文字开头的 0–5 数字（避免把句中数字如"3 дня"误当评分）
+  function _ratingFromText(s) {
+    if (typeof s !== 'string') return null
+    const m = s.match(/^\s*(\d+(?:[.,]\d+)?)/)
+    if (!m) return null
+    const n = parseFloat(m[1].replace(',', '.'))
+    return Number.isFinite(n) && n > 0 && n <= 5 ? Math.round(n * 10) / 10 : null
+  }
+  // 评论数：紧挨 отзыв/оцен 之前的数字（去俄式空格千分位）
+  function _reviewsFromText(s) {
+    if (typeof s !== 'string') return null
+    const m = s.match(/([\d\s ]+)(?:отзыв|оцен)/i)
+    if (!m) return null
+    const n = parseInt(m[1].replace(/[^\d]/g, ''), 10)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  // 在 widget state 里深度找第一个能被 fn 解析出值的字符串
+  function _deepTextExtract(node, fn, depth) {
+    if (node == null || depth > 6) return null
+    if (typeof node === 'string') return fn(node)
+    if (typeof node !== 'object') return null
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const r = _deepTextExtract(n, fn, depth + 1)
+        if (r != null) return r
+      }
+      return null
+    }
+    for (const k in node) {
+      const r = _deepTextExtract(node[k], fn, depth + 1)
+      if (r != null) return r
+    }
+    return null
+  }
+
   // 从商品页 json 取评论数（公开、确定）。评分/评论/评价类 widget 优先，再兜底全扫。
   function parseReviewCount(pageJson) {
     const ws = pageJson && pageJson.widgetStates
@@ -140,6 +176,17 @@
         continue
       }
       const n = _deepReviewCount(st, 0)
+      if (n != null) return n
+    }
+    // 新版回退：评论数只在文字里（如 "6 365 отзывов"），只在评分/评论类 widget 上抠
+    for (const k of prefer) {
+      let st
+      try {
+        st = typeof ws[k] === 'string' ? JSON.parse(ws[k]) : ws[k]
+      } catch (e) {
+        continue
+      }
+      const n = _deepTextExtract(st, _reviewsFromText, 0)
       if (n != null) return n
     }
     return null
@@ -185,6 +232,17 @@
       }
       const n = _deepRating(st, 0)
       if (n != null) return n
+    }
+    // 新版回退：评分只在文字里（如 "4.9 • 6 365 отзывов"），只在评分/评论类 widget 上抠
+    for (const k of prefer) {
+      let st
+      try {
+        st = typeof ws[k] === 'string' ? JSON.parse(ws[k]) : ws[k]
+      } catch (e) {
+        continue
+      }
+      const t = _deepTextExtract(st, _ratingFromText, 0)
+      if (t != null) return t
     }
     return null
   }

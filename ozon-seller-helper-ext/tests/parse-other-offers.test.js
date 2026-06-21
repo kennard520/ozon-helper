@@ -89,6 +89,42 @@ describe('parseRating', () => {
   })
 })
 
+// 2026-06 Ozon 改版：评分/评论数字字段被置空，只剩 webSingleProductScore.text 里一段文字
+// 实测 pid 3825780477：webReviewProductScore.score=null，webSingleProductScore.text="4.9 • 6 365 отзывов"
+describe('parseRating/parseReviewCount —— 新版只在文字串里', () => {
+  const NEW = {
+    widgetStates: {
+      'webReviewProductScore-3132021-default-1': JSON.stringify({
+        cellTrackingInfo: {}, url: '/product/gardex-100-ml-3825780477/reviews/', score: null, reviewsCount: null
+      }),
+      'webSingleProductScore-3386432-default-1': JSON.stringify({
+        icon: 'ic_s_star_filled', iconColor: 'graphicRating',
+        text: '4.9 • 6 365 отзывов', textColor: 'textSecondary',
+        link: '/product/gardex-100-ml-3825780477/reviews/'
+      })
+    }
+  }
+
+  it('从 "4.9 • 6 365 отзывов" 取评分 4.9', () => {
+    expect(parseRating(NEW)).toBe(4.9)
+  })
+
+  it('从 "4.9 • 6 365 отзывов" 取评论数 6365（去俄式空格千分位）', () => {
+    expect(parseReviewCount(NEW)).toBe(6365)
+  })
+
+  it('整数评分 + "оценок" 文案也能解析', () => {
+    const j = { widgetStates: { 'webSingleProductScore-x': JSON.stringify({ text: '5 • 42 оценок' }) } }
+    expect(parseRating(j)).toBe(5)
+    expect(parseReviewCount(j)).toBe(42)
+  })
+
+  it('非评分类 widget 里以数字开头的文字不会被误当评分', () => {
+    const j = { widgetStates: { 'webDelivery-x': JSON.stringify({ text: '3 дня доставка' }) } }
+    expect(parseRating(j)).toBeNull()
+  })
+})
+
 describe('estimateSales', () => {
   it('按 3-7% 评论率给出销量范围', () => {
     const est = estimateSales(100)
