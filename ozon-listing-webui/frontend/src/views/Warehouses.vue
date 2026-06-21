@@ -73,11 +73,28 @@ defineExpose({ warehouses, doSync, makeDefault, fmtFetchedAt })
               size="small"
               style="width: 100%"
             >
-              <el-table-column prop="delivery_method_id" label="ID" width="120" />
-              <el-table-column prop="name" label="名称" />
-              <el-table-column prop="provider_id" label="承运商 ID" width="120" />
-              <el-table-column prop="status" label="状态" width="120" />
-              <el-table-column prop="cutoff" label="截单时间" width="160" />
+              <el-table-column prop="name" label="配送方式" min-width="190" show-overflow-tooltip />
+              <el-table-column label="类型" width="120">
+                <template #default="{ row: dm }">
+                  <el-tag v-if="dm.is_express" type="success" size="small" style="margin-right:4px">express</el-tag>
+                  <span style="font-size:12px;color:var(--c-text-3)">{{ dm.tpl_integration_type || '—' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="90" />
+              <el-table-column prop="cutoff" label="截单" width="70" />
+              <el-table-column prop="dropoff_name" label="自提点" min-width="140" show-overflow-tooltip />
+              <el-table-column prop="dropoff_code" label="编码" min-width="160" show-overflow-tooltip />
+              <el-table-column label="地址" min-width="300">
+                <template #default="{ row: dm }">
+                  <span v-if="dm.dropoff_address">{{ dm.dropoff_address }}</span>
+                  <span v-else style="color:var(--c-text-disabled)">—</span>
+                  <span
+                    v-if="dm.dropoff_lat != null && dm.dropoff_lng != null"
+                    style="display:block;font-size:12px;color:var(--c-text-3)"
+                  >{{ dm.dropoff_lat }}, {{ dm.dropoff_lng }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="provider_id" label="承运商" width="90" />
             </el-table>
             <span v-else style="color: var(--c-text-disabled); font-size: 13px">该仓库暂无配送方式</span>
           </div>

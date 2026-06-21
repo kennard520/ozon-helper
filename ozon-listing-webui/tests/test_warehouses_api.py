@@ -170,9 +170,17 @@ class FetchDeliveryMethodsTest(unittest.TestCase):
             def list_delivery_methods(self, *, warehouse_ids=None, cursor="", limit=100, **_):  # noqa: ANN001
                 self.calls.append({"warehouse_ids": warehouse_ids, "cursor": cursor})
                 if cursor == "":
-                    # 第一页：两仓各一条 + 有下一页
-                    return {"result": [{"id": 11, "name": "Почта", "warehouse_id": 1},
-                                       {"id": 21, "name": "Boxberry", "warehouse_id": 2}],
+                    # 第一页：两仓各一条 + 有下一页（id=11 带完整自提点，模拟真实 v2 返回）
+                    return {"result": [
+                                {"id": 11, "name": "RETS PUDO", "warehouse_id": "1",
+                                 "provider_id": 1268, "tpl_integration_type": "aggregator",
+                                 "is_express": False, "status": "ACTIVE", "cutoff": "17:00",
+                                 "sla_cut_in": 7200,
+                                 "tpl_dropoff_point": {
+                                     "name": "RETS泉州中心仓", "code": "1268_泉州东海集货仓",
+                                     "address": "福建省泉州市晋江市池店镇浯潭村东北区113号",
+                                     "address_coordinates": {"latitude": 25, "longitude": 119}}},
+                                {"id": 21, "name": "Boxberry", "warehouse_id": 2}],
                             "has_next": True, "cursor": "C1"}
                 if cursor == "C1":
                     return {"result": [{"id": 12, "name": "СДЭК", "warehouse_id": 1}],
@@ -190,8 +198,19 @@ class FetchDeliveryMethodsTest(unittest.TestCase):
             self.assertEqual([c["cursor"] for c in client.calls], ["", "C1"])
             self.assertEqual(client.calls[0]["warehouse_ids"], [1, 2])
             m11 = next(m for m in methods if m["delivery_method_id"] == 11)
-            self.assertEqual(m11["warehouse_id"], 1)
-            self.assertEqual(m11["name"], "Почта")
+            self.assertEqual(m11["warehouse_id"], "1")
+            self.assertEqual(m11["name"], "RETS PUDO")
+            # 自提点(地址)被正确抽出
+            self.assertEqual(m11["dropoff_name"], "RETS泉州中心仓")
+            self.assertEqual(m11["dropoff_code"], "1268_泉州东海集货仓")
+            self.assertEqual(m11["dropoff_address"], "福建省泉州市晋江市池店镇浯潭村东北区113号")
+            self.assertEqual(m11["dropoff_lat"], 25)
+            self.assertEqual(m11["dropoff_lng"], 119)
+            self.assertEqual(m11["tpl_integration_type"], "aggregator")
+            self.assertIs(m11["is_express"], False)
+            # 缺自提点的条目不报错，地址字段为 None
+            m21 = next(m for m in methods if m["delivery_method_id"] == 21)
+            self.assertIsNone(m21["dropoff_address"])
         finally:
             adapter.build_client = orig
 
@@ -241,6 +260,24 @@ class DeliveryMethodsStoreTest(unittest.TestCase):
                 # storeY 不受影响
                 y = st.list_delivery_methods("storeY")
                 self.assertEqual({m["delivery_method_id"] for m in y}, {99})
+            finally:
+                st.close()
+
+    def test_dropoff_fields_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            st = self._store(tmp)
+            try:
+                st.replace_delivery_methods([{
+                    "delivery_method_id": 5, "warehouse_id": 9, "name": "PUDO",
+                    "is_express": True, "tpl_integration_type": "aggregator",
+                    "dropoff_name": "中心仓", "dropoff_code": "X1",
+                    "dropoff_address": "福建省泉州市…", "dropoff_lat": 25, "dropoff_lng": 119,
+                }], "storeX")
+                m = st.list_delivery_methods("storeX")[0]
+                self.assertEqual(m["dropoff_address"], "福建省泉州市…")
+                self.assertEqual(m["dropoff_code"], "X1")
+                self.assertEqual(m["dropoff_lat"], 25)
+                self.assertIs(m["is_express"], True)  # 0/1 → bool
             finally:
                 st.close()
 

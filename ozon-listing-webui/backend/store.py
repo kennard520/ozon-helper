@@ -237,10 +237,21 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS delivery_methods ("
                 "delivery_method_id INTEGER PRIMARY KEY, warehouse_id INTEGER, "
                 "name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', "
-                "provider_id INTEGER, cutoff TEXT, sla_cut_in INTEGER, template_id INTEGER, "
+                "provider_id INTEGER, template_id INTEGER, "
+                "tpl_integration_type TEXT, is_express INTEGER, "
+                "cutoff TEXT, sla_cut_in INTEGER, "
+                "dropoff_name TEXT, dropoff_code TEXT, dropoff_address TEXT, "
+                "dropoff_lat REAL, dropoff_lng REAL, "
                 "created_at TEXT, updated_at TEXT, fetched_at TEXT, "
                 "store_client_id TEXT NOT NULL DEFAULT '', raw_json TEXT)"
             )
+            # 已部署的表(CREATE IF NOT EXISTS 不会补列)→ 显式补自提点等新列
+            for _col, _ddl in (
+                ("tpl_integration_type", "TEXT"), ("is_express", "INTEGER"),
+                ("dropoff_name", "TEXT"), ("dropoff_code", "TEXT"),
+                ("dropoff_address", "TEXT"), ("dropoff_lat", "REAL"), ("dropoff_lng", "REAL"),
+            ):
+                self._ensure_column("delivery_methods", _col, _ddl)
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_dm_store_wh "
                 "ON delivery_methods(store_client_id, warehouse_id)"
@@ -1176,19 +1187,26 @@ class Store:
                     continue
                 self.conn.execute(
                     "INSERT INTO delivery_methods(delivery_method_id, warehouse_id, name, status, "
-                    "provider_id, cutoff, sla_cut_in, template_id, created_at, updated_at, "
-                    "fetched_at, store_client_id, raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "provider_id, template_id, tpl_integration_type, is_express, cutoff, sla_cut_in, "
+                    "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
+                    "created_at, updated_at, fetched_at, store_client_id, raw_json) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (did, _to_int_or_none(d.get("warehouse_id")), str(d.get("name") or ""),
                      str(d.get("status") or ""), _to_int_or_none(d.get("provider_id")),
-                     str(d.get("cutoff") or ""), _to_int_or_none(d.get("sla_cut_in")),
-                     _to_int_or_none(d.get("template_id")), str(d.get("created_at") or ""),
+                     _to_int_or_none(d.get("template_id")), str(d.get("tpl_integration_type") or ""),
+                     1 if d.get("is_express") else 0, str(d.get("cutoff") or ""),
+                     _to_int_or_none(d.get("sla_cut_in")), str(d.get("dropoff_name") or ""),
+                     str(d.get("dropoff_code") or ""), str(d.get("dropoff_address") or ""),
+                     d.get("dropoff_lat"), d.get("dropoff_lng"), str(d.get("created_at") or ""),
                      str(d.get("updated_at") or ""), now, scid, dumps_json(d.get("raw") or {})),
                 )
             self.conn.commit()
 
     def list_delivery_methods(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
-        sql = ("SELECT delivery_method_id, warehouse_id, name, status, provider_id, cutoff, "
-               "sla_cut_in, template_id, created_at, updated_at, fetched_at, store_client_id "
+        sql = ("SELECT delivery_method_id, warehouse_id, name, status, provider_id, template_id, "
+               "tpl_integration_type, is_express, cutoff, sla_cut_in, "
+               "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
+               "created_at, updated_at, fetched_at, store_client_id "
                "FROM delivery_methods")
         params: list[Any] = []
         if store_client_id is not None:
@@ -1197,7 +1215,12 @@ class Store:
         sql += " ORDER BY warehouse_id, delivery_method_id"
         with self.lock:
             rows = self.conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["is_express"] = bool(d.get("is_express"))
+            out.append(d)
+        return out
 
     # ---------- 订单（功能5）----------
     def upsert_postings(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:

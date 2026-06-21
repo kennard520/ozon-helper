@@ -192,15 +192,24 @@ def fetch_delivery_methods(settings: dict, warehouse_ids: list[int]) -> list[dic
         r = client.list_delivery_methods(warehouse_ids=wids, cursor=cursor, limit=100)
         batch = r.get("result") or r.get("delivery_methods") or []
         for d in batch:
+            dp = d.get("tpl_dropoff_point") or {}      # 自提点(PUDO)：用户最关心的地址在这里
+            coord = dp.get("address_coordinates") or {}
             out.append({
                 "delivery_method_id": d.get("id"),
                 "warehouse_id": d.get("warehouse_id"),
                 "name": d.get("name"),
                 "status": d.get("status"),
                 "provider_id": d.get("provider_id"),
+                "template_id": d.get("template_id"),
+                "tpl_integration_type": d.get("tpl_integration_type"),
+                "is_express": d.get("is_express"),
                 "cutoff": d.get("cutoff"),
                 "sla_cut_in": d.get("sla_cut_in"),
-                "template_id": d.get("template_id"),
+                "dropoff_name": dp.get("name"),
+                "dropoff_code": dp.get("code"),
+                "dropoff_address": dp.get("address"),
+                "dropoff_lat": coord.get("latitude"),
+                "dropoff_lng": coord.get("longitude"),
                 "created_at": d.get("created_at"),
                 "updated_at": d.get("updated_at"),
                 "raw": d,

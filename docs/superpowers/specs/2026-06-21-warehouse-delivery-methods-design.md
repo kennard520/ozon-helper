@@ -58,6 +58,12 @@
 | cutoff | TEXT | 截单时间 |
 | sla_cut_in | INTEGER | |
 | template_id | INTEGER | |
+| tpl_integration_type | TEXT | 如 aggregator |
+| is_express | INTEGER | 0/1，列表返回转 bool |
+| dropoff_name | TEXT | 自提点(PUDO)名称 |
+| dropoff_code | TEXT | 自提点编码 |
+| dropoff_address | TEXT | **自提点地址（用户最关心）** |
+| dropoff_lat / dropoff_lng | REAL | 自提点坐标 |
 | created_at | TEXT | Ozon 侧 |
 | updated_at | TEXT | Ozon 侧 |
 | fetched_at | TEXT | 本地同步时间 |

@@ -363,9 +363,16 @@ MYSQL_DDL = [
         name VARCHAR(255) NOT NULL DEFAULT '',
         status VARCHAR(64) NOT NULL DEFAULT '',
         provider_id BIGINT,
+        template_id BIGINT,
+        tpl_integration_type VARCHAR(64),
+        is_express INT,
         cutoff VARCHAR(64),
         sla_cut_in INT,
-        template_id BIGINT,
+        dropoff_name VARCHAR(255),
+        dropoff_code VARCHAR(255),
+        dropoff_address VARCHAR(1024),
+        dropoff_lat DOUBLE,
+        dropoff_lng DOUBLE,
         created_at VARCHAR(40),
         updated_at VARCHAR(40),
         fetched_at VARCHAR(40),
@@ -393,6 +400,13 @@ def init_mysql(conn: MySQLConn) -> None:
         conn.execute(ddl)
     _ensure_mysql_column(conn, "users", "max_stores", "INT NOT NULL DEFAULT 1")
     _ensure_mysql_column(conn, "drafts", "media_status", "VARCHAR(16) NOT NULL DEFAULT 'done'")
+    # 已部署的 delivery_methods 表补自提点等新列（CREATE IF NOT EXISTS 不会补列）
+    for _col, _ddl in (
+        ("tpl_integration_type", "VARCHAR(64)"), ("is_express", "INT"),
+        ("dropoff_name", "VARCHAR(255)"), ("dropoff_code", "VARCHAR(255)"),
+        ("dropoff_address", "VARCHAR(1024)"), ("dropoff_lat", "DOUBLE"), ("dropoff_lng", "DOUBLE"),
+    ):
+        _ensure_mysql_column(conn, "delivery_methods", _col, _ddl)
     conn.commit()
 
 
