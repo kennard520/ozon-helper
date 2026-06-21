@@ -1767,6 +1767,74 @@ class App:
         self.store.set_ai_proposal(draft_id, proposal)
         return {"ok": True, "proposal": proposal}
 
+    # ===== realFBS 运费路线表（CSV 可维护；存 settings kv 的 JSON blob，首次读灌种子）=====
+    _REALFBS_FIELDS = [
+        "scoringGroup", "serviceLevel", "provider", "deliveryMethod", "ozonRating",
+        "etaDays", "rateText", "batteries", "liquids", "measurements",
+        "weightMinG", "weightMaxG", "valueRangeRub", "tarification",
+        "volumeFormula", "compensationRub",
+    ]
+    _REALFBS_NUM = {"ozonRating", "weightMinG", "weightMaxG", "compensationRub"}
+
+    def _realfbs_seed_routes(self) -> list[dict]:
+        import json as _json  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+        seed = Path(__file__).resolve().parent / "realfbs_routes_seed.json"
+        try:
+            return _json.loads(seed.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def realfbs_routes(self) -> dict:
+        """返回 realFBS 运费路线给定价用。表空则灌种子(141 条)并持久化。"""
+        routes = self.store.get_realfbs_routes()
+        if routes is None:
+            routes = self._realfbs_seed_routes()
+            if routes:
+                self.store.set_realfbs_routes(routes)
+        return {"routes": routes or []}
+
+    def import_realfbs_routes(self, csv_text: str) -> dict:
+        """CSV 整表覆盖运费路线。表头须含 _REALFBS_FIELDS 各列；数值列空→None。"""
+        import csv as _csv  # noqa: PLC0415
+        import io as _io  # noqa: PLC0415
+
+        def _num(v):
+            s = str(v or "").strip()
+            if s in ("", "None", "nan"):
+                return None
+            try:
+                return float(s)
+            except ValueError:
+                return None
+
+        reader = _csv.DictReader(_io.StringIO(csv_text or ""))
+        routes: list[dict] = []
+        for row in reader:
+            r: dict = {}
+            for f in self._REALFBS_FIELDS:
+                raw = row.get(f)
+                r[f] = _num(raw) if f in self._REALFBS_NUM else str(raw or "").strip()
+            if not r.get("provider") and not r.get("deliveryMethod") and not r.get("rateText"):
+                continue   # 跳过全空行
+            routes.append(r)
+        if not routes:
+            raise ValueError("CSV 未解析到任何运费路线（请确认表头含 provider/rateText 等列）")
+        self.store.set_realfbs_routes(routes)
+        return {"count": len(routes)}
+
+    def export_realfbs_routes_csv(self) -> str:
+        """当前运费路线导出为 CSV（给用户下载→Excel 维护→再导入）。"""
+        import csv as _csv  # noqa: PLC0415
+        import io as _io  # noqa: PLC0415
+        routes = self.realfbs_routes()["routes"]
+        buf = _io.StringIO()
+        w = _csv.DictWriter(buf, fieldnames=self._REALFBS_FIELDS, extrasaction="ignore")
+        w.writeheader()
+        for r in routes:
+            w.writerow({f: ("" if r.get(f) is None else r.get(f)) for f in self._REALFBS_FIELDS})
+        return buf.getvalue()
+
     def get_commission_map(self, cat_id: int, type_id: int) -> dict:
         """取某 Ozon 类目记住的 realFBS 佣金类目（命中返回 {parent_en, sub_en, rfbs}）。"""
         return self.store.load_commission_map(cat_id, type_id) or {}

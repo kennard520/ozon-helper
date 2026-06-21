@@ -228,6 +228,30 @@ def get_commission_map(cat: int, type: int) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# realFBS 运费路线表（智能定价用）：可导出 CSV → Excel 维护 → 导入覆盖
+@app.get("/api/realfbs-routes")
+def get_realfbs_routes() -> dict:
+    return APP.realfbs_routes()
+
+
+@app.get("/api/realfbs-routes/export")
+def export_realfbs_routes() -> Response:
+    csv_text = APP.export_realfbs_routes_csv()
+    return Response(
+        content=csv_text, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=realfbs_routes.csv"},
+    )
+
+
+@app.post("/api/realfbs-routes/import")
+async def import_realfbs_routes(request: Request) -> dict:
+    body = await request.json()
+    try:
+        return APP.import_realfbs_routes(str((body or {}).get("csv") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 # 本地图片托管：/media/<key>/<file> → data/images/ 下的下载图（采集时落地的本地副本）
 @app.get("/media/{path:path}")
 def media(path: str) -> FileResponse:

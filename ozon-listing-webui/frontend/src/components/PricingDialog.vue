@@ -188,7 +188,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'apply'])
 
 const categories = OZON_REALFBS_DATA.categories
-const routes = OZON_REALFBS_DATA.routes
+// 运费路线：默认用内置静态做兜底；开窗时从后端可维护表拉取覆盖（见下方 watch）
+const routes = ref(OZON_REALFBS_DATA.routes)
 
 // 与 static/pricing.js readInput() / DEFAULTS 一致的默认值
 const DEFAULTS = {
@@ -217,7 +218,7 @@ const blockedRoutes = computed(() => {
   const priceRub = r.targetRub || 0
   const okKeys = new Set((r.availableRoutes || []).map((x) => `${x.provider}|${x.serviceLevel}`))
   const out = []
-  for (const route of routes) {
+  for (const route of routes.value) {
     if (okKeys.has(`${route.provider}|${route.serviceLevel}`)) continue
     const st = routeStatus(route, input, priceRub)
     if (!st.ok) out.push({ provider: route.provider, serviceLevel: route.serviceLevel, reason: zhReason(st.reasons[0]) })
@@ -290,7 +291,7 @@ function buildInput() {
 
 function recompute() {
   const cat = categories[selectedIdx.value] || categories[0]
-  result.value = solvePrice(buildInput(), routes, cat)
+  result.value = solvePrice(buildInput(), routes.value, cat)
 }
 
 async function apply() {
@@ -373,6 +374,11 @@ watch(
   () => props.modelValue,
   async (open) => {
     if (!open) return
+    // 运费路线优先从后端表拉（可 CSV 维护）；拉不到/空则用内置静态兜底
+    try {
+      const rr = await api.realfbsRoutes()
+      if (rr && Array.isArray(rr.routes) && rr.routes.length) routes.value = rr.routes
+    } catch { /* 用静态兜底 */ }
     const d = props.draft || {}
     if (d.pricing && d.pricing.commissionSubEn) {
       restoreFromSnapshot(d.pricing)

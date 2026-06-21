@@ -113,7 +113,30 @@ async function removeStore(client_id) {
   ElMessage.success('已删除')
 }
 
-defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiText, aiImage, aiVideo })
+// realFBS 运费表：导出 CSV → Excel 改 → 导入覆盖（智能定价即刻生效）
+const realfbsImporting = ref(false)
+async function exportRealfbs() {
+  try {
+    const text = await api.exportRealfbsRoutes()
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'realfbs_routes.csv'; a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) { ElMessage.error('导出失败：' + (e.message || e)) }
+}
+async function importRealfbs(file) {
+  realfbsImporting.value = true
+  try {
+    const text = await file.text()
+    const r = await api.importRealfbsRoutes(text)
+    ElMessage.success(`运费表已导入 ${r.count} 条，智能定价即刻生效`)
+  } catch (e) { ElMessage.error('导入失败：' + (e.message || e)) }
+  finally { realfbsImporting.value = false }
+  return false   // 阻止 el-upload 自动上传
+}
+
+defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiText, aiImage, aiVideo, exportRealfbs, importRealfbs })
 </script>
 
 <template>
@@ -206,6 +229,20 @@ defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiT
             <el-input v-model="newStore.client_id" placeholder="Client ID" style="width:120px" size="small" />
             <el-input v-model="newStore.api_key" type="password" show-password placeholder="API Key" style="width:140px" size="small" />
             <el-button size="small" type="primary" @click="addStore">添加店铺</el-button>
+          </div>
+        </div>
+      </el-form-item>
+
+      <el-form-item label="运费表(realFBS)">
+        <div style="width:100%">
+          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:6px">
+            智能定价用的快递运费路线。导出 CSV → 在 Excel 改费率/加减快递 → 导入覆盖即生效（拉不到表时定价自动回退内置数据）。
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <el-button size="small" @click="exportRealfbs">导出 CSV</el-button>
+            <el-upload :show-file-list="false" accept=".csv" :before-upload="importRealfbs">
+              <el-button size="small" type="primary" :loading="realfbsImporting">导入 CSV 覆盖</el-button>
+            </el-upload>
           </div>
         </div>
       </el-form-item>

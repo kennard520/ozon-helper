@@ -58,6 +58,14 @@ export const api = {
   attributeValues: (cat, type, attr, q, language = 'ZH_HANS') => req('GET', `/api/attribute/values/search?${qs({ cat, type, attr, q, language })}`),
   getCommissionMap: (cat, type) => req('GET', `/api/commission-map?${qs({ cat, type })}`),
   saveCommissionMap: (p) => req('POST', '/api/commission-map', p),
+  // realFBS 运费路线表（智能定价用，可 CSV 维护）
+  realfbsRoutes: () => req('GET', '/api/realfbs-routes'),
+  importRealfbsRoutes: (csv) => req('POST', '/api/realfbs-routes/import', { csv }),
+  exportRealfbsRoutes: async () => {
+    const resp = await fetch('/api/realfbs-routes/export', { headers: { ...authHeader(getToken()) } })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    return await resp.text()
+  },
   listWarehouses: (store_client_id) => req('GET', `/api/warehouses${_sq(store_client_id)}`),
   syncWarehouses: (store_client_id) => req('POST', `/api/warehouses/sync${_sq(store_client_id)}`),
   setDefaultWarehouse: (warehouse_id, store_client_id) => req('POST', `/api/warehouses/default${_sq(store_client_id)}`, { warehouse_id }),

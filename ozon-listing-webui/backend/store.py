@@ -396,6 +396,27 @@ class Store:
         return {"parent_en": row["parent_en"], "sub_en": row["sub_en"],
                 "rfbs": loads_json(row["rfbs_json"], [])}
 
+    def get_realfbs_routes(self) -> list[dict[str, Any]] | None:
+        """realFBS 运费路线（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=0 AND key=?",
+                ("realfbs_routes_json",),
+            ).fetchone()
+        if not row:
+            return None
+        return loads_json(row["value"], None)
+
+    def set_realfbs_routes(self, routes: list[dict[str, Any]]) -> None:
+        """整表覆盖 realFBS 运费路线（CSV 导入用）。存为全局 settings kv 的一个 JSON。"""
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
+                ("realfbs_routes_json", dumps_json(routes or [])),
+            )
+            self.conn.commit()
+
     def save_attribute_values(
         self, cat: int, type_id: int, attr: int, values: list[dict[str, Any]], language: str = "ZH_HANS"
     ) -> int:
