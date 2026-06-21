@@ -131,10 +131,10 @@ describe('expandSkus', () => {
     const a = list[0]
     expect(a.variant_label).toBe('摩托车专用款3升铝盖+油管')
     expect(a.price).toBe('18.79')
-    expect(a.weight_g).toBe(940)
-    expect(a.length_mm).toBe(310)
-    expect(a.width_mm).toBe(180)
-    expect(a.height_mm).toBe(110)
+    expect(a.weight_g).toBe(940)              // 克：两边一致，不换算
+    expect(a.length_mm).toBe(31)              // 1688 毫米 310 → 草稿厘米 31（÷10）
+    expect(a.width_mm).toBe(18)               // 180mm → 18cm
+    expect(a.height_mm).toBe(11)              // 110mm → 11cm
     expect(a.images[0]).toBe('https://cbu01.alicdn.com/v3l.jpg')   // 变体图置顶
     expect(a.images).toContain('https://cbu01.alicdn.com/m1.jpg')  // 含主图
     expect(a.source_raw.sku_id).toBe(5595723402563)

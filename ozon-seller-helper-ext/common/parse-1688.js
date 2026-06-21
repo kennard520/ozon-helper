@@ -110,15 +110,18 @@
     }
   }
 
-  // 按 skuId 在 pieceWeightScaleInfo 找克重尺寸（weight 已是克、长宽高已是 mm）
+  // 按 skuId 在 pieceWeightScaleInfo 找克重尺寸。
+  // 1688 长宽高是【毫米】，但草稿列(名 length_mm，历史名)实存【厘米】(发布时 ×10 给 Ozon) → 此处 ÷10。
+  // weight 两边都用【克】，不换算。
   function _packBySkuId(packInfo, skuId) {
+    const mmToCm = (v) => (typeof v === 'number' ? Math.round(v / 10) : null)
     for (const p of packInfo || []) {
       if (p && p.skuId === skuId) {
         return {
           weight_g: typeof p.weight === 'number' ? p.weight : null,
-          length_mm: typeof p.length === 'number' ? p.length : null,
-          width_mm: typeof p.width === 'number' ? p.width : null,
-          height_mm: typeof p.height === 'number' ? p.height : null
+          length_mm: mmToCm(p.length),
+          width_mm: mmToCm(p.width),
+          height_mm: mmToCm(p.height)
         }
       }
     }
