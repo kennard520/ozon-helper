@@ -31,6 +31,15 @@ class GlossaryEngine:
         return out
 
 
+def _chat_completions_url(base: str) -> str:
+    """OpenAI 兼容 chat 端点：容忍 base 带/不带 /v1，统一打 /v1/chat/completions。
+    （OpenAI/DeepSeek/Agnes 都是这个路径；少 /v1 会打到网关首页被 Cloudflare 403。）"""
+    b = str(base or "").rstrip("/")
+    if b.endswith("/v1"):
+        b = b[:-3].rstrip("/")
+    return b + "/v1/chat/completions"
+
+
 class RemoteEngine:
     """OpenAI 兼容 / DeepL 等远程引擎。无 key 时抛错（接口预留，后续填 key 选型）。
     settings 优先取 ai_text 块，回退到 translate_api_base / translate_api_key / translate_model。"""
@@ -64,11 +73,12 @@ class RemoteEngine:
             "temperature": 0.3,
             "stream": False,
         }).encode("utf-8")
-        req = Request(self.base.rstrip("/") + "/chat/completions", data=body,
+        req = Request(_chat_completions_url(self.base), data=body,
                       headers={"Authorization": f"Bearer {self.key}",
-                               "Content-Type": "application/json"}, method="POST")
+                               "Content-Type": "application/json",
+                               "User-Agent": "Mozilla/5.0"}, method="POST")
         try:
-            with urlopen(req, timeout=60) as res:  # noqa: S310
+            with urlopen(req, timeout=120) as res:  # noqa: S310
                 data = _json.loads(res.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:200]

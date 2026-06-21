@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.translate import GlossaryEngine, ManualEngine, get_engine
+from backend.translate import GlossaryEngine, ManualEngine, get_engine, _chat_completions_url
 
 
 class TranslateEngineTest(unittest.TestCase):
@@ -37,6 +37,16 @@ class TranslateEngineTest(unittest.TestCase):
         })
         self.assertEqual(eng.translate(""), "")
         self.assertEqual(eng.translate("   "), "")
+
+    def test_chat_url_always_v1(self):
+        # 统一打 /v1/chat/completions：少 /v1 会打到网关首页被 Cloudflare 403（Agnes 的坑）
+        self.assertEqual(_chat_completions_url("https://apihub.agnes-ai.com"),
+                         "https://apihub.agnes-ai.com/v1/chat/completions")
+        # 带 /v1 或尾斜杠都不重复
+        self.assertEqual(_chat_completions_url("https://api.openai.com/v1"),
+                         "https://api.openai.com/v1/chat/completions")
+        self.assertEqual(_chat_completions_url("https://api.deepseek.com/"),
+                         "https://api.deepseek.com/v1/chat/completions")
 
 
 class TranslateEndpointTest(unittest.TestCase):
