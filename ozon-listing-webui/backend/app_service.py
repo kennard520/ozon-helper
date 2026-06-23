@@ -98,7 +98,7 @@ def _parse_weight_g(text: object) -> int | None:
 
 
 # 物理量属性关键词(按 Ozon 属性名判定)：重量/尺寸/容量——这些由代码按单位确定填，不让 AI 猜
-_WEIGHT_KW = ("重量", "вес", "масса")
+_WEIGHT_KW = ("重量", "净重", "毛重", "克重", "вес", "масса")
 _DIM_KW = ("尺寸", "размер", "габарит")
 _VOL_KW = ("容量", "体积", "容积", "объ", "вмести", "вмещ")
 
@@ -1368,24 +1368,38 @@ class App:
         return any(k in name for k in (_WEIGHT_KW + _DIM_KW + _VOL_KW))
 
     def _physical_attr_value(self, attr: dict, facts: dict) -> str | None:
-        """按属性名/描述的单位从 facts 算出该填的值；无法判定/无数据→None。
-        重量→克(净/毛都用 weight_g)；尺寸→含"包装"用包装尺寸否则产品尺寸，按 mm/cm 输出 LxWxH；容量→ml。"""
+        """按属性名/描述的单位从 facts 算出该填的值；无法判定/无数据→None。单位写在名字或描述里。
+        重量→克/千克(按单位)；尺寸→含"包装"用包装尺寸否则产品尺寸,按 mm/cm 输出 LxWxH；容量→毫升/升(按单位)。"""
+        import re  # noqa: PLC0415
         name = str(attr.get("name") or "").lower()
+        hint = (name + " " + str(attr.get("description") or "")).lower()   # 单位常写在名字「体积，升」或描述里
         if any(k in name for k in _WEIGHT_KW):
             wg = facts.get("weight_g")
-            return str(wg) if wg else None
+            if not wg:
+                return None
+            # 先判千克(否则"кг"含"г"、"千克"含"克"会被当克)；都没写默认克
+            if ("千克" in hint) or ("公斤" in hint) or ("кг" in hint) or re.search(r"(?<![a-zа-яё])kg(?![a-zа-яё])", hint):
+                return f"{wg / 1000:g}"   # 单位千克
+            return str(int(wg))           # 默认克(克/г/g)
         if any(k in name for k in _DIM_KW):
             # "包装"只在名字里判：描述常含"不带包装"会误判(如 #4382「不带包装的尺寸」是产品尺寸)
             is_pkg = ("包装" in name) or ("упаковк" in name)
             dims = facts.get("pkg_dims_mm") if is_pkg else (facts.get("prod_dims_mm") or facts.get("pkg_dims_mm"))
             if not dims:
                 return None
-            if ("厘米" in name) or ("см" in name) or ("cm" in name):   # mm→cm
+            if ("厘米" in hint) or ("см" in hint) or ("cm" in hint):   # mm→cm
                 return "x".join((str(v // 10) if v % 10 == 0 else f"{v / 10:.1f}") for v in dims)
             return "x".join(str(int(v)) for v in dims)
         if any(k in name for k in _VOL_KW):
             ml = facts.get("volume_ml")
-            return str(int(ml)) if ml else None
+            if not ml:
+                return None
+            # 先判毫升(否则"毫升"含"升"会被当升)；再判升;都没写默认毫升
+            if ("毫升" in hint) or ("мл" in hint) or ("ml" in hint):
+                return str(int(ml))       # 单位毫升
+            if ("升" in hint) or ("литр" in hint) or re.search(r"(?<![а-яё])л(?![а-яё])", hint):
+                return f"{ml / 1000:g}"   # 单位升 → ml 换算(如 20000ml→20)
+            return str(int(ml))           # 没写单位默认毫升
         return None
 
     @staticmethod
