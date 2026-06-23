@@ -72,18 +72,27 @@ def _parse_dims_mm(text: object) -> tuple | None:
 
 
 def _parse_volume_ml(text: object) -> int | None:
-    """'4 L' / '4000 ml' / '4升' → 毫升(int)。识别不出数字→None。"""
+    """提体积:数字紧跟体积单位才算('4 L'/'50ml'/'净含量4升')→毫升(int)。
+    无体积单位→None(避免把型号/规格里的裸数字误当容量)。"""
     import re  # noqa: PLC0415
-    s = str(text or "")
-    m = re.search(r"\d+(?:\.\d+)?", s)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(ml|мл|毫升|cc|l|л|升|литр)", str(text or "").lower())
     if not m:
         return None
-    v = float(m.group())
-    low = s.lower()
-    if ("ml" in low) or ("мл" in low) or ("毫升" in low):
-        return int(round(v))
-    if ("l" in low) or ("л" in low) or ("升" in low):   # 升/литр → ×1000
+    v = float(m.group(1))
+    return int(round(v * 1000)) if m.group(2) in ("l", "л", "升", "литр") else int(round(v))
+
+
+def _parse_weight_g(text: object) -> int | None:
+    """提重量:数字紧跟重量单位才算('1.8kg'/'50克'/'净含量50g')→克(int)。无单位→None。"""
+    import re  # noqa: PLC0415
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(kg|кг|千克|公斤|g|克|г|mg|мг)", str(text or "").lower())
+    if not m:
+        return None
+    v, u = float(m.group(1)), m.group(2)
+    if u in ("kg", "кг", "千克", "公斤"):
         return int(round(v * 1000))
+    if u in ("mg", "мг"):
+        return int(round(v / 1000))
     return int(round(v))
 
 
@@ -1301,7 +1310,10 @@ class App:
                 "draft": updated}
 
     def _physical_facts(self, draft: dict) -> dict:
-        """从草稿 + 理解 specs 提取确定的物理量：净重(g)、包装尺寸(mm)、产品尺寸(mm)、容量(ml)。"""
+        """提取确定的物理量(尽量多来源、跨品类)：净重(g)、包装尺寸(mm)、产品尺寸(mm)、容量(ml)。
+        包装尺寸/净重优先用草稿结构化字段；其余从 understanding.specs + 1688 原始参数广扫——
+        键名各品类不一(容量/净含量/规格/重量/尺寸…)，只在**值带对应单位/LxWxH 格式**时才采纳，
+        避免把型号/规格描述里的裸数字误当物理量。"""
         facts: dict = {}
         wg = _to_int(draft.get("weight_g"))
         if wg:
@@ -1310,15 +1322,34 @@ class App:
                    _to_int(draft.get("height_mm")))
         if L and W and H:
             facts["pkg_dims_mm"] = (L, W, H)
+        # 候选(键,值)对：理解 specs + 1688 原始属性
         sr = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
         und = sr.get("understanding") if isinstance(sr.get("understanding"), dict) else {}
         specs = und.get("specs") if isinstance(und.get("specs"), dict) else {}
-        pd = _parse_dims_mm(specs.get("尺寸"))
-        if pd:
-            facts["prod_dims_mm"] = pd
-        vol = _parse_volume_ml(specs.get("容量"))
-        if vol:
-            facts["volume_ml"] = vol
+        pairs: list = list(specs.items()) if isinstance(specs, dict) else []
+        for a in (sr.get("attributes") or []):
+            if isinstance(a, dict):
+                pairs.append((str(a.get("name") or ""), a.get("value")))
+
+        def _scan(keywords: tuple, parse) -> object:
+            for k, v in pairs:
+                if any(w in str(k) for w in keywords):
+                    out = parse(v)
+                    if out:
+                        return out
+            return None
+        if "volume_ml" not in facts:
+            ml = _scan(("容量", "体积", "容积", "净含量", "规格", "毫升", "升"), _parse_volume_ml)
+            if ml:
+                facts["volume_ml"] = ml
+        if "weight_g" not in facts:
+            g = _scan(("重量", "净重", "毛重", "克重", "净含量", "规格"), _parse_weight_g)
+            if g:
+                facts["weight_g"] = g
+        if "prod_dims_mm" not in facts:
+            dm = _scan(("尺寸", "规格", "大小", "长宽高", "外形"), _parse_dims_mm)
+            if dm:
+                facts["prod_dims_mm"] = dm
         return facts
 
     @staticmethod
@@ -1380,7 +1411,14 @@ class App:
         settings = self.store.get_settings()
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
         all_attrs = [a for a in (self._category_attrs(cat, typ) or []) if int(a.get("id") or 0) != 85]
-        facts = self._physical_facts(draft)   # 物理量(重量/尺寸/容量)由代码确定填，下面从 AI 清单剔除
+        facts = self._physical_facts(draft)
+        # 只把「代码真能填出值」的物理属性排除出 AI 并由代码填；提取不到值的**留给 AI**(避免两头落空)
+        phys_fill: dict = {}
+        for a in all_attrs:
+            if self._is_physical_attr(a):
+                v = self._physical_attr_value(a, facts)
+                if v:
+                    phys_fill[int(a.get("id") or 0)] = (a.get("name"), v)
         required = [a for a in all_attrs if a.get("is_required")]
         ordered = required + [a for a in all_attrs if not a.get("is_required")]
         OPTION_CAP = 150   # 选项数 ≤ 此值才整列发给 AI；超过则回退自由写+实时搜(绝不截断选项)
@@ -1390,8 +1428,8 @@ class App:
             aid = int(a.get("id") or 0)
             if not aid:
                 continue
-            if self._is_physical_attr(a):
-                continue   # 物理数字属性不发给 AI（下面代码按单位确定填）
+            if aid in phys_fill:
+                continue   # 物理量代码已能确定填(下面填)；提取不到的物理属性仍留给 AI
             if self._is_annotation_attr(a):
                 continue   # 简介(Аннotация)复用文案描述，不发给 AI
             item = {"id": aid, "name": a.get("name"), "required": bool(a.get("is_required")),
@@ -1434,8 +1472,8 @@ class App:
             meta = by_meta.get(aid)
             if not meta:
                 continue
-            if self._is_physical_attr(meta):
-                continue   # 物理属性只由代码填，忽略 AI 对它的任何输出
+            if aid in phys_fill:
+                continue   # 该物理量由代码填，忽略 AI 输出(提取不到的物理属性不在此集合,照常收 AI)
             if self._is_annotation_attr(meta):
                 continue   # 简介复用文案描述，忽略 AI 输出
             if aid in opt_index:   # 选项属性：AI 返回 value_ids，按 id 直接回填(无需实时搜)
@@ -1474,16 +1512,10 @@ class App:
             else:   # 自由文本/数字/布尔
                 new_attrs.append({"id": aid, "values": [{"value": val}]})
                 mapped.append({"id": aid, "name": meta.get("name"), "value": val})
-        # 物理数字属性(重量/尺寸/容量)由代码按 Ozon 单位确定填——不经 AI，单位永不出错、毛重不漏
-        for a in all_attrs:
-            if not self._is_physical_attr(a):
-                continue
-            v = self._physical_attr_value(a, facts)
-            if not v:
-                continue
-            aid = int(a["id"])
+        # 物理量(重量/尺寸/容量)由代码按 Ozon 单位确定填——不经 AI，单位永不出错、毛重不漏
+        for aid, (nm, v) in phys_fill.items():
             new_attrs.append({"id": aid, "values": [{"value": v}]})
-            mapped.append({"id": aid, "name": a.get("name"), "value": v})
+            mapped.append({"id": aid, "name": nm, "value": v})
         # 简介(Аннотация)复用文案步骤生成的俄语描述，避免属性 AI 逐模型乱翻/重复；文案未跑则留空
         desc = str(draft.get("description") or "").strip()
         if desc:
@@ -1586,8 +1618,8 @@ class App:
                 mapped.append({"id": caid, "name": attr.get("name"), "value": "Китай"})
 
     def _ensure_fixed_attrs(self, draft: dict) -> dict:
-        """发布前**写死**：品牌=无品牌、原产国=中国(Китай)，覆盖采集/AI 的任何值。
-        不在「特征」让用户填，要改去 Ozon 后台改。即使没跑过自动填充也保证这两项就位。"""
+        """发布前**写死**：品牌=无品牌、原产国/制造国=中国(Китай)，覆盖采集/AI 的任何值。
+        不在「特征」让用户填，要改去 Ozon 后台改。即使没跑过自动填充也保证这几项就位。"""
         cat = int(str(draft.get("category_id") or "0") or 0)
         typ = int(str(draft.get("type_id") or "0") or 0)
         if not cat or not typ:
@@ -1598,15 +1630,18 @@ class App:
             return draft
         attrs = [a for a in (draft.get("attributes") or []) if isinstance(a, dict)]
         patch: dict = {}
-        # 原产国 → Китай(覆盖)
-        country_id = next((_to_int(a.get("id")) for a in meta
-                           if _is_country_attr(a) and _to_int(a.get("id")) != BRAND_ATTR_ID), 0)
-        if country_id:
-            cvals = self._resolve_values(cat, typ, country_id, ["Китай"], False)
+        # 原产国 / 制造国 等所有「国家」属性 → Китай(全部覆盖，不只第一个；非国家字典里"Китай"解析不到则跳过)
+        country_ids = [_to_int(a.get("id")) for a in meta
+                       if _is_country_attr(a) and _to_int(a.get("id")) not in (0, BRAND_ATTR_ID)]
+        country_changed = False
+        for cid in dict.fromkeys(country_ids):   # 去重保序
+            cvals = self._resolve_values(cat, typ, cid, ["Китай"], False)
             if cvals:
-                attrs = [a for a in attrs if _to_int(a.get("id")) != country_id]
-                attrs.append({"id": country_id, "values": cvals})
-                patch["attributes"] = attrs
+                attrs = [a for a in attrs if _to_int(a.get("id")) != cid]
+                attrs.append({"id": cid, "values": cvals})
+                country_changed = True
+        if country_changed:
+            patch["attributes"] = attrs
         # 品牌 → 无品牌(brand_id 没解析过才解析一次)
         if not (_to_int(draft.get("brand_id")) > 0
                 and str(draft.get("brand_name") or "").strip() == NO_BRAND):
