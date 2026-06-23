@@ -37,13 +37,22 @@ NON_PRODUCT_RULE = (
     "Keep ONLY content about the product itself: its appearance, features, specs, materials, dimensions and usage."
 )
 
+# Ozon 平台语言铁律（所有出图统一追加）：目标是俄罗斯 Ozon，画面里任何可见文字必须是俄语，禁止任何中文字符
+OZON_RU_RULE = (
+    " TARGET PLATFORM: Ozon marketplace in RUSSIA. EVERY piece of visible text in the final image MUST be in "
+    "correct, natural Russian. There must be ZERO Chinese characters anywhere — translate ALL Chinese text on the "
+    "product, packaging, labels, stickers, buttons or graphics into Russian (keep its position, size and style); "
+    "if some text cannot be translated cleanly, remove it entirely. Do not leave any Chinese, and add no English "
+    "text other than the product's own brand mark."
+)
+
 # 白底主图提示词（gpt-image-2-2 实测不支持透明背景，故走"白底电商主图"而非抠透明）
 WHITE_MAIN_PROMPT = (
     "Place this exact product, unchanged, centered on a pure solid white (#FFFFFF) background. "
     "Professional e-commerce product photo for a marketplace, soft even studio lighting, sharp focus, "
     "product centered with comfortable margin on all sides. Keep the product shape, color, material, "
     "proportions and details identical to the input. No added text, no logo, no watermark, no price. "
-    + NON_PRODUCT_RULE
+    + NON_PRODUCT_RULE + OZON_RU_RULE
 )
 
 # 场景/氛围图提示词：保产品一致，放进自然使用场景；可在尾部追加场景提示(scene hint)
@@ -52,7 +61,7 @@ SCENE_PROMPT = (
     "details as the input) into a natural, appealing real-life usage scene with soft realistic lighting and a "
     "tasteful, uncluttered background. Photorealistic lifestyle product photo. "
     + NON_PRODUCT_RULE +
-    " No text, no logo, no watermark, no price."
+    " No text, no logo, no watermark, no price." + OZON_RU_RULE
 )
 
 # 俄化提示词（模式1单张）：保持整张图，中文产品文字→俄语，非产品文字一律去掉
@@ -60,7 +69,7 @@ LOCALIZE_PROMPT = (
     "Keep this product image's product, layout, background, colors, graphics and icons the same. "
     "Translate the Chinese **product-relevant** text into natural, correct Russian, keeping its position/size/style. "
     + NON_PRODUCT_RULE +
-    " Add no new text, no watermark."
+    " Add no new text, no watermark." + OZON_RU_RULE
 )
 
 
@@ -84,7 +93,7 @@ def build_infographic_prompt(*, role: str = "", heading: str = "", bullets: list
     else:
         parts.append("No text on the image.")
     parts.append("No Chinese text, no watermark, no logo, no QR code, no price, no contact info. "
-                 "Do not invent accessories or functions. " + NON_PRODUCT_RULE)
+                 "Do not invent accessories or functions. " + NON_PRODUCT_RULE + OZON_RU_RULE)
     return " ".join(parts)
 
 

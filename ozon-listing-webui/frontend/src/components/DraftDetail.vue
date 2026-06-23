@@ -41,6 +41,7 @@
         <el-button size="small" :loading="recommendLoading" @click="doRecommend">智能推荐</el-button>
         <el-button size="small" :loading="aiGenerating" @click="doAiGenerate(true)">生成文案(标题/简介/标签)</el-button>
         <el-button size="small" :loading="planLoading" @click="loadPlan(true)">图集计划</el-button>
+        <el-button size="small" type="primary" :loading="autoImgLoading" @click="runAutoImages">🎨 AI设计并生成10张图</el-button>
         <el-button size="small" :loading="copyLoading" @click="doTryCopy">一键复制(官方)</el-button>
       </div>
       <div class="wf-flow">
@@ -104,7 +105,8 @@
       <div v-if="candidates.length" class="smart-cands">
         <div>候选区 {{ candidates.length }} 张(数字请核对):</div>
         <div class="smart-cand-grid">
-          <img v-for="(c, i) in candidates" :key="i" :src="c.url" :title="c.angle" />
+          <el-image v-for="(c, i) in candidates" :key="i" :src="c.url" :title="c.angle"
+                    :preview-src-list="candUrls" :initial-index="i" preview-teleported hide-on-click-modal />
         </div>
         <el-button size="small" type="primary" @click="doApplyCandidates">全部应用到图集</el-button>
         <el-button size="small" @click="doDiscardCandidates">清空候选</el-button>
@@ -999,6 +1001,7 @@ const candidates = computed(() => {
   const sr = (props.draft && props.draft.source_raw) || {}
   return Array.isArray(sr.ai_image_candidates) ? sr.ai_image_candidates : []
 })
+const candUrls = computed(() => candidates.value.map((c) => c.url))   // 候选区点击放大预览的图列表
 const understanding = computed(() => {
   const sr = (props.draft && props.draft.source_raw) || {}
   return (sr.understanding && typeof sr.understanding === 'object') ? sr.understanding : null
@@ -1139,6 +1142,39 @@ async function runImagePlan() {
   }
   await loadPlan()
 }
+const autoImgLoading = ref(false)
+const IMG_CONCURRENCY = 4   // 同时出图张数(避免把画图网关打到限流)
+// 一键：LLM 设计 ~10 张 Ozon 图方案 → 并发渲染进候选区(同时 IMG_CONCURRENCY 张)。
+// 注意：① 设计后 loadPlan() 不能 force(force 会用规则版重建覆盖 LLM 方案)；
+// ② 并发结束回填"候选最全"的那份草稿，避免乱序响应覆盖丢候选显示(后端已加锁防真丢)。
+async function runAutoImages() {
+  autoImgLoading.value = true
+  try {
+    const d = await api.designImagePlan(props.draft.id, 10)
+    await loadPlan()
+    const queue = plan.value.filter((s) => s.status === 'todo').map((s) => s.slot_id)
+    const total = queue.length
+    let ok = 0, failed = 0, best = null, bestLen = -1
+    async function worker() {
+      while (queue.length) {
+        const sid = queue.shift()
+        try {
+          const r = await api.generatePlanSlot(props.draft.id, sid)
+          if (r && r.draft) {
+            const n = ((r.draft.source_raw || {}).ai_image_candidates || []).length
+            if (n >= bestLen) { best = r.draft; bestLen = n }
+            store.upsertDraft(r.draft)   // 进度即时刷新
+          }
+          ok++
+        } catch (e) { failed++ }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(IMG_CONCURRENCY, total) }, () => worker()))
+    if (best) store.upsertDraft(best)
+    await loadPlan()
+    ElMessage.success(`已设计 ${(d && d.count) || total} 张，生成 ${ok}/${total}${failed ? ` (失败 ${failed})` : ''}${d && d.fallback ? ' [LLM设计失败→规则版]' : ''}`)
+  } catch (err) { ElMessage.error('AI 图集失败: ' + ((err && err.message) || err)) } finally { autoImgLoading.value = false }
+}
 const preflightDlg = ref(false)
 const preflightData = ref(null)
 function pfTag(sev) { return { error: '⛔', warn: '⚠', verify: '🔍' }[sev] || '✓' }
@@ -1168,7 +1204,7 @@ const wfRun = {
   category: () => doRecognizeCategory(),
   attrs: () => doAutoMapAttrs(),
   copy: async () => { await doAiGenerate(true); await applyProposal() },
-  images: () => runImagePlan(),
+  images: () => runAutoImages(),
   apply: () => doApplyCandidates(),
   rich: () => doRichContent(),
   publish: () => autoPublish(),
@@ -2028,4 +2064,5 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
 .plan-st.applied { color: var(--c-success, #389e0d); }
 .smart-cand-grid { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .smart-cand-grid img { height: 64px; border: 1px solid var(--c-border-soft); border-radius: 4px; }
+.smart-cand-grid .el-image { display: inline-block; height: 64px; cursor: zoom-in; }
 </style>

@@ -72,6 +72,16 @@ class OzonSellerClientTest(unittest.TestCase):
         self.assertTrue(transport.calls[0]["url"].endswith("/v3/product/import"))
         self.assertEqual(transport.calls[0]["json"], {"items": [{"offer_id": "A1", "name": "Test"}]})
 
+    def test_import_by_sku_targets_copy_endpoint(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.import_by_sku([{"sku": 123, "offer_id": "A1", "price": "2300"}])
+
+        self.assertTrue(transport.calls[0]["url"].endswith("/v1/product/import-by-sku"))
+        self.assertEqual(transport.calls[0]["json"],
+                         {"items": [{"sku": 123, "offer_id": "A1", "price": "2300"}]})
+
     def test_list_unfulfilled_fbs_builds_filter_payload(self) -> None:
         transport = FakeTransport()
         client = OzonSellerClient("123", "secret", transport=transport)

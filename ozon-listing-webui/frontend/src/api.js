@@ -54,6 +54,7 @@ export const api = {
   whitenMain: (id, p = {}) => req('POST', `/api/drafts/${id}/whiten-main`, p),
   sceneImage: (id, p = {}) => req('POST', `/api/drafts/${id}/scene-image`, p),
   imagePlan: (id, force = false) => req('GET', `/api/drafts/${id}/image-plan${force ? '?force=true' : ''}`),
+  designImagePlan: (id, target = 10) => req('POST', `/api/drafts/${id}/design-image-plan`, { target }),
   generatePlanSlot: (id, slotId) => req('POST', `/api/drafts/${id}/generate-plan-slot`, { slot_id: slotId }),
   applyCandidates: (id, indices) => req('POST', `/api/drafts/${id}/apply-candidates`, indices ? { indices } : {}),
   discardCandidates: (id) => req('POST', `/api/drafts/${id}/discard-candidates`),

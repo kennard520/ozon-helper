@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]   # tools/ozon-listing-webui/
@@ -101,6 +102,11 @@ _WEIGHT_KW = ("重量", "вес", "масса")
 _DIM_KW = ("尺寸", "размер", "габарит")
 _VOL_KW = ("容量", "体积", "容积", "объ", "вмести", "вмещ")
 
+def _has_cjk(text: object) -> bool:
+    """是否含中日韩表意文字(用于兜底拦截 AI 没翻译、照抄中文的自由文本值)。"""
+    return any("一" <= c <= "鿿" for c in str(text or ""))
+
+
 OZON_ATTRIBUTE_LANGUAGES = {"DEFAULT", "EN", "RU", "TR", "ZH_HANS"}
 
 
@@ -151,6 +157,7 @@ def _img_type_from_label(label: object) -> str:
 class App:
     def __init__(self) -> None:
         self.store = Store()
+        self._cand_lock = threading.Lock()   # 候选区读-改-写串行化(图集并发出图时防丢候选)
         self.catalog = Catalog(store=self.store, language="ZH_HANS")
         # 俄语树用来对齐采集回来的俄语类目路径，做自动匹配
         self.catalog_ru = Catalog(store=self.store, language="RU")
@@ -1399,7 +1406,7 @@ class App:
         (名字/描述里写明 mm/cm/克/ml)从草稿+specs 确定填——单位永不出错、毛重不漏。
         已特殊处理的 9048/23171/85 不动；其余 AI 填的覆盖/补充。"""
         import json as _json  # noqa: PLC0415
-        from backend.ai_card import _SYS_ATTRS_PICK, _extract_json, build_profile  # noqa: PLC0415
+        from backend.ai_card import _SYS_ATTRS_PICK, _SYS_TRANSLATE_RU, _extract_json, build_profile  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
@@ -1464,6 +1471,7 @@ class App:
         new_attrs: list[dict] = []
         mapped: list[dict] = []
         unmapped: list[dict] = []
+        cjk_pending: list[tuple] = []   # 自由文本里 AI 照抄的中文(aid,name,val)→ 事后批量翻成俄语
         for ca in (card.get("attributes") or []):
             try:
                 aid = int(ca.get("id"))
@@ -1509,9 +1517,31 @@ class App:
                     mapped.append({"id": aid, "name": meta.get("name"), "value": val})
                 else:
                     unmapped.append({"id": aid, "name": meta.get("name"), "value": val})
+            elif _has_cjk(val):   # AI 没遵守"必须俄语"，自由文本照抄了中文 → 延后批量翻译，绝不直接填中文
+                cjk_pending.append((aid, meta.get("name"), val))
             else:   # 自由文本/数字/布尔
                 new_attrs.append({"id": aid, "values": [{"value": val}]})
                 mapped.append({"id": aid, "name": meta.get("name"), "value": val})
+        # 兜底翻译：自由文本里 AI 照抄的中文 → 一次性翻成俄语再填(如"配套/комплектация")；翻译失败的不填中文
+        if cjk_pending:
+            ru_map: dict = {}
+            try:
+                items = [{"id": a, "name": nm, "value_zh": v} for a, nm, v in cjk_pending]
+                tr = _extract_json(chat(_SYS_TRANSLATE_RU, _json.dumps(items, ensure_ascii=False)))
+                for x in (tr.get("items") or []):
+                    try:
+                        ru_map[int(x.get("id"))] = str(x.get("value_ru") or "").strip()
+                    except (TypeError, ValueError):
+                        continue
+            except Exception:  # noqa: BLE001  翻译失败 → 全部记未映射，不填中文
+                ru_map = {}
+            for aid, nm, v in cjk_pending:
+                ru = ru_map.get(aid, "")
+                if ru and not _has_cjk(ru):
+                    new_attrs.append({"id": aid, "values": [{"value": ru}]})
+                    mapped.append({"id": aid, "name": nm, "value": ru})
+                else:
+                    unmapped.append({"id": aid, "name": nm, "value": v})
         # 物理量(重量/尺寸/容量)由代码按 Ozon 单位确定填——不经 AI，单位永不出错、毛重不漏
         for aid, (nm, v) in phys_fill.items():
             new_attrs.append({"id": aid, "values": [{"value": v}]})
@@ -2171,15 +2201,16 @@ class App:
         slot=图集计划槽位 id(可空)：用于把候选关联到计划槽,驱动槽位状态(待做/候选/已应用)。"""
         if len(data) > 20 * 1024 * 1024:
             raise RuntimeError("候选图过大(>20MB)")
-        local = _media.save_upload(f"draft-{draft_id}-cand", "cand.png", data)
-        draft = self.store.get_draft(draft_id)
-        if draft is None:
-            raise KeyError(f"draft {draft_id} not found")
-        sr = dict(draft.get("source_raw") or {})
-        cands = list(sr.get("ai_image_candidates") or [])
-        cands.append({"url": local, "angle": label, "slot": slot})
-        sr["ai_image_candidates"] = cands
-        self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
+        local = _media.save_upload(f"draft-{draft_id}-cand", "cand.png", data)  # 文件落盘在锁外
+        with self._cand_lock:   # 读-改-写整段加锁：并发出图时多线程同时追加不丢候选
+            draft = self.store.get_draft(draft_id)
+            if draft is None:
+                raise KeyError(f"draft {draft_id} not found")
+            sr = dict(draft.get("source_raw") or {})
+            cands = list(sr.get("ai_image_candidates") or [])
+            cands.append({"url": local, "angle": label, "slot": slot})
+            sr["ai_image_candidates"] = cands
+            self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
         return local
 
     def _gen_image_cfg(self, settings: dict | None = None):
@@ -2281,22 +2312,96 @@ class App:
                         "candidate_url": (urls[-1] if urls else "")})
         return {"ok": True, "plan": out}
 
+    def design_image_plan(self, draft_id: int, *, target: int = 10) -> dict:
+        """**AI 设计图集**：把看图理解 + 源图清单(角色) 喂给 LLM 当"美术总监"，设计 ~target 张
+        符合 Ozon 的商品图方案(白底主图/细节俄化/场景/卖点·规格信息图)，产出与规则版同形状的槽位，
+        覆盖写入 source_raw.image_plan(后续渲染/界面照旧用)。LLM 失败/空 → 回退规则版 build_image_plan。"""
+        import json as _json  # noqa: PLC0415
+        from backend.ai_card import _SYS_IMG_PLAN, _extract_json, build_profile  # noqa: PLC0415
+        from backend.drafts import loads_json  # noqa: PLC0415
+        from backend.image_plan import build_image_plan  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = draft.get("source_raw")
+        if isinstance(sr, str):
+            sr = loads_json(sr, {})
+        sr = dict(sr or {})
+        images = list(draft.get("images") or [])
+        if not images:
+            raise ValueError("草稿没有图片，无法设计图集（先采集/生成图片）")
+        und = sr.get("understanding") if isinstance(sr.get("understanding"), dict) else {}
+        if not und:   # 设计强依赖看图理解(图片角色/卖点/规格)——没有就先自动跑一遍
+            self.understand_draft(draft_id)
+            draft = self.store.get_draft(draft_id)
+            sr = draft.get("source_raw")
+            if isinstance(sr, str):
+                sr = loads_json(sr, {})
+            sr = dict(sr or {})
+            und = sr.get("understanding") if isinstance(sr.get("understanding"), dict) else {}
+        n = len(images)
+        roles = {im["idx"]: str(im.get("role") or "") for im in (und.get("images") or [])
+                 if isinstance(im, dict) and isinstance(im.get("idx"), int) and 0 <= im["idx"] < n}
+        inventory = [{"idx": i, "role": roles.get(i, "")} for i in range(n)]
+        profile = build_profile(sr, understanding=und)
+        user = (f"Target image count: {int(target)}\nSource photos (use source_idx from this inventory):\n"
+                + _json.dumps(inventory, ensure_ascii=False) + "\n\nProduct understanding:\n" + profile)
+        chat = self._card_chat(self.store.get_settings(), draft)
+        valid: list[dict] = []
+        try:
+            out = _extract_json(chat(_SYS_IMG_PLAN, user))
+            seen: set = set()
+            for i, s in enumerate(out.get("slots") or []):
+                action = str(s.get("action") or "").strip().lower()
+                if action not in ("white", "localize", "scene", "infographic"):
+                    continue
+                try:
+                    si = int(s.get("source_idx"))
+                except (TypeError, ValueError):
+                    si = 0
+                si = si if 0 <= si < n else 0
+                sid = str(s.get("slot_id") or "").strip() or f"s{i}"
+                if sid in seen:
+                    sid = f"{sid}_{i}"
+                seen.add(sid)
+                valid.append({"slot_id": sid, "role": str(s.get("role") or ""),
+                              "label": str(s.get("label") or sid), "action": action, "source_idx": si,
+                              "heading": str(s.get("heading") or ""),
+                              "bullets": [str(b) for b in (s.get("bullets") or []) if str(b).strip()],
+                              "scene_hint": str(s.get("scene_hint") or ""),
+                              "prompt": str(s.get("prompt") or "").strip()})
+        except Exception as exc:  # noqa: BLE001  设计失败 → 回退规则版，不阻断
+            valid = []
+        if not valid:
+            valid = build_image_plan(und, images)
+            fallback = True
+        else:
+            fallback = False
+        sr["image_plan"] = valid
+        self.store.update_draft(draft_id, {"source_raw": sr})
+        return {"ok": True, "plan": valid, "count": len(valid), "fallback": fallback}
+
     def generate_plan_slot(self, draft_id: int, slot_id: str) -> dict:
         """生成图集计划某个槽位的图(按 action 选生成器,用槽的 source_idx 为源)→ 进候选区,标 slot。"""
         from backend.gen_image import (  # noqa: PLC0415
-            LOCALIZE_PROMPT, SCENE_PROMPT, WHITE_MAIN_PROMPT, build_infographic_prompt)
+            NON_PRODUCT_RULE, OZON_RU_RULE, LOCALIZE_PROMPT, SCENE_PROMPT, WHITE_MAIN_PROMPT,
+            build_infographic_prompt)
         _, _, plan = self._load_image_plan(draft_id)
         slot = next((s for s in plan if s.get("slot_id") == slot_id), None)
         if slot is None:
             raise ValueError(f"图集计划里没有槽位 {slot_id}")
         src = int(slot.get("source_idx") or 0)
         action = slot.get("action")
-        if action == "white":
+        designed = str(slot.get("prompt") or "").strip()
+        if designed:   # 设计模型为这张图输出的整段提示词 → 直接用，强制追加去非产品+Ozon俄语硬规则(双保险)
+            prompt = designed + " " + NON_PRODUCT_RULE + OZON_RU_RULE
+        elif action == "white":
             prompt = WHITE_MAIN_PROMPT
         elif action == "localize":
             prompt = LOCALIZE_PROMPT
         elif action == "scene":
-            prompt = SCENE_PROMPT
+            hint = str(slot.get("scene_hint") or slot.get("heading") or "").strip()
+            prompt = SCENE_PROMPT + (f" Scene context: {hint}" if hint else "")
         elif action == "infographic":
             prompt = build_infographic_prompt(role=str(slot.get("role") or ""),
                                               heading=str(slot.get("heading") or ""),

@@ -594,6 +594,18 @@ def image_plan(draft_id: int, force: bool = False) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/drafts/{draft_id}/design-image-plan")
+def design_image_plan(draft_id: int, body: dict | None = None) -> dict:
+    """AI 设计图集：据看图理解+源图设计 ~target 张 Ozon 商品图方案，写入 image_plan。"""
+    try:
+        target = int((body or {}).get("target") or 10)
+        return APP.design_image_plan(draft_id, target=target)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/drafts/{draft_id}/generate-plan-slot")
 def generate_plan_slot(draft_id: int, body: dict) -> dict:
     """生成图集计划某槽位的图，结果进候选区。"""

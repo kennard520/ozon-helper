@@ -189,10 +189,13 @@
     const detailHtml = page.detailHtml || ''
     const attrEl = (typeof document !== 'undefined') ? document.querySelector('.module-od-product-attributes') : null
     const attrHtml = attrEl ? attrEl.outerHTML : ''
+    // 「商品件重尺」表(长宽高 cm + 重量 g)——Ozon 必填，尺寸优先源
+    const packEl = (typeof document !== 'undefined') ? document.querySelector('.module-od-product-pack-info') : null
+    const packHtml = packEl ? packEl.outerHTML : ''
     const base = OzonHelperParse1688.parse1688Base(data, detailHtml, attrHtml, url)
     if (!base.title) { if (onStatus) onStatus('未识别到 1688 商品（标题为空）', false); return }
     const group = OzonHelperParse1688.extractOfferId(url)
-    const variants = OzonHelperParse1688.expandSkus(data, base)
+    const variants = OzonHelperParse1688.expandSkus(data, base, packHtml)
     let firstDraftId = null
     let autoPublish = false
     let ok = 0

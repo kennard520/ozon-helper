@@ -51,6 +51,38 @@ _SYS_ATTRS_PICK = (
     "- boolean: entry = {\"id\":attr_id,\"value\":\"true\"} or {\"id\":attr_id,\"value\":\"false\"}.\n"
     "Fill EVERY required attribute if the product info allows, plus as many others as the info supports. "
     "Follow each attribute's hint. Use only facts present in the product info; never fabricate. Output only JSON.")
+# 兜底翻译：属性自由文本若 AI 照抄了中文(没遵守 text_ru 必须俄语)，批量翻成俄语再填
+_SYS_TRANSLATE_RU = (
+    "Translate each product attribute value into fluent, natural Russian. Input is JSON "
+    "[{\"id\":int,\"name\":str,\"value_zh\":str}] (name is the Russian attribute name for context). "
+    "Output ONLY JSON {\"items\":[{\"id\":int,\"value_ru\":str}]}. value_ru MUST be Russian, NEVER Chinese. "
+    "Preserve separators like '; ' between items. Translate every input id.")
+# 图集设计：全模态/文本 LLM 当"美术总监"，据看图理解+源图清单设计一整套 Ozon 商品图(目标张数在 user 里给)
+_SYS_IMG_PLAN = (
+    "You are an e-commerce art director planning the image set for an Ozon (Russia) product card. "
+    "You are given the product understanding (type, selling points, use scenes, specs, materials, what's included) "
+    "and an inventory of available source photos (each with an index and a role tag). Design the number of images "
+    "requested (Target image count in the user message) that together make a strong, Ozon-compliant card. "
+    "Output ONLY JSON {\"slots\":[{\"slot_id\":str,\"role\":str,\"label\":str,\"action\":str,"
+    "\"source_idx\":int,\"heading\":str,\"bullets\":[str],\"scene_hint\":str,\"prompt\":str}]}. "
+    "action is one of: \n"
+    "- \"white\": clean WHITE-background main product shot. Exactly ONE, placed first; source_idx = the best overall product photo.\n"
+    "- \"localize\": reuse a source photo as-is but translate any Chinese on it to Russian (good for detail/feature shots "
+    "that already look fine); source_idx = that photo.\n"
+    "- \"scene\": a lifestyle/usage photo of the product in a real context; put the concrete scene (where/how used, from "
+    "the use scenes) in English in \"scene_hint\"; source_idx = the overall photo.\n"
+    "- \"infographic\": product photo + overlaid RUSSIAN text; for selling-point cards and a size/spec card; give a short "
+    "Russian \"heading\" and 1-3 short Russian \"bullets\" (translated from the selling points / specs); source_idx = a relevant photo.\n"
+    "CRITICAL — for EVERY slot also write \"prompt\": a complete, self-contained ENGLISH image-generation prompt for the "
+    "image model, describing exactly what this single image should look like (composition, framing, background, which "
+    "product detail/angle to highlight, lighting/mood). The image model receives the chosen source photo as the reference "
+    "— so the prompt MUST instruct it to keep the product visually IDENTICAL to that reference (same shape, color, "
+    "material, proportions, details). For any text that should appear ON the image (infographic heading/bullets, a "
+    "translated label, etc.), spell it out IN FLUENT RUSSIAN inside the prompt — this is the Ozon marketplace in Russia, "
+    "so the image must contain ZERO Chinese characters (translate or remove any Chinese on the product/packaging). "
+    "Compose a balanced set: 1 white main, 1-2 detail(localize), 1-2 scene, the rest infographic cards covering the key "
+    "selling points + a size/容量/重量 spec card. All on-image text MUST be fluent Russian. source_idx MUST be a valid index "
+    "from the given inventory. label is a short Chinese tag for the UI. Output only JSON, no explanation.")
 # Image prompts: for manually pasting into ChatGPT Pro to generate images. {n} is formatted to the selling-point count at call time.
 _SYS_IMG_PROMPTS = (
     "You are a cross-border e-commerce visual planner generating «AI image-generation prompts» for an Ozon (Russia) "

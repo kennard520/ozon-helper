@@ -87,7 +87,14 @@
     const pick = (Array.isArray(mainImg) && mainImg.length) ? mainImg : offerImg
     const imgs = Array.isArray(pick) ? pick.filter((u) => typeof u === 'string' && u) : []
     const video = _get(data, ['gallery', 'fields', 'video']) || {}
-    const priceDisplay = _get(data, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) || ''
+    // 1688 改版后价在 finalPriceModel.tradeWithoutPromotion(offerPriceDisplay 区间 / offerMaxPrice 最贵档)；
+    // 旧版兜底 priceModel.originalPriceDisplay。阶梯价取最贵那档(小批量实付价)。
+    const fpm = _get(data, ['mainPrice', 'fields', 'finalPriceModel', 'tradeWithoutPromotion']) || {}
+    const priceDisplay =
+      fpm.offerPriceDisplay ||
+      (fpm.offerMaxPrice != null ? String(fpm.offerMaxPrice) : '') ||
+      _get(data, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) ||
+      ''
     const attrs = parseAttributes(attrHtml)
     return {
       source_platform: '1688',
@@ -110,22 +117,68 @@
     }
   }
 
-  // 按 skuId 在 pieceWeightScaleInfo 找克重尺寸。
-  // 1688 长宽高是【毫米】，但草稿列(名 length_mm，历史名)实存【厘米】(发布时 ×10 给 Ozon) → 此处 ÷10。
-  // weight 两边都用【克】，不换算。
+  // 按 skuId 在 pieceWeightScaleInfo 找克重尺寸(包装表 parsePackInfo 是首选，此为回退)。
+  // 1688 长宽高是【毫米】，草稿列统一存【毫米】→ 直存不换算。weight 两边都用【克】。
   function _packBySkuId(packInfo, skuId) {
-    const mmToCm = (v) => (typeof v === 'number' ? Math.round(v / 10) : null)
+    const mm = (v) => (typeof v === 'number' ? Math.round(v) : null)
     for (const p of packInfo || []) {
       if (p && p.skuId === skuId) {
         return {
           weight_g: typeof p.weight === 'number' ? p.weight : null,
-          length_mm: mmToCm(p.length),
-          width_mm: mmToCm(p.width),
-          height_mm: mmToCm(p.height)
+          length_mm: mm(p.length),
+          width_mm: mm(p.width),
+          height_mm: mm(p.height)
         }
       }
     }
     return { weight_g: null, length_mm: null, width_mm: null, height_mm: null }
+  }
+
+  // 解析「商品件重尺」HTML 表(module-od-product-pack-info)→ [{color,spec,length_cm,width_cm,height_cm,weight_g}]。
+  // 表头明确带单位(长(cm)/重量(g))，比 JS 结构 pieceWeightScaleInfo(单位不一、易 10× 错)更可靠。
+  function parsePackInfo(html) {
+    if (typeof html !== 'string' || !html) return []
+    const heads = []
+    const reH = /<th\b[^>]*>([\s\S]*?)<\/th>/gi
+    let m
+    while ((m = reH.exec(html))) heads.push(_text(m[1]))
+    if (!heads.length) return []
+    const idxOf = (kw) => heads.findIndex((h) => h.indexOf(kw) >= 0)
+    const ci = { color: idxOf('颜色'), spec: idxOf('规格'), L: idxOf('长'), W: idxOf('宽'), H: idxOf('高'), wt: idxOf('重量') }
+    const rows = []
+    const reTr = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
+    let tr
+    while ((tr = reTr.exec(html))) {
+      const cells = []
+      const reTd = /<td\b[^>]*>([\s\S]*?)<\/td>/gi
+      let td
+      while ((td = reTd.exec(tr[1]))) cells.push(_text(td[1]))
+      if (!cells.length) continue   // 表头行(只有 th)跳过
+      const num = (i) => { const v = parseFloat(cells[i]); return isFinite(v) ? v : null }
+      rows.push({
+        color: ci.color >= 0 ? (cells[ci.color] || '') : '',
+        spec: ci.spec >= 0 ? (cells[ci.spec] || '') : '',
+        length_cm: ci.L >= 0 ? num(ci.L) : null,
+        width_cm: ci.W >= 0 ? num(ci.W) : null,
+        height_cm: ci.H >= 0 ? num(ci.H) : null,
+        weight_g: ci.wt >= 0 ? num(ci.wt) : null
+      })
+    }
+    return rows
+  }
+
+  // 包装表行 → 草稿尺寸字段。表里是厘米，草稿列统一存【毫米】→ cm×10；weight 克直填。
+  function _packRowToDims(row) {
+    const g = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v) : null)
+    const mm = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 10) : null)
+    return { weight_g: g(row.weight_g), length_mm: mm(row.length_cm), width_mm: mm(row.width_cm), height_mm: mm(row.height_cm) }
+  }
+
+  // 把变体按颜色匹配到包装表某行(颜色出现在 specAttrs 里)；匹配不到用第一行(多数变体同尺寸)。无表返回 null。
+  function _packForVariant(packRows, specAttrs) {
+    if (!packRows || !packRows.length) return null
+    const hit = packRows.find((p) => p.color && String(specAttrs || '').indexOf(p.color) >= 0)
+    return _packRowToDims(hit || packRows[0])
   }
 
   // 在 skuProps 维度值里按规格名找变体图（单维度：specAttrs === value.name）
@@ -138,42 +191,47 @@
     return ''
   }
 
-  // 区间最低价（"18.79-141.63" 或乱序 → 最低；保留原始字符串格式，不做 Number 往返丢精度）
-  function _lowestFromDisplay(disp) {
+  // 区间最高价（"143.00-159.00" → 最贵那档；阶梯价小批量实付价，用户要"贵的那个"）
+  function _highestFromDisplay(disp) {
     const nums = String(disp || '').match(/\d+(?:\.\d+)?/g)
     if (!nums || !nums.length) return ''
-    let lo = nums[0]
-    for (const n of nums) if (Number(n) < Number(lo)) lo = n
-    return lo
+    let hi = nums[0]
+    for (const n of nums) if (Number(n) > Number(hi)) hi = n
+    return hi
   }
 
-  // 全量 SKU 展开 → 变体草稿数组
-  function expandSkus(data, base) {
+  // 全量 SKU 展开 → 变体草稿数组。packHtml = 「商品件重尺」表 outerHTML(尺寸优先源)
+  function expandSkus(data, base, packHtml) {
     data = data || {}
     base = base || {}
     const skuModel = _get(data, ['Root', 'fields', 'dataJson', 'skuModel']) || {}
     const infoMap = skuModel.skuInfoMap || {}
     const skuProps = skuModel.skuProps || []
     const packInfo = _get(data, ['productPackInfo', 'fields', 'pieceWeightScale', 'pieceWeightScaleInfo']) || []
+    const packRows = parsePackInfo(packHtml)   // 包装表(单位明确)优先；无则回退 pieceWeightScaleInfo
     const keys = Object.keys(infoMap)
     const baseImgs = Array.isArray(base.images) ? base.images : []
 
     if (!keys.length) {
-      // 无 SKU：单条，价取区间最低
-      const price = _lowestFromDisplay(_get(base, ['source_raw', 'price_display']))
-      return [Object.assign({}, base, { price: price })]
+      // 无 SKU：单条，价取区间最贵那档；尺寸取包装表第一行
+      const price = _highestFromDisplay(_get(base, ['source_raw', 'price_display']))
+      const dims = packRows.length ? _packRowToDims(packRows[0])
+        : { weight_g: null, length_mm: null, width_mm: null, height_mm: null }
+      return [Object.assign({}, base, { price: price }, dims)]
     }
 
+    // 多数 1688 商品 SKU 不带单价 → 用整品区间最贵那档兜底
+    const offerHigh = _highestFromDisplay(_get(base, ['source_raw', 'price_display']))
     return keys.map((k) => {
       const sku = infoMap[k] || {}
-      const dims = _packBySkuId(packInfo, sku.skuId)
+      const dims = _packForVariant(packRows, sku.specAttrs || k) || _packBySkuId(packInfo, sku.skuId)
       const vimg = _variantImage(skuProps, sku.specAttrs || k)
       const images = []
       const push = (u) => { if (u && images.indexOf(u) < 0) images.push(u) }
       push(vimg)
       baseImgs.forEach(push)
       return Object.assign({}, base, {
-        price: sku.price != null ? String(sku.price) : '',
+        price: sku.price != null ? String(sku.price) : offerHigh,
         variant_label: sku.specAttrs || k,
         weight_g: dims.weight_g,
         length_mm: dims.length_mm,
@@ -193,5 +251,5 @@
     return skuId ? (b + '#sku=' + skuId) : b
   }
 
-  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parse1688Base, expandSkus, variantSourceUrl }
+  return { extractOfferId, parseDetailImages, buildRichContent, parseAttributes, parsePackInfo, parse1688Base, expandSkus, variantSourceUrl }
 })

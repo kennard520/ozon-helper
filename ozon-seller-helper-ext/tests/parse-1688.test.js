@@ -132,21 +132,21 @@ describe('expandSkus', () => {
     expect(a.variant_label).toBe('摩托车专用款3升铝盖+油管')
     expect(a.price).toBe('18.79')
     expect(a.weight_g).toBe(940)              // 克：两边一致，不换算
-    expect(a.length_mm).toBe(31)              // 1688 毫米 310 → 草稿厘米 31（÷10）
-    expect(a.width_mm).toBe(18)               // 180mm → 18cm
-    expect(a.height_mm).toBe(11)              // 110mm → 11cm
+    expect(a.length_mm).toBe(310)             // 1688 本就毫米，草稿列统一毫米 → 直存
+    expect(a.width_mm).toBe(180)
+    expect(a.height_mm).toBe(110)
     expect(a.images[0]).toBe('https://cbu01.alicdn.com/v3l.jpg')   // 变体图置顶
     expect(a.images).toContain('https://cbu01.alicdn.com/m1.jpg')  // 含主图
     expect(a.source_raw.sku_id).toBe(5595723402563)
     expect(a.source_raw.stock).toBe(9973)
     expect(a.rich_content_json.content.length).toBe(2)             // 富文本共用
   })
-  it('无 SKU → 单条，价取区间最低', () => {
+  it('无 SKU → 单条，价取区间最贵那档', () => {
     const data = mockData()  // skuInfoMap 空
     const base = parse1688Base(data, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
     const list = expandSkus(data, base)
     expect(list.length).toBe(1)
-    expect(list[0].price).toBe('18.79')   // 来自 originalPriceDisplay "18.79-141.63" 最低
+    expect(list[0].price).toBe('141.63')   // 来自 originalPriceDisplay "18.79-141.63" 取最贵
   })
 })
 
@@ -192,10 +192,86 @@ describe('variantSourceUrl', () => {
   })
 })
 
-describe('expandSkus 区间最低价（乱序）', () => {
-  it('price_display 乱序也取最低', () => {
+describe('expandSkus 区间价（乱序取最贵）', () => {
+  it('price_display 乱序也取最贵那档', () => {
     const list = expandSkus(mockData(), { source_raw: { price_display: '141.63-18.79' }, images: [] })
     expect(list.length).toBe(1)
-    expect(list[0].price).toBe('18.79')
+    expect(list[0].price).toBe('141.63')
+  })
+})
+
+// 2026-06 1688 改版：价从 mainPrice.fields.finalPriceModel.tradeWithoutPromotion 取；SKU 常不带单价
+describe('1688 改版价格路径 (finalPriceModel)', () => {
+  function mockNewPrice() {
+    const d = mockData()
+    delete d.mainPrice.fields.priceModel
+    d.mainPrice.fields.finalPriceModel = {
+      tradeWithoutPromotion: { offerPriceDisplay: '143.00-159.00', offerMaxPrice: '159.00' }
+    }
+    d.Root.fields.dataJson.skuModel = {
+      skuProps: [],
+      skuInfoMap: { 哑光白: { specId: 's1', specAttrs: '哑光白', canBookCount: 488, skuId: 6254336483671 } }
+    }
+    return d
+  }
+  it('price_display 取 finalPriceModel.offerPriceDisplay', () => {
+    const b = parse1688Base(mockNewPrice(), DETAIL, '', 'https://detail.1688.com/offer/1.html')
+    expect(b.source_raw.price_display).toBe('143.00-159.00')
+  })
+  it('SKU 无单价 → 用整品区间最贵那档兜底', () => {
+    const d = mockNewPrice()
+    const base = parse1688Base(d, DETAIL, '', 'https://detail.1688.com/offer/1.html')
+    const list = expandSkus(d, base)
+    expect(list.length).toBe(1)
+    expect(list[0].price).toBe('159.00')
+  })
+})
+
+// 「商品件重尺」HTML 表(长宽高 cm + 重量 g)——Ozon 必填，尺寸优先源
+const { parsePackInfo } = OzonHelperParse1688
+const PACK_HTML = '<div class="module-od-product-pack-info"><table>' +
+  '<thead><tr><th class="field-value">颜色</th><th class="field-value">规格</th>' +
+  '<th class="field-value">长(cm)</th><th class="field-value">宽(cm)</th><th class="field-value">高(cm)</th>' +
+  '<th class="field-value">体积(cm³)</th><th class="field-value">重量(g)</th></tr></thead><tbody>' +
+  '<tr><td class="field-value">哑光白</td><td class="field-value">可视款无304不锈钢盆</td>' +
+  '<td class="field-value">20.50</td><td class="field-value">20.50</td><td class="field-value">30.50</td>' +
+  '<td class="field-value">12817.625</td><td class="field-value">1800</td></tr>' +
+  '<tr><td class="field-value">薄荷绿</td><td class="field-value">可视款无304不锈钢盆</td>' +
+  '<td class="field-value">21.00</td><td class="field-value">21.00</td><td class="field-value">31.00</td>' +
+  '<td class="field-value">13000</td><td class="field-value">1850</td></tr></tbody></table></div>'
+
+describe('parsePackInfo (商品件重尺表)', () => {
+  it('每行解析 颜色/长宽高(cm)/重量(g)', () => {
+    const rows = parsePackInfo(PACK_HTML)
+    expect(rows.length).toBe(2)
+    expect(rows[0]).toMatchObject({ color: '哑光白', length_cm: 20.5, width_cm: 20.5, height_cm: 30.5, weight_g: 1800 })
+    expect(rows[1].color).toBe('薄荷绿')
+    expect(rows[1].weight_g).toBe(1850)
+  })
+  it('空/无表 → []', () => {
+    expect(parsePackInfo('')).toEqual([])
+    expect(parsePackInfo(null)).toEqual([])
+  })
+})
+
+describe('expandSkus 用包装表尺寸(cm 直填，优先于 pieceWeightScaleInfo)', () => {
+  it('按颜色匹配包装行，长宽高用 cm 取整直填(不再 ÷10)', () => {
+    const d = mockDataWithSku()
+    d.Root.fields.dataJson.skuModel.skuInfoMap = {
+      白: { specId: 's1', specAttrs: '哑光白>可视款', skuId: 1, canBookCount: 5 },
+      绿: { specId: 's2', specAttrs: '薄荷绿>可视款', skuId: 2, canBookCount: 5 }
+    }
+    const base = parse1688Base(d, DETAIL, '', 'https://x/o.html')
+    const list = expandSkus(d, base, PACK_HTML)
+    expect(list[0].length_mm).toBe(205)  // 哑光白 20.5cm → 毫米 205（cm×10）
+    expect(list[0].weight_g).toBe(1800)
+    expect(list[1].length_mm).toBe(210)  // 薄荷绿 21.0cm → 210mm
+    expect(list[1].weight_g).toBe(1850)  // 按颜色匹配到薄荷绿那行
+  })
+  it('无 packHtml → 回退 pieceWeightScaleInfo（毫米直存）', () => {
+    const d = mockDataWithSku()
+    const base = parse1688Base(d, DETAIL, '', 'https://x/o.html')
+    const list = expandSkus(d, base)        // 不传 packHtml
+    expect(list[0].length_mm).toBe(310)     // 310mm 直存（pieceWeightScaleInfo 兜底）
   })
 })
