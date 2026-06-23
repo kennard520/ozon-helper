@@ -80,6 +80,9 @@ def migrate_ai(settings: dict) -> dict:
     ai_video = _ai_block(settings, "ai_video", default_engine="agnes",
                          legacy_base="agnes_api_base", legacy_key="agnes_api_key",
                          legacy_model="agnes_video_model", legacy_engine_val="agnes")
+    # 多模态"理解层"模型（看图理解→事实/角色）。无旧字段，全新槽，默认 openai 兼容。
+    ai_multimodal = _ai_block(settings, "ai_multimodal", default_engine="openai",
+                              legacy_base="", legacy_key="", legacy_model="")
     cur_text = settings.get("ai_text") if isinstance(settings.get("ai_text"), dict) else {}
     if "multimodal" in (cur_text or {}):
         ai_text["multimodal"] = bool(cur_text.get("multimodal"))
@@ -89,11 +92,42 @@ def migrate_ai(settings: dict) -> dict:
     if not tm:
         legacy_te = _clean(settings.get("translate_engine")).lower()
         tm = legacy_te if legacy_te in ("manual", "glossary") else "ai"
-    return {"ai_text": ai_text, "ai_image": ai_image, "ai_video": ai_video, "translate_mode": tm}
+    return {"ai_text": ai_text, "ai_image": ai_image, "ai_video": ai_video,
+            "ai_multimodal": ai_multimodal, "translate_mode": tm}
+
+
+def ai_platforms(settings: dict) -> dict:
+    """{平台名: {base, key}}。平台 = 一处配好 **地址+Key**(不选协议)，多个用途复用。
+    协议(引擎)按用途自动定，不让用户选。"""
+    out: dict = {}
+    for p in (settings.get("ai_platforms") or []):
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or "").strip()
+        if not name:
+            continue
+        out[name] = {"base": str(p.get("base") or p.get("api_base") or "").strip(),
+                     "key": str(p.get("key") or p.get("api_key") or "").strip()}
+    return out
+
+
+# 引擎(协议)按用途自动定，用户不选：文本/多模态走通用 OpenAI 兼容 chat(agnes_chat 任意地址都行)、
+# 图片走 gptimage(/v1/images)、视频走 agnes。
+_KIND_ENGINE = {"text": "agnes", "multimodal": "agnes", "image": "gptimage", "video": "agnes"}
 
 
 def ai_config(settings: dict, kind: str) -> dict:
-    """解析某套 AI 配置成 {engine, base, key, model}（给引擎直接用）。kind ∈ text/image/video。"""
+    """解析某套 AI 配置成 {engine, base, key, model}。kind ∈ text/image/video/multimodal。
+    新结构：槽存 {platform(平台名), model} → 平台给 base/key、引擎按用途自动、槽给 model。
+    旧结构：槽自带 {engine, api_base, api_key, model}（回退兼容）。"""
+    slot = settings.get(f"ai_{kind}") if isinstance(settings.get(f"ai_{kind}"), dict) else {}
+    plat_name = str(slot.get("platform") or "").strip()
+    if plat_name:
+        p = ai_platforms(settings).get(plat_name)
+        if p:
+            return {"engine": _KIND_ENGINE.get(kind, "agnes"),
+                    "base": p["base"], "key": p["key"],
+                    "model": str(slot.get("model") or "").strip()}
     block = migrate_ai(settings)[f"ai_{kind}"]
     return {"engine": block["engine"], "base": block["api_base"],
             "key": block["api_key"], "model": block["model"]}

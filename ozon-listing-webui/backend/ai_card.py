@@ -6,10 +6,18 @@ NO_BRAND = "Нет бренда"
 # 文案请求：标题(重写优化、防降权) + 描述 + 标签
 _SYS_TITLE = ("You write the Ozon listing copy in Russian. Based on the product info, output JSON "
               "{\"ozon_title\":str,\"description\":str,\"hashtags\":[str,...]}. "
-              "1) ozon_title: write a FRESH, optimized Russian title (product category + key selling points). "
-              "DO NOT copy the source/original title verbatim — rephrase it. "
+              "1) ozon_title: write a FRESH, optimized Russian title (product category + key selling points), "
+              "**concise, at most ~150 characters** (well within Ozon's 500-char limit; no keyword stuffing, no "
+              "repeated words). DO NOT copy the source/original title verbatim — rephrase it. "
               "**The title MUST NOT contain any brand / manufacturer / trademark name** — describe the product generically. "
-              "2) description: a complete Russian description (80-250 words), fluent, based on known info, no fabrication. "
+              "2) description: a complete Russian product description (150-350 words) that combines a **PRODUCT "
+              "INTRODUCTION + MARKETING copy**: first introduce what the product IS and its key facts (category, "
+              "capacity/size, core features, materials, what's included), then present them as **persuasive, "
+              "benefit-oriented marketing** around the product's selling points, the buyer's needs and use scenarios. "
+              "Fluent and engaging, not a dry bullet list, but factually complete. Base everything on the provided "
+              "product info / selling points; do NOT fabricate. Keep it STRICTLY about the product — NO brand / "
+              "manufacturer / shop names, NO guarantees / warranties / free-trial / money-back, NO shipping or service "
+              "promises, NO OEM / factory / dropshipping claims, NO price / contact / promotions. "
               "3) hashtags: up to 30 Russian search hashtags. Each MUST start with '#'; a multi-word tag joins words with "
               "'_' (no spaces inside a tag). NO brand, NO parameters, NO product name — only trend/style/theme. "
               "Output only JSON, no explanation.")
@@ -24,6 +32,25 @@ _SYS_ATTRS = ("You fill Ozon product attributes in Russian. Based on the product
               "present; if unknown, omit it from the array — do not fabricate. "
               "weight_g = gross weight with packaging (grams), length/width/height_cm = dimensions (cm); convert units "
               "from the params (kg→g×1000, mm→cm÷10); if not found use 0. Output only JSON, no explanation.")
+# 增强版属性填充：每个属性带「kind(单选/多选/文本/数字/布尔)+选项清单」，AI 从选项里按 id 选。
+_SYS_ATTRS_PICK = (
+    "You fill Ozon product attributes from the product info. You get an attribute list; each item has "
+    "id, name, required, kind, hint, and for option kinds an 'options' list (each option is {id,value}) "
+    "and possibly max_values. Output ONLY JSON {\"attributes\":[ ... ]}, no explanation. "
+    "Add one entry per attribute you can fill, shaped by its kind:\n"
+    "- select_one: choose the SINGLE option whose meaning best matches the product; "
+    "entry = {\"id\":attr_id,\"value_ids\":[chosen_option_id]}. Choose ONLY from the given options (by their id); "
+    "if none truly matches, skip this attribute.\n"
+    "- select_many: choose ALL and ONLY the options that genuinely apply to THIS product, at most max_values; "
+    "entry = {\"id\":attr_id,\"value_ids\":[option_id, ...]}. ONLY ids from the given options. "
+    "Match strictly to the product's real facts — do NOT add options the product is not for (e.g. don't add "
+    "'for rodents' if it serves only cats and dogs), and do NOT miss ones that clearly apply.\n"
+    "- text_ru: entry = {\"id\":attr_id,\"value\":\"<value in RUSSIAN>\"}. The product info may be in Chinese — "
+    "you MUST write the value in fluent Russian; NEVER output Chinese characters.\n"
+    "- number: entry = {\"id\":attr_id,\"value\":\"<digits only, no unit>\"}.\n"
+    "- boolean: entry = {\"id\":attr_id,\"value\":\"true\"} or {\"id\":attr_id,\"value\":\"false\"}.\n"
+    "Fill EVERY required attribute if the product info allows, plus as many others as the info supports. "
+    "Follow each attribute's hint. Use only facts present in the product info; never fabricate. Output only JSON.")
 # Image prompts: for manually pasting into ChatGPT Pro to generate images. {n} is formatted to the selling-point count at call time.
 _SYS_IMG_PROMPTS = (
     "You are a cross-border e-commerce visual planner generating «AI image-generation prompts» for an Ozon (Russia) "
@@ -39,6 +66,12 @@ _SYS_IMG_PROMPTS = (
     "4) Use only features actually present in the product info; do not fabricate functions or appearance the product lacks.\n"
     "5) **Every prompt (the main image and all selling-point images) must end by specifying: vertical 3:4 aspect ratio, "
     "portrait 1080x1440, high resolution, ultra-detailed, sharp focus, professional studio quality**.\n"
+    "6) **Every prompt MUST instruct to show ONLY the product and product-relevant content, and to NOT include any "
+    "brand / manufacturer / shop / store names or logos, guarantees / warranties / free-trial / money-back, gift or "
+    "coupon offers, shipping or service promises (free delivery, door-to-door), OEM / ODM / factory / dropshipping "
+    "claims, promotions / discounts / 'hot sale' / 'best seller' badges, awards, ratings, sales counts, price, "
+    "contact info, phone, QR codes, links or watermarks. Keep only the product's appearance, features, specs, "
+    "materials, dimensions and usage.**\n"
     "Output only JSON, no explanation.")
 
 
@@ -49,7 +82,9 @@ def _to_int0(value: object) -> int:
         return 0
 
 
-def build_profile(raw: dict, *, budget: int = 6000) -> str:
+def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None = None) -> str:
+    """拼商品 profile 喂文案 AI。understanding(理解层事实)非空时并入——把"看图理解"的
+    品类/材质/规格/卖点/场景/包装喂给文案,让简介基于图上卖点写(解决纯文本太薄)。"""
     raw = raw or {}
     parts = [f"Title: {raw.get('title') or ''}"]
     for p in (raw.get("params") or []):
@@ -59,6 +94,22 @@ def build_profile(raw: dict, *, budget: int = 6000) -> str:
             parts.append(f"{k}: {v}")
     desc = str(raw.get("description_text") or "")
     parts.append("Description: " + desc)
+    if isinstance(understanding, dict) and understanding:
+        u = understanding
+        if u.get("type"):
+            parts.append("Type: " + str(u["type"]))
+        if u.get("material"):
+            parts.append("Material: " + str(u["material"]))
+        specs = u.get("specs") if isinstance(u.get("specs"), dict) else {}
+        for k, v in (specs or {}).items():
+            if v:
+                parts.append(f"{k}: {v}")
+        if u.get("points"):
+            parts.append("Selling points: " + "; ".join(str(x) for x in u["points"]))
+        if u.get("scenes"):
+            parts.append("Use scenes: " + "; ".join(str(x) for x in u["scenes"]))
+        if u.get("kit"):
+            parts.append("Package: " + "; ".join(str(x) for x in u["kit"]))
     text = "\n".join(parts)
     return text[:budget]
 
@@ -111,28 +162,34 @@ def assemble_attributes(card_attrs: list[dict], required: list[dict],
 
 
 def clean_hashtags(tags: list, *, limit: int = 30) -> str:
-    """清洗 AI 出的标签 → Ozon attr 23171 单串：每个 # 前缀、标签内空格转 _、去空去重、截 limit、空格拼接。"""
+    """清洗 AI 出的标签 → Ozon attr 23171 单串：每个 # 前缀、去空去重、截 limit、空格拼接。
+    容错：AI 常把所有标签塞进一个字符串("#a #b #c")或用 # 直接连写("#a_#b")，
+    都按 # 和空白拆成独立标签，否则会被当成一个超长标签(内部空格转 _ → "#a_#b_#c")。"""
     out: list[str] = []
     seen: set[str] = set()
     for t in tags or []:
-        s = str(t or "").strip().lstrip("#").strip().replace(" ", "_")
-        if not s:
+        s0 = str(t or "").strip()
+        if not s0:
             continue
-        tag = "#" + s
-        if tag in seen:
-            continue
-        seen.add(tag)
-        out.append(tag)
-        if len(out) >= limit:
-            break
+        for part in s0.replace("#", " #").split():   # 每个 # 起一个新标签，再按空白切开
+            s = part.lstrip("#").strip().strip("_")
+            if not s:
+                continue
+            tag = "#" + s
+            if tag in seen:
+                continue
+            seen.add(tag)
+            out.append(tag)
+            if len(out) >= limit:
+                return " ".join(out)
     return " ".join(out)
 
 
 def generate_card(raw: dict, *, chat: Callable[[str, str], str],
                   category_roots: list,
                   fetch_required_attrs: Callable[[int, int], list[dict]],
-                  resolve_values: Callable) -> dict:
-    profile = build_profile(raw)
+                  resolve_values: Callable, understanding: dict | None = None) -> dict:
+    profile = build_profile(raw, understanding=understanding)
     nav = navigate_category(category_roots, chat, profile)
     if not nav:
         return {"ok": False, "error": "类目下钻失败（类目树为空或无可选项）"}
@@ -171,7 +228,7 @@ def generate_card(raw: dict, *, chat: Callable[[str, str], str],
     filled_ids = {a["id"] for a in attributes}
     unmapped = [{"id": a.get("id"), "name": a.get("name")}
                 for a in required if int(a.get("id") or 0) not in filled_ids]
-    path = nav["path"]
+    path = " / ".join(nav["path"])   # nav["path"] 是层级名列表 → 存成字符串(与 recognize_category 一致)
     return {
         "ok": True,
         "category_id": str(cat), "type_id": str(typ), "category_path": path,
@@ -181,11 +238,11 @@ def generate_card(raw: dict, *, chat: Callable[[str, str], str],
         "attributes": attributes,
         "brand_id": None, "brand_name": NO_BRAND,
         # AI 从参数表解析的毛重(g)/尺寸(cm)，找不到为 0（上层只在 >0 时回填，不覆盖已填值）
-        # 注：内部列名 length_mm 等为历史名，实际存厘米
+        # 尺寸列统一存「毫米」→ AI 给的厘米 ×10 转毫米
         "weight_g": _to_int0(card.get("weight_g")),
-        "length_mm": _to_int0(card.get("length_cm")),
-        "width_mm": _to_int0(card.get("width_cm")),
-        "height_mm": _to_int0(card.get("height_cm")),
+        "length_mm": _to_int0(card.get("length_cm")) * 10,
+        "width_mm": _to_int0(card.get("width_cm")) * 10,
+        "height_mm": _to_int0(card.get("height_cm")) * 10,
         "mapped": mapped, "unmapped": unmapped,
     }
 
@@ -296,11 +353,12 @@ def parse_image_prompts(text: str, n_points: int) -> dict:
     return {"main": main, "selling_points": pts}
 
 
-def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | None = None) -> str:
-    """真实 AI 调用，复用 ai_text 块配置（兼容旧 translate_api_base/key/model）（OpenAI 兼容）。
+def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | None = None,
+                  kind: str = "text") -> str:
+    """真实 AI 调用（OpenAI 兼容）。kind 指定用哪套配置块（text/multimodal/...），默认 text。
     images 非空 → 按 OpenAI vision 格式把 user 内容换成内容块(text + image_url)。"""
     from backend.settings_migrate import ai_config  # noqa: PLC0415
-    cfg = ai_config(settings, "text")
+    cfg = ai_config(settings, kind)
     base, key, model = cfg["base"], cfg["key"], cfg["model"]
     model = model or "deepseek-v4-flash"
     if not base or not key:
@@ -329,7 +387,12 @@ def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | No
 
 _SYS_NAV = ("You navigate the Ozon category tree to classify a product. Given a numbered list of "
             "category options and the product info (text, possibly with an image), choose the SINGLE "
-            "best-matching option. Output only JSON {\"index\": int} (0-based). No explanation.")
+            "best-matching option. Judge by the product's PRIMARY purpose - what it fundamentally is "
+            "and does - not by secondary features. Extra electronics (camera, app, Wi-Fi, voice, "
+            "night-vision) do NOT turn an item into a 'gadget/electronics' category if its core "
+            "function belongs elsewhere: e.g. an automatic pet feeder with a camera is still a feeder "
+            "(classify under feeding/tableware), NOT under pet gadgets. Output only JSON "
+            "{\"index\": int} (0-based). No explanation.")
 
 
 def _node_name(n: dict) -> str:
@@ -368,7 +431,7 @@ def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) ->
         if chosen.get("type_id"):
             cat = chosen.get("description_category_id") or cur_cat
             return {"description_category_id": int(cat), "type_id": int(chosen["type_id"]),
-                    "path": " / ".join([*path, _node_name(chosen)]), "category_fallback": fallback}
+                    "path": [*path, _node_name(chosen)], "category_fallback": fallback}
         cur_cat = chosen.get("description_category_id") or cur_cat
         path.append(_node_name(chosen))
         current = chosen.get("children") or []

@@ -212,6 +212,26 @@ def attribute_values_search(cat: int, type: int, attr: int, q: str = "", languag
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/ai/models")
+def ai_models(body: dict | None = None) -> dict:
+    """查某 AI 槽接口可用模型(下拉用)。body: {kind, base, key}；base/key 留空用已存配置。"""
+    try:
+        b = body or {}
+        return APP.list_ai_models(str(b.get("kind") or ""), str(b.get("base") or ""),
+                                  str(b.get("key") or ""), str(b.get("platform") or ""))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/attribute/values")
+def attribute_values(cat: int, type: int, attr: int, language: str = "ZH_HANS") -> dict:
+    """某属性全量字典选项(下拉用)：先查 DB 缓存，缺了拉 Ozon 回写。oversized 时 values 空、前端回退实时搜。"""
+    try:
+        return APP.attribute_value_options(cat, type, attr, language)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/drafts/{draft_id}/required-check")
 def required_check(draft_id: int, language: str = "ZH_HANS") -> dict:
     try:
@@ -248,6 +268,32 @@ async def import_realfbs_routes(request: Request) -> dict:
     body = await request.json()
     try:
         return APP.import_realfbs_routes(str((body or {}).get("csv") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# realFBS 佣金类目表（智能定价用，只 FBS=RFBS）：导出 xlsx → Excel 维护 → 导入覆盖；
+# 也可直接丢 Ozon 官方 Tarifs xlsx 导入（自动认 'MP Tree Tarifs CN' sheet 的 RFBS 三档）
+@app.get("/api/commission-categories")
+def get_commission_categories() -> dict:
+    return APP.commission_categories()
+
+
+@app.get("/api/commission-categories/export")
+def export_commission_categories() -> Response:
+    data = APP.export_commission_categories_xlsx()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=commission_categories.xlsx"},
+    )
+
+
+@app.post("/api/commission-categories/import")
+async def import_commission_categories(file: UploadFile = File(...)) -> dict:
+    data = await file.read()
+    try:
+        return APP.import_commission_categories_xlsx(data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -348,6 +394,17 @@ def publish_preview(draft_id: int, store_client_id: str | None = None) -> dict:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@app.get("/api/drafts/{draft_id}/publish-preflight")
+def publish_preflight(draft_id: int) -> dict:
+    """发布前核对清单(硬拦/建议/待核对/已就绪)。"""
+    try:
+        return APP.publish_preflight(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/drafts/{draft_id}/publish")
 def publish(draft_id: int, body: PublishIn | None = None) -> dict:
     try:
@@ -367,6 +424,17 @@ def translate_draft(draft_id: int) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/drafts/{draft_id}/recognize-category")
+def recognize_category(draft_id: int) -> dict:
+    """AI 识别类别(类别识别)，写入草稿。特征值识别(auto-map)的前置。"""
+    try:
+        return APP.recognize_category(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/drafts/{draft_id}/auto-map")
 def auto_map(draft_id: int) -> dict:
     try:
@@ -375,10 +443,184 @@ def auto_map(draft_id: int) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/drafts/{draft_id}/ai-fill-attributes")
+def ai_fill_attributes(draft_id: int) -> dict:
+    """AI 按草稿当前类目填属性(比 auto_map 按名硬对强，适合 1688 中文参数)。"""
+    try:
+        return APP.ai_fill_attributes(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/drafts/{draft_id}/ai-generate")
 def ai_generate(draft_id: int) -> dict:
     try:
         return APP.ai_generate(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/ai-copy")
+def ai_copy(draft_id: int) -> dict:
+    """只生成文案(标题/简介/标签)，1 次 LLM 调用，快。结果进 ai_proposal 预览。"""
+    try:
+        return APP.ai_copy(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/make-infographic")
+def make_infographic(draft_id: int, body: dict) -> dict:
+    """把草稿某张图做成俄语信息图(+可选店铺水印)，挂回 draft.images。"""
+    try:
+        return APP.make_infographic(
+            draft_id,
+            source_index=int(body.get("source_index") or 0),
+            heading=str(body.get("heading") or ""),
+            bullets=body.get("bullets") or [],
+            watermark=str(body.get("watermark") or ""))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/try-copy")
+def try_copy(draft_id: int) -> dict:
+    """Ozon 来源草稿试官方复制(import-by-sku)；可复制会在目标店建复制卡。"""
+    try:
+        return APP.try_copy(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/make-rich-content")
+def make_rich_content(draft_id: int, body: dict | None = None) -> dict:
+    """把草稿图拼成 Ozon 富文本(billboard 大图序列)，存草稿（发布时随属性 11254 上架）。"""
+    try:
+        return APP.make_rich_content(draft_id, image_indexes=(body or {}).get("image_indexes"))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/understand")
+def understand_draft(draft_id: int, body: dict | None = None) -> dict:
+    """理解层:多模态看图理解 → 结构化 understanding,缓存进草稿(供文案/图片复用)。"""
+    try:
+        return APP.understand_draft(draft_id, force=bool((body or {}).get("force")))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/drafts/{draft_id}/recommend")
+def recommend(draft_id: int) -> dict:
+    """智能推荐:据来源 + understanding → 推荐路径(复制/俄化/重做)+ 逐图默认处理。"""
+    try:
+        return APP.recommend(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/localize-image")
+def localize_image(draft_id: int, body: dict | None = None) -> dict:
+    """单张俄化:图上中文→俄语(保图不变),结果进候选区。"""
+    try:
+        return APP.localize_image(draft_id, int((body or {}).get("source_index") or 0))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/regen-image")
+def regen_image(draft_id: int, body: dict) -> dict:
+    """单张重做:按角色 + 俄语文字 重新生成,结果进候选区。"""
+    try:
+        b = body or {}
+        return APP.regen_image(draft_id, int(b.get("source_index") or 0),
+                               role=str(b.get("role") or ""), heading=str(b.get("heading") or ""),
+                               bullets=b.get("bullets") or [])
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/whiten-main")
+def whiten_main(draft_id: int, body: dict | None = None) -> dict:
+    """选一张图做白底电商主图，结果进候选区。"""
+    try:
+        return APP.whiten_main(draft_id, int((body or {}).get("source_index") or 0))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/scene-image")
+def scene_image(draft_id: int, body: dict | None = None) -> dict:
+    """选一张图做场景/氛围图(保产品一致)，结果进候选区。"""
+    try:
+        b = body or {}
+        return APP.scene_image(draft_id, int(b.get("source_index") or 0), hint=str(b.get("hint") or ""))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/drafts/{draft_id}/image-plan")
+def image_plan(draft_id: int, force: bool = False) -> dict:
+    """图集计划 + 每槽状态(待做/候选中/已应用)。force=true 据当前理解/图重建。"""
+    try:
+        return APP.image_plan(draft_id, force=bool(force))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/generate-plan-slot")
+def generate_plan_slot(draft_id: int, body: dict) -> dict:
+    """生成图集计划某槽位的图，结果进候选区。"""
+    try:
+        return APP.generate_plan_slot(draft_id, str((body or {}).get("slot_id") or ""))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/apply-candidates")
+def apply_candidates(draft_id: int, body: dict | None = None) -> dict:
+    """把候选区的图加入正式图集 draft.images。不传 indices = 应用全部。"""
+    try:
+        return APP.apply_image_candidates(draft_id, (body or {}).get("indices") or None)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/discard-candidates")
+def discard_candidates(draft_id: int) -> dict:
+    """清空候选区(全部丢弃)。"""
+    try:
+        return APP.discard_image_candidates(draft_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001

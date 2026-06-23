@@ -24,6 +24,7 @@ const _sq = (cid) => (cid ? `?store_client_id=${encodeURIComponent(cid)}` : '')
 export const api = {
   state: () => req('GET', '/api/state'),
   saveSettings: (p) => req('POST', '/api/settings', p),
+  aiModels: (kind, base, key, platform) => req('POST', '/api/ai/models', { kind, base, key, platform }),
   listDrafts: (params = {}) => { const q = qs(params); return req('GET', q ? `/api/drafts?${q}` : '/api/drafts') },
   patchDraft: (id, patch) => req('PATCH', `/api/drafts/${id}`, patch),
   batchUpdateDrafts: (ids, patch) => req('POST', '/api/drafts/batch-update', { ids, ...patch }),
@@ -32,13 +33,30 @@ export const api = {
   deleteDraft: (id) => req('DELETE', `/api/drafts/${id}`),
   publishPreview: (id, store_client_id) => req('GET', `/api/drafts/${id}/publish-preview${store_client_id ? `?store_client_id=${encodeURIComponent(store_client_id)}` : ''}`),
   publish: (id, store_client_id) => req('POST', `/api/drafts/${id}/publish`, store_client_id ? { store_client_id } : {}),
+  publishPreflight: (id) => req('GET', `/api/drafts/${id}/publish-preflight`),
   publishGroup: (variant_group, store_client_id) => req('POST', '/api/ext/publish-group', store_client_id ? { variant_group, store_client_id } : { variant_group }),
+  recognizeCategory: (id) => req('POST', `/api/drafts/${id}/recognize-category`),
   autoMap: (id) => req('POST', `/api/drafts/${id}/auto-map`),
+  aiFillAttributes: (id) => req('POST', `/api/drafts/${id}/ai-fill-attributes`),
   aiGenerate: (id) => req('POST', `/api/drafts/${id}/ai-generate`),
+  aiCopy: (id) => req('POST', `/api/drafts/${id}/ai-copy`),
   aiImagePrompts: (id, n_points = 3) => req('POST', `/api/drafts/${id}/ai-image-prompts`, { n_points }),
   aiProposalPatch: (id, patch) => req('PATCH', `/api/drafts/${id}/ai-proposal`, patch),
   aiProposalApply: (id) => req('POST', `/api/drafts/${id}/ai-proposal/apply`),
   aiImage: (id, p) => req('POST', `/api/drafts/${id}/ai-image`, p),
+  makeInfographic: (id, p = {}) => req('POST', `/api/drafts/${id}/make-infographic`, p),
+  tryCopy: (id) => req('POST', `/api/drafts/${id}/try-copy`),
+  makeRichContent: (id, p = {}) => req('POST', `/api/drafts/${id}/make-rich-content`, p),
+  understand: (id, p = {}) => req('POST', `/api/drafts/${id}/understand`, p),
+  recommend: (id) => req('GET', `/api/drafts/${id}/recommend`),
+  localizeImage: (id, p = {}) => req('POST', `/api/drafts/${id}/localize-image`, p),
+  regenImage: (id, p = {}) => req('POST', `/api/drafts/${id}/regen-image`, p),
+  whitenMain: (id, p = {}) => req('POST', `/api/drafts/${id}/whiten-main`, p),
+  sceneImage: (id, p = {}) => req('POST', `/api/drafts/${id}/scene-image`, p),
+  imagePlan: (id, force = false) => req('GET', `/api/drafts/${id}/image-plan${force ? '?force=true' : ''}`),
+  generatePlanSlot: (id, slotId) => req('POST', `/api/drafts/${id}/generate-plan-slot`, { slot_id: slotId }),
+  applyCandidates: (id, indices) => req('POST', `/api/drafts/${id}/apply-candidates`, indices ? { indices } : {}),
+  discardCandidates: (id) => req('POST', `/api/drafts/${id}/discard-candidates`),
   aiVideo: (id, p = {}) => req('POST', `/api/drafts/${id}/ai-video`, p),
   aiVideoStatus: () => req('GET', '/api/ai-video/status'),
   aiVideoStop: () => req('POST', '/api/ai-video/stop'),
@@ -56,6 +74,7 @@ export const api = {
   categoryResolve: (cat, type) => req('GET', `/api/category/resolve?${qs({ cat, type })}`),
   categoryAttributes: (cat, type, language = 'ZH_HANS') => req('GET', `/api/category/attributes?${qs({ cat, type, language })}`),
   attributeValues: (cat, type, attr, q, language = 'ZH_HANS') => req('GET', `/api/attribute/values/search?${qs({ cat, type, attr, q, language })}`),
+  attributeOptions: (cat, type, attr, language = 'ZH_HANS') => req('GET', `/api/attribute/values?${qs({ cat, type, attr, language })}`),
   getCommissionMap: (cat, type) => req('GET', `/api/commission-map?${qs({ cat, type })}`),
   saveCommissionMap: (p) => req('POST', '/api/commission-map', p),
   // realFBS 运费路线表（智能定价用，可 CSV 维护）
@@ -65,6 +84,22 @@ export const api = {
     const resp = await fetch('/api/realfbs-routes/export', { headers: { ...authHeader(getToken()) } })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     return await resp.text()
+  },
+  // realFBS 佣金类目表（只 FBS=RFBS；可丢 Ozon 官方 Tarifs xlsx 或本工具导出的模板）
+  commissionCategories: () => req('GET', '/api/commission-categories'),
+  importCommissionCategories: async (file) => {
+    const fd = new FormData(); fd.append('file', file)
+    const resp = await fetch('/api/commission-categories/import', {
+      method: 'POST', headers: { ...authHeader(getToken()) }, body: fd,
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`)
+    return data
+  },
+  exportCommissionCategories: async () => {
+    const resp = await fetch('/api/commission-categories/export', { headers: { ...authHeader(getToken()) } })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    return await resp.blob()
   },
   listWarehouses: (store_client_id) => req('GET', `/api/warehouses${_sq(store_client_id)}`),
   syncWarehouses: (store_client_id) => req('POST', `/api/warehouses/sync${_sq(store_client_id)}`),

@@ -73,7 +73,10 @@ class SettingsApiTest(unittest.TestCase):
                 st = client.get("/api/state").json()["settings"]
                 self.assertEqual(st["ai_text"]["engine"], "openai")
                 self.assertEqual(st["ai_text"]["model"], "deepseek-chat")
-                self.assertTrue(st["ai_text"]["api_key_saved"])
+                # 平台/模型重构：旧内联 api_key 自动迁移到 ai_platforms(按域名命名)，槽改为引用平台名
+                self.assertEqual(st["ai_text"]["platform"], "DeepSeek")
+                self.assertTrue(any(p["name"] == "DeepSeek" and p["key_saved"]
+                                    for p in st["ai_platforms"]))
             finally:
                 self._main.APP.store.close()
 
@@ -81,13 +84,14 @@ class SettingsApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client = self._client(tmp)
             try:
-                client.post("/api/settings", json={"ai_image": {
-                    "engine": "agnes", "api_base": "B", "api_key": "AK", "model": "img"}})
-                client.post("/api/settings", json={"ai_image": {
-                    "engine": "agnes", "api_base": "B", "api_key": "", "model": "img2"}})
+                # 平台 key 留空=沿用同名平台已存 key（不必每次重发密钥）
+                client.post("/api/settings", json={"ai_platforms": [
+                    {"name": "P", "base": "B", "key": "AK"}]})
+                client.post("/api/settings", json={"ai_platforms": [
+                    {"name": "P", "base": "B", "key": ""}]})
                 s = self._main.APP.store.get_settings()
-                self.assertEqual(s["ai_image"]["api_key"], "AK")
-                self.assertEqual(s["ai_image"]["model"], "img2")
+                plat = {p["name"]: p for p in (s.get("ai_platforms") or [])}["P"]
+                self.assertEqual(plat["key"], "AK")
             finally:
                 self._main.APP.store.close()
 

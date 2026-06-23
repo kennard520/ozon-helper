@@ -440,6 +440,27 @@ class Store:
             )
             self.conn.commit()
 
+    def get_commission_categories(self) -> list[dict[str, Any]] | None:
+        """realFBS 佣金类目表（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=0 AND key=?",
+                ("commission_categories_json",),
+            ).fetchone()
+        if not row:
+            return None
+        return loads_json(row["value"], None)
+
+    def set_commission_categories(self, cats: list[dict[str, Any]]) -> None:
+        """整表覆盖佣金类目（Excel 导入用）。存为全局 settings kv 的一个 JSON。"""
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
+                ("commission_categories_json", dumps_json(cats or [])),
+            )
+            self.conn.commit()
+
     def save_attribute_values(
         self, cat: int, type_id: int, attr: int, values: list[dict[str, Any]], language: str = "ZH_HANS"
     ) -> int:

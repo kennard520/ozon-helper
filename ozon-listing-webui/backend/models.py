@@ -34,6 +34,8 @@ class SettingsIn(BaseModel):
     ai_text: dict | None = None
     ai_image: dict | None = None
     ai_video: dict | None = None
+    ai_multimodal: dict | None = None        # 多模态(看图理解)槽:{platform, model}
+    ai_platforms: list | None = None         # AI 平台列表:[{name, base, key}]——少了它前端存平台会被丢弃
     oss_endpoint: str | None = None
     oss_bucket: str | None = None
     oss_access_key_id: str | None = None
