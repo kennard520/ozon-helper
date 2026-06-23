@@ -28,7 +28,7 @@ class DimensionSoftCheckTest(unittest.TestCase):
         self.assertTrue(any("长" in w for w in ws))
 
     def test_dimension_warnings_empty_when_filled(self):
-        full = {**self._BASE, "weight_g": 100, "length_mm": 10, "width_mm": 10, "height_mm": 10}
+        full = {**self._BASE, "weight_g": 100, "length_mm": 100, "width_mm": 100, "height_mm": 100}
         self.assertEqual(dimension_warnings(full), [])
 
 
@@ -174,9 +174,9 @@ class DraftsTest(unittest.TestCase):
             "price": "799",
             "old_price": "999",
             "weight_g": 500,
-            "length_mm": 30,   # 内部存厘米(列名历史)
-            "width_mm": 20,
-            "height_mm": 10,
+            "length_mm": 300,   # 内部存毫米
+            "width_mm": 200,
+            "height_mm": 100,
             "images": ["https://example.test/a.jpg"],
             "attributes": [{"id": 85, "values": [{"value": "Нет бренда"}]}],
         })
@@ -188,7 +188,7 @@ class DraftsTest(unittest.TestCase):
         self.assertEqual(item["description_category_id"], 17028922)
         self.assertEqual(item["type_id"], 94307)
         self.assertEqual(item["weight"], 500)
-        self.assertEqual(item["depth"], 300)   # 30cm ×10 → 300mm
+        self.assertEqual(item["depth"], 300)   # 300mm 直发
         self.assertEqual(item["width"], 200)
         self.assertEqual(item["height"], 100)
         self.assertEqual(item["currency_code"], "RUB")

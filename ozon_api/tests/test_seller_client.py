@@ -72,6 +72,16 @@ class OzonSellerClientTest(unittest.TestCase):
         self.assertTrue(transport.calls[0]["url"].endswith("/v3/product/import"))
         self.assertEqual(transport.calls[0]["json"], {"items": [{"offer_id": "A1", "name": "Test"}]})
 
+    def test_import_by_sku_targets_copy_endpoint(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.import_by_sku([{"sku": 123, "offer_id": "A1", "price": "2300"}])
+
+        self.assertTrue(transport.calls[0]["url"].endswith("/v1/product/import-by-sku"))
+        self.assertEqual(transport.calls[0]["json"],
+                         {"items": [{"sku": 123, "offer_id": "A1", "price": "2300"}]})
+
     def test_list_unfulfilled_fbs_builds_filter_payload(self) -> None:
         transport = FakeTransport()
         client = OzonSellerClient("123", "secret", transport=transport)
@@ -101,6 +111,30 @@ class OzonSellerClientTest(unittest.TestCase):
                 "translit": True,
             },
         })
+
+    def test_list_delivery_methods_builds_filter_and_cursor(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        # v2：warehouse_ids 数组(转字符串)、cursor 翻页、sort_dir
+        client.list_delivery_methods(warehouse_ids=[42, 7], cursor="CUR1", limit=50)
+
+        self.assertTrue(transport.calls[0]["url"].endswith("/v2/delivery-method/list"))
+        self.assertEqual(transport.calls[0]["json"], {
+            "filter": {"warehouse_ids": ["42", "7"]},
+            "limit": 50,
+            "sort_dir": "ASC",
+            "cursor": "CUR1",
+        })
+
+    def test_list_delivery_methods_omits_empty_cursor(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.list_delivery_methods(warehouse_ids=[1])
+
+        # 首页不带 cursor 键
+        self.assertNotIn("cursor", transport.calls[0]["json"])
 
     def test_convenience_methods_target_first_phase_endpoints(self) -> None:
         transport = FakeTransport()

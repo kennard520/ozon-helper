@@ -94,11 +94,11 @@ class GenerateCardTest(unittest.TestCase):
         # 字典属性解析成上架格式
         a4180 = next(a for a in r["attributes"] if a["id"] == 4180)
         self.assertEqual(a4180["values"][0]["dictionary_value_id"], 555)
-        # AI 从参数解析的毛重(g)/尺寸(cm，存进 length_mm 历史列名)
+        # AI 从参数解析的毛重(g)/尺寸(cm) → ×10 存毫米 length_mm
         self.assertEqual(r["weight_g"], 600)
-        self.assertEqual(r["length_mm"], 20)
-        self.assertEqual(r["width_mm"], 15)
-        self.assertEqual(r["height_mm"], 10)
+        self.assertEqual(r["length_mm"], 200)
+        self.assertEqual(r["width_mm"], 150)
+        self.assertEqual(r["height_mm"], 100)
         self.assertEqual(len(calls), 4)  # 2 类目下钻 + 文案 + 属性
         # Fix 2: AI 类目在候选中时 category_fallback 为 False
         self.assertFalse(r["category_fallback"])
@@ -134,8 +134,8 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 v = seq[calls["i"]]; calls["i"] += 1; return v
             _orig_dc = aic.deepseek_chat
             aic.deepseek_chat = fake_chat
-            # ai_generate 走 _category_roots_ru(→catalog_ru)，直接打桩这个 seam（离线、无 key）
-            app._category_roots_ru = lambda settings: [
+            # ai_generate 走 _category_roots_zh(→中文树)，直接打桩这个 seam（离线、无 key）
+            app._category_roots_zh = lambda settings: [
                 {"description_category_id": 1, "category_name": "A", "children": [
                     {"type_id": 2, "type_name": "B", "description_category_id": 1}]}]
             app._category_attrs = lambda c, t: [{"id": 4180, "name": "Материал", "is_required": True, "dictionary_id": 1, "is_collection": False},
@@ -196,7 +196,7 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 v = seq[calls["i"]]; calls["i"] += 1; return v
             _orig_dc2 = aic.deepseek_chat
             aic.deepseek_chat = fake_chat2
-            app._category_roots_ru = lambda settings: [
+            app._category_roots_zh = lambda settings: [
                 {"description_category_id": 1, "category_name": "A", "children": [
                     {"type_id": 2, "type_name": "B", "description_category_id": 1}]}]
             app._category_attrs = lambda c, t: [{"id": 85, "name": "Бренд", "is_required": True, "dictionary_id": 1, "is_collection": False}]

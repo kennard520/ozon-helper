@@ -37,6 +37,18 @@ def get_import_info(settings: dict[str, Any], task_id: int) -> dict[str, Any]:
     return _client(settings).get_import_info(task_id)
 
 
+def import_by_sku(settings: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    """官方复制：基于已有 Ozon SKU 复制建卡（POST /v1/product/import-by-sku）。"""
+    return _client(settings).import_by_sku(items)
+
+
+def copy_by_sku(settings: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """官方复制 + 轮询，返回 verdict（copyable/status/task_id/...）。
+    copyable=False → 调用方转「原创建卡」分支。参数见 ozon_api.copy_flow.copy_by_sku。"""
+    from ozon_api import copy_flow  # noqa: PLC0415
+    return copy_flow.copy_by_sku(build_client(settings), **kwargs)
+
+
 def get_category_attributes(
     settings: dict[str, Any], description_category_id: int, type_id: int,
     language: str = "ZH_HANS",
@@ -132,14 +144,14 @@ def _stock_of(info: dict) -> int:
     return 0
 
 
-def _to_cm(value: object, unit: object) -> int:
-    """Ozon 尺寸归一成 cm（工具内部统一 cm；发布时再 ×10 转 mm 给 Ozon）。"""
+def _to_mm(value: object, unit: object) -> int:
+    """Ozon 尺寸归一成 mm（工具内部统一 mm；发布时直发给 Ozon，不换算）。"""
     try:
         v = float(value or 0)
     except (TypeError, ValueError):
         return 0
     u = str(unit or "mm").strip().lower()
-    factor = {"mm": 0.1, "cm": 1.0, "m": 100.0, "in": 2.54, "inch": 2.54}.get(u, 0.1)
+    factor = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4, "inch": 25.4}.get(u, 1.0)
     return int(round(v * factor))
 
 
@@ -177,6 +189,47 @@ def fetch_warehouses(settings: dict) -> list[dict]:
         if not r.get("has_next") or not cursor:
             break
     return items
+
+
+def fetch_delivery_methods(settings: dict, warehouse_ids: list[int]) -> list[dict]:
+    """拉配送方式（/v2/delivery-method/list，filter.warehouse_ids 数组 + cursor 翻页），归一成 store 入参形状。
+    v2 filter 收仓库 ID 数组，一次即可传全部仓库，无需逐仓多次调用。"""
+    wids = [w for w in (warehouse_ids or []) if w is not None]
+    if not wids:
+        return []
+    client = build_client(settings)
+    out: list[dict] = []
+    cursor = ""
+    while True:
+        r = client.list_delivery_methods(warehouse_ids=wids, cursor=cursor, limit=100)
+        batch = r.get("result") or r.get("delivery_methods") or []
+        for d in batch:
+            dp = d.get("tpl_dropoff_point") or {}      # 自提点(PUDO)：用户最关心的地址在这里
+            coord = dp.get("address_coordinates") or {}
+            out.append({
+                "delivery_method_id": d.get("id"),
+                "warehouse_id": d.get("warehouse_id"),
+                "name": d.get("name"),
+                "status": d.get("status"),
+                "provider_id": d.get("provider_id"),
+                "template_id": d.get("template_id"),
+                "tpl_integration_type": d.get("tpl_integration_type"),
+                "is_express": d.get("is_express"),
+                "cutoff": d.get("cutoff"),
+                "sla_cut_in": d.get("sla_cut_in"),
+                "dropoff_name": dp.get("name"),
+                "dropoff_code": dp.get("code"),
+                "dropoff_address": dp.get("address"),
+                "dropoff_lat": coord.get("latitude"),
+                "dropoff_lng": coord.get("longitude"),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "raw": d,
+            })
+        cursor = r.get("cursor") or ""
+        if not r.get("has_next") or not cursor:
+            break
+    return out
 
 
 # ---------- 功能⑤：FBS 备货发货 ----------
@@ -236,12 +289,12 @@ def ozon_to_draft(info: dict, attrs: dict | None) -> dict:
         "old_price": str(info.get("old_price") or ""),
         "stock": _stock_of(info),
         "images": imgs,
-        # 内部统一：重量 g、尺寸 cm（列名 length_mm 为历史名，实存厘米）。
-        # Ozon 返回按 dimension_unit/weight_unit，换算成 g/cm，避免 round-trip 失真。
+        # 内部统一：重量 g、尺寸 mm（列名 length_mm 名实相符）。
+        # Ozon 返回按 dimension_unit/weight_unit，换算成 g/mm，避免 round-trip 失真。
         "weight_g": _to_g(attrs.get("weight"), attrs.get("weight_unit")),
-        "length_mm": _to_cm(attrs.get("depth"), attrs.get("dimension_unit")),   # Ozon depth=长
-        "width_mm": _to_cm(attrs.get("width"), attrs.get("dimension_unit")),
-        "height_mm": _to_cm(attrs.get("height"), attrs.get("dimension_unit")),
+        "length_mm": _to_mm(attrs.get("depth"), attrs.get("dimension_unit")),   # Ozon depth=长
+        "width_mm": _to_mm(attrs.get("width"), attrs.get("dimension_unit")),
+        "height_mm": _to_mm(attrs.get("height"), attrs.get("dimension_unit")),
         "attributes": attrs.get("attributes") or [],
         "video_url": _video_from_complex(attrs.get("complex_attributes")),
         "status": "published",

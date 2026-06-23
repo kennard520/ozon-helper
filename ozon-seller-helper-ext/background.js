@@ -26,14 +26,16 @@ async function getBackendOverride() {
 }
 
 async function discoverBase() {
-  if (DISCOVERED && (await _ping(DISCOVERED))) return DISCOVERED
-  DISCOVERED = null
-  // 顺序：开发自定义地址 → 生产写死服务器 → 本机端口探测(本地开发兜底)
-  const bases = []
+  // 开发自定义地址优先级最高：设了就直接用（绕过 DISCOVERED 缓存，切本地/生产即时生效）
   const override = await getBackendOverride()
-  if (override) bases.push(override)
-  bases.push(self.OzonHelperBridge.PROD_BASE)
-  bases.push(...self.OzonHelperBridge.candidateBases())
+  if (override && (await _ping(override))) {
+    DISCOVERED = override
+    return override
+  }
+  if (!override && DISCOVERED && (await _ping(DISCOVERED))) return DISCOVERED
+  DISCOVERED = null
+  // 顺序：生产写死服务器 → 本机端口探测(本地开发兜底)
+  const bases = [self.OzonHelperBridge.PROD_BASE, ...self.OzonHelperBridge.candidateBases()]
   for (const base of bases) {
     if (await _ping(base)) {
       DISCOVERED = base

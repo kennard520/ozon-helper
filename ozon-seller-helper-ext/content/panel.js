@@ -93,6 +93,14 @@
       OzonHelperCollect.collectWbAndEdit(nm, location.href, setEditButton)
       return
     }
+    if (site === '1688') {
+      if (!/\/offer\/\d+\.html/.test(location.pathname)) {
+        setBody(statusHtml('打开 1688 商品详情页后可采集', 'warn'))
+        return
+      }
+      OzonHelperCollect.collect1688AndEdit(location.href, setEditButton)
+      return
+    }
     if (site !== 'ozon') {
       setBody(unsupportedBody())
       return
@@ -261,7 +269,16 @@
   function update() {
     if (site === 'ozon') runOzonFollow()
     else if (site === 'wb') renderWbBody()
+    else if (site === '1688') render1688Body()
     else setBody(unsupportedBody())
+  }
+
+  function render1688Body() {
+    if (/\/offer\/\d+\.html/.test(location.pathname)) {
+      setBody(actionHtml() + statusHtml('滚动看完详情后再采集，图文更全；采集后进管理端草稿', 'ok'))
+    } else {
+      setBody(statusHtml('打开 1688 商品详情页后可采集到管理端草稿', 'warn'))
+    }
   }
 
   render()

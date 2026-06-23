@@ -347,7 +347,7 @@ class TestAiGenerateModes(unittest.TestCase):
         app.store.save_settings({"ai_auto_apply": auto})
         app._resolve_values = lambda *a, **k: ([{"value": a[3][0]}] if a[3] else [])
         app._no_brand_value = lambda cat, typ: None
-        app._category_roots_ru = lambda settings: []   # generate_card 已被打桩，类目树不参与
+        app._category_roots_zh = lambda settings: []   # generate_card 已被打桩，类目树不参与
         app._category_attrs = lambda cat, typ: [
             {"id": 9048, "name": "M", "is_required": True},
             {"id": 4194, "name": "T", "is_required": True},

@@ -187,8 +187,9 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'apply'])
 
-const categories = OZON_REALFBS_DATA.categories
-const routes = OZON_REALFBS_DATA.routes
+// 佣金类目 & 运费路线：默认用内置静态兜底；开窗时从后端可维护表拉取覆盖（见下方 watch）
+const categories = ref(OZON_REALFBS_DATA.categories)
+const routes = ref(OZON_REALFBS_DATA.routes)
 
 // 与 static/pricing.js readInput() / DEFAULTS 一致的默认值
 const DEFAULTS = {
@@ -217,7 +218,7 @@ const blockedRoutes = computed(() => {
   const priceRub = r.targetRub || 0
   const okKeys = new Set((r.availableRoutes || []).map((x) => `${x.provider}|${x.serviceLevel}`))
   const out = []
-  for (const route of routes) {
+  for (const route of routes.value) {
     if (okKeys.has(`${route.provider}|${route.serviceLevel}`)) continue
     const st = routeStatus(route, input, priceRub)
     if (!st.ok) out.push({ provider: route.provider, serviceLevel: route.serviceLevel, reason: zhReason(st.reasons[0]) })
@@ -227,7 +228,7 @@ const blockedRoutes = computed(() => {
 
 // 默认选中绿区类目 Decor, Cleaning & Storage，否则第一个
 function defaultIdx() {
-  const i = categories.findIndex((c) => c.subEn === 'Decor, Cleaning & Storage')
+  const i = categories.value.findIndex((c) => c.subEn === 'Decor, Cleaning & Storage')
   return i >= 0 ? i : 0
 }
 const selectedIdx = ref(defaultIdx())
@@ -238,7 +239,7 @@ function catLabel(c) {
   return `${c.subZh || c.subEn}（${c.parentZh || c.parentEn} · 佣金 ${lo}%~${hi}%）`
 }
 function findIdx(parentEn, subEn) {
-  return categories.findIndex((c) => c.parentEn === parentEn && c.subEn === subEn)
+  return categories.value.findIndex((c) => c.parentEn === parentEn && c.subEn === subEn)
 }
 
 // 无保存映射时，按草稿的 Ozon 中文类目路径匹配佣金类目（parentZh/subZh），
@@ -252,11 +253,11 @@ async function autoMatchCommission(cat, type) {
     const top = segs[0] || ''
     const hit = (a, b) => a && b && (a === b || a.includes(b) || b.includes(a))
     // 1) 顶级类目匹配 parentZh 且某段匹配 subZh（最精准）
-    let i = categories.findIndex((c) => hit(c.parentZh, top) && segs.some((s) => hit(c.subZh, s)))
+    let i = categories.value.findIndex((c) => hit(c.parentZh, top) && segs.some((s) => hit(c.subZh, s)))
     // 2) 只顶级类目匹配 parentZh
-    if (i < 0) i = categories.findIndex((c) => hit(c.parentZh, top))
+    if (i < 0) i = categories.value.findIndex((c) => hit(c.parentZh, top))
     // 3) 任意路径段匹配 parentZh
-    if (i < 0) i = categories.findIndex((c) => segs.some((s) => hit(c.parentZh, s)))
+    if (i < 0) i = categories.value.findIndex((c) => segs.some((s) => hit(c.parentZh, s)))
     if (i >= 0) selectedIdx.value = i
   } catch { /* 无 resolve / 未 mock，忽略 */ }
 }
@@ -289,13 +290,13 @@ function buildInput() {
 }
 
 function recompute() {
-  const cat = categories[selectedIdx.value] || categories[0]
-  result.value = solvePrice(buildInput(), routes, cat)
+  const cat = categories.value[selectedIdx.value] || categories.value[0]
+  result.value = solvePrice(buildInput(), routes.value, cat)
 }
 
 async function apply() {
   if (!result.value || !result.value.bestRoute) return
-  const cat = categories[selectedIdx.value]
+  const cat = categories.value[selectedIdx.value]
   const r = result.value
   // 内部 price 统一存 CNY 人民币（弹窗里的 ₽ 仅作俄区买家视角展示）
   const salePrice = String(Math.round(r.targetCny))
@@ -373,6 +374,16 @@ watch(
   () => props.modelValue,
   async (open) => {
     if (!open) return
+    // 运费路线优先从后端表拉（可 CSV 维护）；拉不到/空则用内置静态兜底
+    try {
+      const rr = await api.realfbsRoutes()
+      if (rr && Array.isArray(rr.routes) && rr.routes.length) routes.value = rr.routes
+    } catch { /* 用静态兜底 */ }
+    // 佣金类目同理：从后端可维护表拉（Excel 维护，中文也正常）；拉不到回退内置静态
+    try {
+      const cc = await api.commissionCategories()
+      if (cc && Array.isArray(cc.categories) && cc.categories.length) categories.value = cc.categories
+    } catch { /* 用静态兜底 */ }
     const d = props.draft || {}
     if (d.pricing && d.pricing.commissionSubEn) {
       restoreFromSnapshot(d.pricing)

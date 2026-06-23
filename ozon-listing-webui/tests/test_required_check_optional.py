@@ -50,8 +50,8 @@ class TestRequiredCheckOptional(unittest.TestCase):
                 res = app.required_check(d["id"])
                 req_ids = {a["id"] for a in res["required"]}
                 opt_ids = {a["id"] for a in res["optional"]}
-                # 必填含型号名/品牌/类型
-                self.assertEqual(req_ids, {9048, 85, 4194})
+                # 必填含型号名/类型；品牌(85)已从必填排除(写死"无品牌"，不让用户填)
+                self.assertEqual(req_ids, {9048, 4194})
                 # 可选含颜色/材质，且不含品牌(85)
                 self.assertEqual(opt_ids, {10096, 8229})
                 self.assertNotIn(85, opt_ids)

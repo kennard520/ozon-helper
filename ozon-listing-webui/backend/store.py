@@ -234,6 +234,29 @@ class Store:
                 "is_default INTEGER NOT NULL DEFAULT 0, fetched_at TEXT)"
             )
             self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_methods ("
+                "delivery_method_id INTEGER PRIMARY KEY, warehouse_id INTEGER, "
+                "name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', "
+                "provider_id INTEGER, template_id INTEGER, "
+                "tpl_integration_type TEXT, is_express INTEGER, "
+                "cutoff TEXT, sla_cut_in INTEGER, "
+                "dropoff_name TEXT, dropoff_code TEXT, dropoff_address TEXT, "
+                "dropoff_lat REAL, dropoff_lng REAL, "
+                "created_at TEXT, updated_at TEXT, fetched_at TEXT, "
+                "store_client_id TEXT NOT NULL DEFAULT '', raw_json TEXT)"
+            )
+            # 已部署的表(CREATE IF NOT EXISTS 不会补列)→ 显式补自提点等新列
+            for _col, _ddl in (
+                ("tpl_integration_type", "TEXT"), ("is_express", "INTEGER"),
+                ("dropoff_name", "TEXT"), ("dropoff_code", "TEXT"),
+                ("dropoff_address", "TEXT"), ("dropoff_lat", "REAL"), ("dropoff_lng", "REAL"),
+            ):
+                self._ensure_column("delivery_methods", _col, _ddl)
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dm_store_wh "
+                "ON delivery_methods(store_client_id, warehouse_id)"
+            )
+            self.conn.execute(
                 "CREATE TABLE IF NOT EXISTS postings ("
                 "posting_number TEXT PRIMARY KEY, ozon_order_id TEXT, status TEXT, "
                 "ship_by TEXT, products_json TEXT NOT NULL DEFAULT '[]', "
@@ -395,6 +418,48 @@ class Store:
             return None
         return {"parent_en": row["parent_en"], "sub_en": row["sub_en"],
                 "rfbs": loads_json(row["rfbs_json"], [])}
+
+    def get_realfbs_routes(self) -> list[dict[str, Any]] | None:
+        """realFBS 运费路线（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=0 AND key=?",
+                ("realfbs_routes_json",),
+            ).fetchone()
+        if not row:
+            return None
+        return loads_json(row["value"], None)
+
+    def set_realfbs_routes(self, routes: list[dict[str, Any]]) -> None:
+        """整表覆盖 realFBS 运费路线（CSV 导入用）。存为全局 settings kv 的一个 JSON。"""
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
+                ("realfbs_routes_json", dumps_json(routes or [])),
+            )
+            self.conn.commit()
+
+    def get_commission_categories(self) -> list[dict[str, Any]] | None:
+        """realFBS 佣金类目表（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT value FROM settings WHERE user_id=0 AND key=?",
+                ("commission_categories_json",),
+            ).fetchone()
+        if not row:
+            return None
+        return loads_json(row["value"], None)
+
+    def set_commission_categories(self, cats: list[dict[str, Any]]) -> None:
+        """整表覆盖佣金类目（Excel 导入用）。存为全局 settings kv 的一个 JSON。"""
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
+                ("commission_categories_json", dumps_json(cats or [])),
+            )
+            self.conn.commit()
 
     def save_attribute_values(
         self, cat: int, type_id: int, attr: int, values: list[dict[str, Any]], language: str = "ZH_HANS"
@@ -608,7 +673,7 @@ class Store:
         cid = (row[0] if row and row[0] is not None else "") or ""
         if not cid:
             return
-        for t in ("warehouses", "postings", "procurement", "offer_snapshots"):
+        for t in ("warehouses", "delivery_methods", "postings", "procurement", "offer_snapshots"):
             self.conn.execute(
                 f"UPDATE {t} SET store_client_id=? WHERE store_client_id=''", (str(cid),)
             )
@@ -721,7 +786,7 @@ class Store:
                 c = str(loads_json(row2["value"], "") or "").strip()
                 if c:
                     cids.add(c)
-            for t in ("warehouses", "postings", "procurement", "offer_snapshots"):
+            for t in ("warehouses", "delivery_methods", "postings", "procurement", "offer_snapshots"):
                 for c in cids:
                     self.conn.execute(f"DELETE FROM {t} WHERE store_client_id=?", (c,))
             for t in ("drafts", "accounts", "account_txns", "settings"):
@@ -1129,6 +1194,54 @@ class Store:
                 (int(warehouse_id), scid),
             )
             self.conn.commit()
+
+    # ---------- 配送方式（功能4 附属，挂在仓库下）----------
+    def replace_delivery_methods(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
+        """按店全量替换配送方式：先清本店旧行，再插新行。Ozon 上被删/停用的本地随之消失。"""
+        now = utc_now_iso()
+        scid = str(store_client_id or "")
+        with self.lock:
+            self.conn.execute("DELETE FROM delivery_methods WHERE store_client_id=?", (scid,))
+            for d in items or []:
+                did = _to_int_or_none(d.get("delivery_method_id"))
+                if did is None:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO delivery_methods(delivery_method_id, warehouse_id, name, status, "
+                    "provider_id, template_id, tpl_integration_type, is_express, cutoff, sla_cut_in, "
+                    "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
+                    "created_at, updated_at, fetched_at, store_client_id, raw_json) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (did, _to_int_or_none(d.get("warehouse_id")), str(d.get("name") or ""),
+                     str(d.get("status") or ""), _to_int_or_none(d.get("provider_id")),
+                     _to_int_or_none(d.get("template_id")), str(d.get("tpl_integration_type") or ""),
+                     1 if d.get("is_express") else 0, str(d.get("cutoff") or ""),
+                     _to_int_or_none(d.get("sla_cut_in")), str(d.get("dropoff_name") or ""),
+                     str(d.get("dropoff_code") or ""), str(d.get("dropoff_address") or ""),
+                     d.get("dropoff_lat"), d.get("dropoff_lng"), str(d.get("created_at") or ""),
+                     str(d.get("updated_at") or ""), now, scid, dumps_json(d.get("raw") or {})),
+                )
+            self.conn.commit()
+
+    def list_delivery_methods(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
+        sql = ("SELECT delivery_method_id, warehouse_id, name, status, provider_id, template_id, "
+               "tpl_integration_type, is_express, cutoff, sla_cut_in, "
+               "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
+               "created_at, updated_at, fetched_at, store_client_id "
+               "FROM delivery_methods")
+        params: list[Any] = []
+        if store_client_id is not None:
+            sql += " WHERE store_client_id = ?"
+            params.append(str(store_client_id or ""))
+        sql += " ORDER BY warehouse_id, delivery_method_id"
+        with self.lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["is_express"] = bool(d.get("is_express"))
+            out.append(d)
+        return out
 
     # ---------- 订单（功能5）----------
     def upsert_postings(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:

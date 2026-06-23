@@ -28,7 +28,7 @@ async function doSync() {
   try {
     const r = await api.syncWarehouses(store.currentStore)
     warehouses.value = r.warehouses
-    ElMessage.success(`同步成功，共 ${r.synced} 个仓库`)
+    ElMessage.success(`同步成功，共 ${r.synced} 个仓库 / ${r.delivery_methods ?? 0} 个配送方式`)
   } catch (e) {
     ElMessage.error(e.message || '同步失败')
   } finally {
@@ -60,7 +60,46 @@ defineExpose({ warehouses, doSync, makeDefault, fmtFetchedAt })
     <div style="margin-bottom: 16px">
       <el-button type="primary" :loading="syncing" @click="doSync">从 Ozon 同步仓库</el-button>
     </div>
-    <el-table :data="warehouses" v-loading="loading" style="width: 100%">
+    <el-table :data="warehouses" v-loading="loading" style="width: 100%" row-key="warehouse_id">
+      <el-table-column type="expand">
+        <template #default="{ row }">
+          <div style="padding: 8px 48px">
+            <div style="margin-bottom: 6px; color: var(--c-text-2); font-size: 13px">
+              配送方式（{{ (row.delivery_methods || []).length }}）
+            </div>
+            <el-table
+              v-if="(row.delivery_methods || []).length"
+              :data="row.delivery_methods"
+              size="small"
+              style="width: 100%"
+            >
+              <el-table-column prop="name" label="配送方式" min-width="190" show-overflow-tooltip />
+              <el-table-column label="类型" width="120">
+                <template #default="{ row: dm }">
+                  <el-tag v-if="dm.is_express" type="success" size="small" style="margin-right:4px">express</el-tag>
+                  <span style="font-size:12px;color:var(--c-text-3)">{{ dm.tpl_integration_type || '—' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="90" />
+              <el-table-column prop="cutoff" label="截单" width="70" />
+              <el-table-column prop="dropoff_name" label="自提点" min-width="140" show-overflow-tooltip />
+              <el-table-column prop="dropoff_code" label="编码" min-width="160" show-overflow-tooltip />
+              <el-table-column label="地址" min-width="300">
+                <template #default="{ row: dm }">
+                  <span v-if="dm.dropoff_address">{{ dm.dropoff_address }}</span>
+                  <span v-else style="color:var(--c-text-disabled)">—</span>
+                  <span
+                    v-if="dm.dropoff_lat != null && dm.dropoff_lng != null"
+                    style="display:block;font-size:12px;color:var(--c-text-3)"
+                  >{{ dm.dropoff_lat }}, {{ dm.dropoff_lng }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="provider_id" label="承运商" width="90" />
+            </el-table>
+            <span v-else style="color: var(--c-text-disabled); font-size: 13px">该仓库暂无配送方式</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="warehouse_id" label="仓库 ID" width="120" />
       <el-table-column prop="name" label="名称" />
       <el-table-column label="类型" width="100">

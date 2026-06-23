@@ -51,32 +51,40 @@ def _conf(settings: dict, kind: str = "image") -> tuple[str, str]:
     return base, key
 
 
-def _http_json(url: str, *, key: str, payload: dict | None = None, timeout: int = 60) -> dict:
+def _http_json(url: str, *, key: str, payload: dict | None = None, timeout: int = 60,
+               retries: int = 2) -> dict:
     """POST(payload!=None)/GET 一个 JSON 接口。单测注入点。
-    网络层错误统一包成中文 RuntimeError（路由转 400）：URLError/TimeoutError 都是
-    OSError 子类，一把接住——视频冒烟实测出现过 SSL 瞬断和 60s 读超时，留原样会变成难看的 500。"""
+    网络层错误(SSL 瞬断/读超时等 OSError)**自动退避重试** retries 次——中转站(Agnes 等)偶发抖动，
+    重试后基本能成，避免用户看到"AI 失败"。HTTP 4xx/5xx 是真错误，不重试。"""
+    import time as _time  # noqa: PLC0415
     from urllib.error import HTTPError  # noqa: PLC0415
     from urllib.request import Request, urlopen  # noqa: PLC0415
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = Request(url, data=data, method="POST" if data is not None else "GET",
                   headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    try:
-        with urlopen(req, timeout=timeout) as res:  # noqa: S310
-            return json.loads(res.read().decode("utf-8"))
-    except HTTPError as exc:
-        body = exc.read().decode("utf-8", "replace")[:200]
-        raise RuntimeError(f"Agnes 接口报错 HTTP {exc.code}: {body}")
-    except OSError as exc:
-        raise RuntimeError(f"Agnes 网络错误（可重试）: {getattr(exc, 'reason', exc)}")
+    for attempt in range(retries + 1):
+        try:
+            with urlopen(req, timeout=timeout) as res:  # noqa: S310
+                return json.loads(res.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")[:200]
+            raise RuntimeError(f"接口报错 HTTP {exc.code}: {body}")
+        except OSError as exc:
+            if attempt < retries:
+                _time.sleep(1.5 * (attempt + 1))   # 退避后重试
+                continue
+            raise RuntimeError(f"网络错误（已重试{retries}次）: {getattr(exc, 'reason', exc)}")
 
 
-def agnes_chat(settings: dict, system: str, user: str, images: list[str] | None = None) -> str:
-    """聊天补全（OpenAI 兼容）。images 给公网图片 URL 或 data URI（图片理解）。
+def agnes_chat(settings: dict, system: str, user: str, images: list[str] | None = None,
+               kind: str = "text") -> str:
+    """聊天补全（OpenAI 兼容）。kind 选配置块(text/multimodal/...)，默认 text。
+    images 给公网图片 URL 或 data URI（图片理解）。
     与 deepseek_chat 同错误契约：未配置/HTTP 错都抛 RuntimeError（路由转 400）。"""
     from backend.settings_migrate import ai_config  # noqa: PLC0415
-    base, key = _conf(settings, "text")
+    base, key = _conf(settings, kind)
     _s = settings or {}
-    model = (ai_config(_s, "text")["model"]
+    model = (ai_config(_s, kind)["model"]
              or str(_s.get("agnes_chat_model") or "").strip()
              or DEFAULT_CHAT_MODEL)
     content: object = user
@@ -88,9 +96,11 @@ def agnes_chat(settings: dict, system: str, user: str, images: list[str] | None 
         "model": model, "temperature": 0.3, "stream": False,
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": content}],
-        # 文档建议编码/推理任务开启 thinking（OpenAI 兼容写法）
-        "chat_template_kwargs": {"enable_thinking": True},
     }
+    # thinking 是 Agnes 自家参数；非 Agnes 平台(GPTPlus5/OpenAI 等)会报 400 Unknown parameter，
+    # 故仅对 Agnes 地址下发。这条 chat 现在被所有平台复用，必须按平台区分。
+    if "agnes" in str(base).lower():
+        body["chat_template_kwargs"] = {"enable_thinking": True}
     data = _http_json(f"{base}/v1/chat/completions", key=key, payload=body, timeout=180)
     try:
         content = data["choices"][0]["message"]["content"]

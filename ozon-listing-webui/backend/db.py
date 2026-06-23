@@ -217,6 +217,9 @@ MYSQL_DDL = [
         old_price VARCHAR(64),
         stock INT,
         weight_g INT,
+        -- 以下三列统一存「毫米(mm)」(列名 _mm 名实相符)。
+        -- 发布时直发给 Ozon(毫米,见 backend/drafts.py build item: depth=length_mm，不再 ×10)。
+        -- 1688/WB/Ozon 采集与 Ozon 拉取都归一成毫米；单位填错会让密度异常 → Ozon 报 INCORRECT_DENSITY。
         length_mm INT,
         width_mm INT,
         height_mm INT,
@@ -356,6 +359,31 @@ MYSQL_DDL = [
         KEY idx_offer_snap_pid (product_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    """
+    CREATE TABLE IF NOT EXISTS delivery_methods (
+        delivery_method_id BIGINT PRIMARY KEY,
+        warehouse_id BIGINT,
+        name VARCHAR(255) NOT NULL DEFAULT '',
+        status VARCHAR(64) NOT NULL DEFAULT '',
+        provider_id BIGINT,
+        template_id BIGINT,
+        tpl_integration_type VARCHAR(64),
+        is_express INT,
+        cutoff VARCHAR(64),
+        sla_cut_in INT,
+        dropoff_name VARCHAR(255),
+        dropoff_code VARCHAR(255),
+        dropoff_address VARCHAR(1024),
+        dropoff_lat DOUBLE,
+        dropoff_lng DOUBLE,
+        created_at VARCHAR(40),
+        updated_at VARCHAR(40),
+        fetched_at VARCHAR(40),
+        store_client_id VARCHAR(64) NOT NULL DEFAULT '',
+        raw_json LONGTEXT,
+        KEY idx_dm_store_wh (store_client_id, warehouse_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
 ]
 
 
@@ -375,6 +403,13 @@ def init_mysql(conn: MySQLConn) -> None:
         conn.execute(ddl)
     _ensure_mysql_column(conn, "users", "max_stores", "INT NOT NULL DEFAULT 1")
     _ensure_mysql_column(conn, "drafts", "media_status", "VARCHAR(16) NOT NULL DEFAULT 'done'")
+    # 已部署的 delivery_methods 表补自提点等新列（CREATE IF NOT EXISTS 不会补列）
+    for _col, _ddl in (
+        ("tpl_integration_type", "VARCHAR(64)"), ("is_express", "INT"),
+        ("dropoff_name", "VARCHAR(255)"), ("dropoff_code", "VARCHAR(255)"),
+        ("dropoff_address", "VARCHAR(1024)"), ("dropoff_lat", "DOUBLE"), ("dropoff_lng", "DOUBLE"),
+    ):
+        _ensure_mysql_column(conn, "delivery_methods", _col, _ddl)
     conn.commit()
 
 

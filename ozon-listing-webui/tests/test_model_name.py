@@ -51,13 +51,14 @@ class FillModelNameTest(unittest.TestCase):
             finally:
                 app.store.close()
 
-    def test_skips_variant_group(self):
+    def test_variant_group_fills_model_name(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             app = _make_app(tmp)
             try:
                 pub, mapped = {}, []
                 app._fill_model_name(META, {"source_raw": {"variant_group": "SKU123"}}, pub, mapped)
-                self.assertNotIn(9048, pub)  # 变体组不填，留给合并发布统一填
+                # 变体组型号名(9048)=variant_group(组内一致→Ozon合并为一张卡;单发也填,否则型号名发不上去)
+                self.assertEqual(pub[9048]["values"][0]["value"], "SKU123")
             finally:
                 app.store.close()
 

@@ -6,7 +6,6 @@
       filterable
       clearable
       check-strictly
-      :render-after-expand="false"
       node-key="value"
       placeholder="点选或搜索类目（只能选末级类型）"
       style="width:100%"
