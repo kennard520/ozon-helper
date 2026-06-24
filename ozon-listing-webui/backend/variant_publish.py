@@ -78,22 +78,34 @@ def build_group_items(
         attrs = [x for x in item["attributes"] if x.get("id") != MODEL_NAME_ATTR_ID]
         attrs.append({"id": MODEL_NAME_ATTR_ID, "values": [{"value": model_name}]})
         aspects = _sr(d).get("selected_aspects") or derived.get(d.get("id")) or []
+        # 草稿已填好的属性 id(含有效值)——Part C(AI)已按本变体填了颜色/尺寸(已译俄+解析 value_id)的就别覆盖
+        filled_ids = {int(a["id"]) for a in attrs
+                      if a.get("id") is not None and a.get("values")
+                      and any(str((v or {}).get("value") or (v or {}).get("dictionary_value_id") or "").strip()
+                              for v in a["values"])}
         aspect_attrs: list[dict[str, Any]] = []
         for sa in aspects:
             key = str(sa.get("aspect_key") or "").lower()
             val = str(sa.get("value") or "").strip()
             if not val:
                 continue
+            if not key:   # 采集的结构化维度只给轴名(颜色/规格…) → 按轴名/值判颜色 vs 尺寸
+                axis = str(sa.get("axis") or "")
+                key = "color" if (_COLOR_HINT.search(axis) or _COLOR_HINT.search(val)) else "size"
             if key.startswith("color"):
+                if COLOR_DICT_ATTR_ID in filled_ids or COLOR_TEXT_ATTR_ID in filled_ids:
+                    continue   # 草稿已填颜色 → 保留(别用中文值覆盖)
                 rv = resolve_dict(COLOR_DICT_ATTR_ID, 0, val)
                 if rv:
                     aspect_attrs.append({"id": COLOR_DICT_ATTR_ID, "values": [{"dictionary_value_id": rv["dictionary_value_id"], "value": rv.get("value") or val}]})
                 aspect_attrs.append({"id": COLOR_TEXT_ATTR_ID, "values": [{"value": val}]})
             elif size_attr:
+                if int(size_attr["id"]) in filled_ids:
+                    continue   # 草稿已填尺寸 → 保留
                 rv = resolve_dict(int(size_attr["id"]), int(size_attr.get("dictionary_id") or 0), val)
                 if rv:
                     aspect_attrs.append({"id": int(size_attr["id"]), "values": [{"dictionary_value_id": rv["dictionary_value_id"], "value": rv.get("value") or val}]})
-        # 去重:草稿里可能已有同 id 的颜色/尺寸(auto_map 填的)，用变体专属值覆盖，避免 ATTRIBUTE_IS_DUPLICATE
+        # 去重:草稿里可能已有同 id 的颜色/尺寸，用变体专属值覆盖，避免 ATTRIBUTE_IS_DUPLICATE
         aspect_ids = {a["id"] for a in aspect_attrs}
         attrs = [x for x in attrs if x.get("id") not in aspect_ids]
         attrs.extend(aspect_attrs)

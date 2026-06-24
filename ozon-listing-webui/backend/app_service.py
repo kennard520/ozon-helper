@@ -1480,12 +1480,21 @@ class App:
         chat = self._card_chat(settings, draft)
         try:
             user = "Attribute list:\n" + _json.dumps(brief, ensure_ascii=False) + "\n\nProduct:\n" + profile
-            if variant_spec:
-                user += (f"\n\nThis is ONE VARIANT of the product; its distinguishing spec (in Chinese) is:「{variant_spec}」. "
-                         "Fill the attributes marked is_aspect (the variant-distinguishing ones: color/size/volume/"
-                         "material/cap/type) to match THIS variant's spec — decompose the spec into the matching aspect "
-                         "attribute values (e.g. 「20升」→ volume 20 L; 「铝盖」→ cap material aluminium). "
-                         "Pick from each aspect's options when given.")
+            # 结构化变体维度(采集自 1688 skuProps,每轴一条)：比合并串可靠，优先喂给 AI 填 is_aspect
+            sel_aspects = (raw or {}).get("selected_aspects")
+            axes_txt = ""
+            if isinstance(sel_aspects, list) and sel_aspects:
+                pairs = [f"{a.get('axis') or '维度'}={a.get('value')}" for a in sel_aspects
+                         if isinstance(a, dict) and a.get("value")]
+                axes_txt = "; ".join(pairs)
+            if variant_spec or axes_txt:
+                user += (f"\n\nThis is ONE VARIANT of the product. "
+                         + (f"Its variant dimensions (axis=value, from 1688): {axes_txt}. " if axes_txt else "")
+                         + (f"Its distinguishing spec (Chinese):「{variant_spec}」. " if variant_spec else "")
+                         + "Fill the attributes marked is_aspect (the variant-distinguishing ones: color/size/volume/"
+                         "material/cap/type) to match THIS variant — map each variant dimension to the matching aspect "
+                         "attribute and value (e.g. 颜色=哑光白→color; 规格=20升→volume 20 L; 铝盖→cap aluminium). "
+                         "Pick from each aspect's options when given; translate values to Russian.")
             card = _extract_json(chat(_SYS_ATTRS_PICK, user))
         except Exception as exc:  # noqa: BLE001
             return {"error": f"AI 属性输出解析失败: {exc}"}

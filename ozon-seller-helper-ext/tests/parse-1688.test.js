@@ -148,6 +148,29 @@ describe('expandSkus', () => {
     expect(list.length).toBe(1)
     expect(list[0].price).toBe('141.63')   // 来自 originalPriceDisplay "18.79-141.63" 取最贵
   })
+  it('单轴 → selected_aspects 含该轴的命中值', () => {
+    const data = mockDataWithSku()
+    const base = parse1688Base(data, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    const list = expandSkus(data, base)
+    expect(list[0].selected_aspects).toEqual([{ axis: '规格', value: '摩托车专用款3升铝盖+油管' }])
+  })
+  it('多轴(颜色+规格) → 按轴各取命中值（取最长子串最精确）', () => {
+    const d = mockData()
+    d.Root.fields.dataJson.skuModel = {
+      skuProps: [
+        { prop: '颜色', value: [{ name: '哑光白' }, { name: '薄荷绿' }] },
+        { prop: '规格', value: [{ name: '5L' }, { name: '15L' }] }
+      ],
+      skuInfoMap: {
+        '哑光白&5L': { specId: 's1', specAttrs: '哑光白&5L', skuId: 1, canBookCount: 5 },
+        '薄荷绿&15L': { specId: 's2', specAttrs: '薄荷绿&15L', skuId: 2, canBookCount: 5 }
+      }
+    }
+    const base = parse1688Base(d, DETAIL, '', 'https://detail.1688.com/offer/795554901999.html')
+    const list = expandSkus(d, base)
+    expect(list[0].selected_aspects).toEqual([{ axis: '颜色', value: '哑光白' }, { axis: '规格', value: '5L' }])
+    expect(list[1].selected_aspects).toEqual([{ axis: '颜色', value: '薄荷绿' }, { axis: '规格', value: '15L' }])
+  })
 })
 
 describe('parse1688Base', () => {
