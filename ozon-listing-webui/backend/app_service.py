@@ -1480,11 +1480,17 @@ class App:
         chat = self._card_chat(settings, draft)
         try:
             user = "Attribute list:\n" + _json.dumps(brief, ensure_ascii=False) + "\n\nProduct:\n" + profile
-            # 结构化变体维度(采集自 1688 skuProps,每轴一条)：比合并串可靠，优先喂给 AI 填 is_aspect
+            # 结构化变体维度(每轴一条)：1688 给 {axis}、Ozon 给 {aspect,aspect_key}、后端推导给 {aspect_key}
+            # ——三源都读到轴名喂 AI(来源无关)。
             sel_aspects = (raw or {}).get("selected_aspects")
             axes_txt = ""
             if isinstance(sel_aspects, list) and sel_aspects:
-                pairs = [f"{a.get('axis') or '维度'}={a.get('value')}" for a in sel_aspects
+                def _axis_name(a):
+                    ax = a.get("axis") or a.get("aspect")
+                    if ax:
+                        return str(ax)
+                    return {"color": "颜色", "size": "尺寸"}.get(str(a.get("aspect_key") or "").lower(), "维度")
+                pairs = [f"{_axis_name(a)}={a.get('value')}" for a in sel_aspects
                          if isinstance(a, dict) and a.get("value")]
                 axes_txt = "; ".join(pairs)
             if variant_spec or axes_txt:

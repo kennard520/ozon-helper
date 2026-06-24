@@ -100,11 +100,14 @@ def build_group_items(
                     aspect_attrs.append({"id": COLOR_DICT_ATTR_ID, "values": [{"dictionary_value_id": rv["dictionary_value_id"], "value": rv.get("value") or val}]})
                 aspect_attrs.append({"id": COLOR_TEXT_ATTR_ID, "values": [{"value": val}]})
             elif size_attr:
-                if int(size_attr["id"]) in filled_ids:
-                    continue   # 草稿已填尺寸 → 保留
-                rv = resolve_dict(int(size_attr["id"]), int(size_attr.get("dictionary_id") or 0), val)
+                sid = int(size_attr["id"])
+                # 多个非颜色轴(如 容量+材质)只能各落一个属性；现只有一个 size_attr → 第二个起跳过，
+                # 否则同 id 重复条目会触发 Ozon ATTRIBUTE_IS_DUPLICATE。(多轴各映射独立属性是后续增强)
+                if sid in filled_ids or any(int(a["id"]) == sid for a in aspect_attrs):
+                    continue   # 草稿已填尺寸 / 该尺寸属性已被前一个非颜色轴占用 → 跳过
+                rv = resolve_dict(sid, int(size_attr.get("dictionary_id") or 0), val)
                 if rv:
-                    aspect_attrs.append({"id": int(size_attr["id"]), "values": [{"dictionary_value_id": rv["dictionary_value_id"], "value": rv.get("value") or val}]})
+                    aspect_attrs.append({"id": sid, "values": [{"dictionary_value_id": rv["dictionary_value_id"], "value": rv.get("value") or val}]})
         # 去重:草稿里可能已有同 id 的颜色/尺寸，用变体专属值覆盖，避免 ATTRIBUTE_IS_DUPLICATE
         aspect_ids = {a["id"] for a in aspect_attrs}
         attrs = [x for x in attrs if x.get("id") not in aspect_ids]
