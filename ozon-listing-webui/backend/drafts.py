@@ -69,6 +69,14 @@ def normalize_1688_url(url: str) -> str:
         raise ValueError(f"unsupported url scheme: {parsed.scheme}")
     if not parsed.netloc:
         raise ValueError("url host is required")
+    # 1688 offer 页：去掉 spm 等查询跟踪参数(每次打开都不同)，只留 offer 路径 + #sku 变体片段。
+    # 目的：同一(商品,变体)的 source_url 稳定→重采能去重；不同变体(#sku 不同)各自唯一→各建一张草稿；
+    # url 也短，不会被唯一键 uq_draft 的 source_url(255) 前缀截断而把不同变体误判成同一条(导致 500/收敛)。
+    if "1688.com" in (parsed.netloc or "") and "/offer/" in (parsed.path or ""):
+        rebuilt = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if parsed.fragment:
+            rebuilt += f"#{parsed.fragment}"
+        return rebuilt
     return value
 
 

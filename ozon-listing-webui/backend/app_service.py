@@ -2760,12 +2760,10 @@ class App:
             sr_new["selected_aspects"] = sa
         if sr_new:
             new_draft["source_raw"] = sr_new
-        # 重复采集去重按店：同来源在不同店各存一份，刷新只补空当前店那一份
+        # 重复采集去重按店：同来源在不同店各存一份，刷新只补空当前店那一份。
+        # 注意按完整 source_url 去重——多变体已由 normalize 保留 #sku 片段而各自唯一(各建一张草稿)，
+        # 不能按 source_offer_id 兜底去重(那会把同商品的 N 个变体误并成一张)。
         existing = self.store.find_by_source_url(new_draft["source_url"], None, store_cid)
-        if not existing and new_draft.get("source_offer_id"):
-            # url 跟踪参数(spm)变了→精确匹配漏判；同一源站商品(含多变体)按 source_offer_id 仍命中,
-            # 避免漏判后 insert 撞唯一键 uq_draft(url 前缀255) 报 500
-            existing = self.store.find_by_source_offer_id(new_draft["source_offer_id"], None, store_cid)
         if existing:
             # 重复采集：用新解析的源字段「补空」（不覆盖用户已编辑/已选的非空字段），
             # 这样旧的、缺描述/克重/尺寸的草稿能被重新采集刷新。
@@ -2813,16 +2811,14 @@ class App:
                     "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
         try:
             saved = self.store.insert_draft(new_draft)
-        except Exception as exc:  # noqa: BLE001  兜底:并发/url前缀索引等极端情形仍撞唯一键 → 当作重采找回,不再 500
+        except Exception as exc:  # noqa: BLE001  兜底:并发同 url 重采等极端撞唯一键 → 找回同 url 已存在的,不再 500
             msg = str(exc)
-            if ("uq_draft" in msg) or ("Duplicate" in msg) or ("UNIQUE" in msg):
-                ex = (self.store.find_by_source_url(new_draft["source_url"], None, store_cid)
-                      or (self.store.find_by_source_offer_id(new_draft["source_offer_id"], None, store_cid)
-                          if new_draft.get("source_offer_id") else None))
-                if ex:
-                    return {"created": [{"id": ex["id"], "source_title": ex.get("source_title")}],
-                            "errors": [], "deduped": True,
-                            "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
+            ex = (self.store.find_by_source_url(new_draft["source_url"], None, store_cid)
+                  if (("uq_draft" in msg) or ("Duplicate" in msg) or ("UNIQUE" in msg)) else None)
+            if ex:
+                return {"created": [{"id": ex["id"], "source_title": ex.get("source_title")}],
+                        "errors": [], "deduped": True,
+                        "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
             raise
         if _has_media and self._media_needs_upload(saved):
             self.store.set_media_status(saved["id"], "pending")  # 媒体未传 OSS，待后台补

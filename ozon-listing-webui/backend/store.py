@@ -1061,25 +1061,6 @@ class Store:
             ).fetchone()
         return self._row_to_draft(row) if row else None
 
-    def find_by_source_offer_id(
-        self, source_offer_id: str, user_id: int | None = None, store_client_id: str | None = None
-    ) -> dict[str, Any] | None:
-        """按 (user, source_offer_id) 查；同一源站商品(多变体/重采时 url 跟踪参数 spm 变了→精确 url 漏判)
-        仍能命中去重。store_client_id 非 None 再按店过滤(与 find_by_source_url 一致)。"""
-        user_id = _uid(user_id)
-        soid = str(source_offer_id or "").strip()
-        if not soid:
-            return None
-        sql = "SELECT * FROM drafts WHERE source_offer_id = ? AND user_id = ?"
-        params: list[Any] = [soid, int(user_id)]
-        if store_client_id is not None:
-            sql += " AND store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        sql += " ORDER BY id DESC LIMIT 1"
-        with self.lock:
-            row = self.conn.execute(sql, params).fetchone()
-        return self._row_to_draft(row) if row else None
-
     def update_draft(self, draft_id: int, patch: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
         with self.lock:
