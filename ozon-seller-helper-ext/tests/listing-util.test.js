@@ -79,4 +79,12 @@ describe('cardHtml', () => {
     expect(lines).toBe(4)            // 跟卖家数 / 最低价 / 销量(估) / 评分 各一行
     expect(h).not.toContain(' · ')   // 不再点号串一行
   })
+  it('多变体(variantCount>1)才出「采集全部变体」按钮', () => {
+    const multi = cardHtml({ summary: { followCount: 1, priceMin: 9 }, variantCount: 5 })
+    expect(multi).toContain('ohl-variants')
+    expect(multi).toContain('采集全部变体(5)')
+    const single = cardHtml({ summary: { followCount: 1, priceMin: 9 }, variantCount: 1 })
+    expect(single).not.toContain('ohl-variants')
+    expect(cardHtml({ summary: { followCount: 1, priceMin: 9 } })).not.toContain('ohl-variants')  // 无变体数不出
+  })
 })

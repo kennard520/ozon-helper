@@ -49,6 +49,22 @@
     })
   }
 
+  // 采集全部变体：逐变体各建草稿(同 variant_group)，串行限速防风控
+  function onCollectVariants(card) {
+    if (typeof OzonHelperCollect === 'undefined') return
+    const url = card.dataset.url
+    const setBtn = (text, disabled) => {
+      const btn = card.querySelector('.ohl-variants')
+      if (btn) { btn.textContent = text; btn.disabled = !!disabled }
+    }
+    setBtn('采集中…', true)
+    OzonHelperCollect.collectAllVariants(url, {
+      onProgress: (done, total) => setBtn('采集 ' + done + '/' + total + '…', done < total),
+      getStop: () => false
+    }).then((r) => setBtn('已采 ' + ((r && r.collected) || 0) + ' 个 ✓', false))
+      .catch(() => setBtn('采集失败', false))
+  }
+
   function ensureCards() {
     if (isDetailPage()) return
     const seen = new Set()
@@ -76,6 +92,10 @@
           e.preventDefault()
           e.stopPropagation()
           onEdit(card)
+        } else if (e.target.classList.contains('ohl-variants') && !e.target.disabled) {
+          e.preventDefault()
+          e.stopPropagation()
+          onCollectVariants(card)
         }
       })
       renderCard(card, { loading: true })
@@ -133,17 +153,21 @@
       }
       let estimate = null
       let rating = null
+      let variantCount = 0
       try {
         if (pResp && pResp.ok) {
           const pJson = await pResp.json()
           estimate = OzonHelperParse.estimateSales(OzonHelperParse.parseReviewCount(pJson))
           rating = OzonHelperParse.parseRating(pJson)
+          if (typeof OzonHelperProduct !== 'undefined' && OzonHelperProduct.parseOzonProduct) {
+            try { variantCount = (OzonHelperProduct.parseOzonProduct(pJson).variants || []).length } catch (e) { /* ignore */ }
+          }
         }
       } catch (e) { /* 估算失败不影响跟卖 */ }
       const json = await resp.json()
       const summary = OzonHelperParse.summarizeOtherOffers(json)
-      cache.set(pid, { summary, estimate, rating })
-      renderCard(card, { summary, estimate, rating })
+      cache.set(pid, { summary, estimate, rating, variantCount })
+      renderCard(card, { summary, estimate, rating, variantCount })
       if (summary.followCount > 0 && typeof OzonHelperBridge !== 'undefined') {
         OzonHelperBridge.bgCall('snapshot', {
           product_id: pid,

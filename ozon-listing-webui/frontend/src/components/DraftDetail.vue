@@ -33,6 +33,10 @@
       </div>
     </section>
 
+    <section v-if="variantList.length > 1 && !variantGroup" class="variant-prompt-bar">
+      🔗 该商品有 <b>{{ variantList.length }}</b> 个变体，但当前只采集了一个。要合并成一张多变体卡，请到来源页面（Ozon 列表卡/详情页）用插件点「<b>采集全部变体</b>」一次性采全。
+    </section>
+
     <section v-if="variantSiblings.count > 1" class="variant-group-bar">
       <div class="vg-head">
         <b>🔗 变体组</b>
@@ -1893,6 +1897,7 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
   margin-top: 12px;
 }
 .variant-section { margin-top: 12px; }
+.variant-prompt-bar { margin: 8px 0; padding: 9px 12px; border: 1px solid var(--c-warning, #faad14); border-radius: 8px; background: var(--c-warning-light, #fffbe6); font-size: 13px; color: var(--c-text-secondary, #614700); }
 .variant-group-bar { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--c-border-soft); border-radius: 8px; background: var(--c-fill-light, #f6f8fa); }
 .vg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .vg-count { color: var(--c-text-secondary, #666); font-size: 13px; }
