@@ -822,6 +822,17 @@ def ext_publish_group(body: PublishGroupIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/drafts/{draft_id}/variant-group")
+def variant_group_siblings(draft_id: int) -> dict:
+    """该草稿所属变体组的兄弟变体清单(轻量)，供编辑器展示。"""
+    try:
+        return APP.variant_group_siblings(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/ext/update-draft-media")
 def ext_update_draft_media(body: dict) -> dict:
     try:

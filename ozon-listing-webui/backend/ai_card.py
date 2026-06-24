@@ -50,6 +50,9 @@ _SYS_ATTRS_PICK = (
     "- number: entry = {\"id\":attr_id,\"value\":\"<digits only, no unit>\"}.\n"
     "- boolean: entry = {\"id\":attr_id,\"value\":\"true\"} or {\"id\":attr_id,\"value\":\"false\"}.\n"
     "Fill EVERY required attribute if the product info allows, plus as many others as the info supports. "
+    "Attributes flagged is_aspect are the variant-distinguishing ones (color/size/volume/material/type). When the "
+    "product info gives a single variant's distinguishing spec, you MUST decompose it and fill those is_aspect "
+    "attributes to match exactly THIS variant (so variants merge into one Ozon card and stay selectable). "
     "Follow each attribute's hint. Use only facts present in the product info; never fabricate. Output only JSON.")
 # 兜底翻译：属性自由文本若 AI 照抄了中文(没遵守 text_ru 必须俄语)，批量翻成俄语再填
 _SYS_TRANSLATE_RU = (

@@ -35,6 +35,7 @@ export const api = {
   publish: (id, store_client_id) => req('POST', `/api/drafts/${id}/publish`, store_client_id ? { store_client_id } : {}),
   publishPreflight: (id) => req('GET', `/api/drafts/${id}/publish-preflight`),
   publishGroup: (variant_group, store_client_id) => req('POST', '/api/ext/publish-group', store_client_id ? { variant_group, store_client_id } : { variant_group }),
+  variantGroup: (id) => req('GET', `/api/drafts/${id}/variant-group`),
   recognizeCategory: (id) => req('POST', `/api/drafts/${id}/recognize-category`),
   autoMap: (id) => req('POST', `/api/drafts/${id}/auto-map`),
   aiFillAttributes: (id) => req('POST', `/api/drafts/${id}/ai-fill-attributes`),

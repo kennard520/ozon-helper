@@ -1431,6 +1431,8 @@ class App:
         raw = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
         settings = self.store.get_settings()
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
+        # 本变体的区别规格(1688 spec_attrs，如「美式20升」)——喂给 AI 按本变体填区别特征(is_aspect)
+        variant_spec = str((raw or {}).get("spec_attrs") or (raw or {}).get("variant_label") or "").strip()
         all_attrs = [a for a in (self._category_attrs(cat, typ) or []) if int(a.get("id") or 0) != 85]
         facts = self._physical_facts(draft)
         # 只把「代码真能填出值」的物理属性排除出 AI 并由代码填；提取不到值的**留给 AI**(避免两头落空)
@@ -1454,6 +1456,7 @@ class App:
             if self._is_annotation_attr(a):
                 continue   # 简介(Аннotация)复用文案描述，不发给 AI
             item = {"id": aid, "name": a.get("name"), "required": bool(a.get("is_required")),
+                    "is_aspect": bool(a.get("is_aspect")),   # 变体区别维度(颜色/尺寸/规格)，按本变体 spec 填
                     "hint": str(a.get("description") or "")[:100]}
             t = str(a.get("type") or "").strip().lower()
             if a.get("dictionary_id"):
@@ -1476,9 +1479,14 @@ class App:
             brief.append(item)
         chat = self._card_chat(settings, draft)
         try:
-            card = _extract_json(chat(_SYS_ATTRS_PICK,
-                "Attribute list:\n" + _json.dumps(brief, ensure_ascii=False)
-                + "\n\nProduct:\n" + profile))
+            user = "Attribute list:\n" + _json.dumps(brief, ensure_ascii=False) + "\n\nProduct:\n" + profile
+            if variant_spec:
+                user += (f"\n\nThis is ONE VARIANT of the product; its distinguishing spec (in Chinese) is:「{variant_spec}」. "
+                         "Fill the attributes marked is_aspect (the variant-distinguishing ones: color/size/volume/"
+                         "material/cap/type) to match THIS variant's spec — decompose the spec into the matching aspect "
+                         "attribute values (e.g. 「20升」→ volume 20 L; 「铝盖」→ cap material aluminium). "
+                         "Pick from each aspect's options when given.")
+            card = _extract_json(chat(_SYS_ATTRS_PICK, user))
         except Exception as exc:  # noqa: BLE001
             return {"error": f"AI 属性输出解析失败: {exc}"}
         by_meta = {int(a["id"]): a for a in all_attrs if a.get("id") is not None}
@@ -3304,6 +3312,31 @@ class App:
         # Ozon 从 posting 本身推断仓库，无需（也不接受）warehouse_id 参数。
         r = ship_fbs(settings, posting_number, [{"products": products}])
         return {"result": r.get("result") or [], "shipped": True, "response": r}
+
+    def variant_group_siblings(self, draft_id: int) -> dict:
+        """该草稿所属变体组的兄弟变体清单(轻量)，供编辑器展示「共 N 变体」+ 区别规格。"""
+        from backend.drafts import loads_json  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = draft.get("source_raw")
+        if isinstance(sr, str):
+            sr = loads_json(sr, {})
+        group = str((sr or {}).get("variant_group") or "").strip()
+        if not group:
+            return {"ok": True, "group": "", "variants": [], "count": 0}
+        out = []
+        for d in self.store.list_drafts_by_variant_group(group):
+            dsr = d.get("source_raw")
+            if isinstance(dsr, str):
+                dsr = loads_json(dsr, {})
+            dsr = dsr or {}
+            out.append({"id": d.get("id"),
+                        "spec": str(dsr.get("spec_attrs") or dsr.get("variant_label") or "").strip(),
+                        "price": d.get("price"), "status": d.get("status"),
+                        "image": (list(d.get("images") or [])[:1] or [""])[0],
+                        "current": d.get("id") == draft_id})
+        return {"ok": True, "group": group, "variants": out, "count": len(out)}
 
     def publish_variant_group(
         self,

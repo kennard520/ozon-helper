@@ -11,6 +11,9 @@ export const useAppStore = defineStore('app', {
     // 后端分页：drafts 只存当前页；总数/计数由后端给（前端无法自算）
     page: 1, pageSize: 20, total: 0,
     serverCounts: { all: 0, invalid: 0, ready: 0, failed: 0, published: 0 },
+    // 各草稿在途操作（按 草稿id→操作名→true）：loading 状态存这里而非组件内，
+    // 切换草稿(DraftDetail 因 :key 重建)再切回，未完成的操作按钮仍能正确转圈。
+    pendingOps: {},
   }),
   getters: {
     storeList: (s) => s.settings.ozon_stores || [],
@@ -63,5 +66,12 @@ export const useAppStore = defineStore('app', {
     // total/counts 不同步），交给 loadDrafts 重新拉。返回是否命中，调用方可据此决定要不要 reload。
     upsertDraft(d) { const i = this.drafts.findIndex(x => x.id === d.id); if (i >= 0) { this.drafts[i] = d; return true } return false },
     removeDraft(id) { this.drafts = this.drafts.filter(d => d.id !== id); this.selected.delete(id); if (this.selectedId === id) this.selectedId = null },
+    // 在途操作标记：跨草稿切换持久（DraftDetail 重建后按钮仍能读回 loading 态）
+    setOp(id, op, v) {
+      if (id == null) return
+      const m = this.pendingOps[id] || (this.pendingOps[id] = {})
+      if (v) { m[op] = true } else { delete m[op]; if (!Object.keys(m).length) delete this.pendingOps[id] }
+    },
+    isOp(id, op) { const m = this.pendingOps[id]; return !!(m && m[op]) },
   },
 })
