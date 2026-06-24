@@ -23,6 +23,7 @@
 - **出图批量**因较贵（23×10 张），**默认不进「全批量自动」**，单独按需触发。
 - 上架语义：单个 = 发该变体草稿（Ozon 按型号名 9048 自动并到同组卡）；多/全 = `publish_variant_group`（扩展为可传选中子集）。
 - 删除：**只删本地草稿，不碰 Ozon**（已发布的留在 Ozon，用户自行后台处理）。
+- **变体重新分组（双向拖拽）**：1688 常把不该算变体的塞成 SKU，也可能漏并。支持「拖出去=脱离组独立成卡」「拖进来=并入某组」。非破坏，数据全留。
 
 ## 架构与组件
 
@@ -51,6 +52,11 @@
   - `published`：`status == 'published'` 或有 `publish_response`。
   - 另含：id、spec（区别规格）、price、weight_g、尺寸、首图、status。
 - `publish_variant_group(group, store?, model_name?, ids?)`：**扩展可选 `ids`**——只发选中子集（默认全组）。
+- `set_variant_group(draft_id, target_group)`：**重新分组原子操作**（拖拽底层）。
+  - `target_group=''`（拖出/独立）→ 清空该草稿 `variant_group`（列+source_raw），把型号名 9048 重置为新随机 `M-xxxx`（不再被 Ozon 并回组）。
+  - `target_group=X`（拖入某组）→ 设 `variant_group=X`，型号名 9048 设为 `X`（组内一致→Ozon 合并）。
+  - 把两个独立草稿并成新组：生成一个新 `variant_group` id（如 `grp-<8位>`），两者都设过去。
+  - 非破坏：图/价/属性原样保留。
 - 批量删除：**前端循环复用现有 `DELETE /api/drafts/{id}`**，不新增批量端点（简单、逐个可控）。
 
 ### 批量执行（前端编排，复用现有单步端点）
@@ -77,6 +83,18 @@
 - **升级已有** `GET /api/drafts/{id}/variant-group` → 返回带每步状态的工作台数据（`variant_group_workspace`）。
 - `POST /api/ext/publish-group` 扩展 body 接受可选 `ids`（选中子集）。
 - 批量删除：前端循环复用 `DELETE /api/drafts/{id}`（不新增批量端点）。
+- **新增** `POST /api/drafts/{id}/variant-group` body `{ target_group }` → `set_variant_group`（拖出=空、拖入=目标组 id）。
+
+### 变体重新分组（双向拖拽）
+
+底层就一个原子操作 `set_variant_group`，UI 用拖拽触发：
+
+- **拖出（detach）**：在工作台把某变体行拖到「独立区」/拖出组，或点行内「踢出组」→ `set_variant_group(id, '')` → 它在列表里单独成卡。
+- **拖入（attach/merge）**：在左侧列表把一个独立商品卡**拖到某变体组卡上** → `set_variant_group(独立id, 目标组)` → 并入该组。
+  - 拖到的目标本身是独立卡（无组）→ 生成新 `variant_group` 把两者并成一组。
+- **组间移动**：从 A 组工作台把变体拖到 B 组 = 直接 `set_variant_group(id, B)`（=先脱 A 再入 B，一步到位）。
+- 交互：用 HTML5 DnD 或轻量拖拽；**每个拖拽都有按钮兜底**（「踢出组」行操作 / 「并入组…」选择目标），避免纯拖拽在长列表里难操作。
+- 拖完刷新列表折叠 + 工作台。
 
 ## 数据流
 
@@ -99,7 +117,7 @@
 ## 测试
 
 - store：variant_group 列回填、insert/update 同步、折叠查询（混合 有组/无组、跨状态过滤）、count_by_status 按组去重。
-- app_service：variant_group_workspace 状态推导（各步齐全/缺失）、publish_variant_group 子集 ids。
+- app_service：variant_group_workspace 状态推导（各步齐全/缺失）、publish_variant_group 子集 ids、set_variant_group（拖出清组+9048重置随机、拖入设组+9048=组、两独立并新组）。
 - 前端：工作台表格渲染、批量并发池（部分失败汇总）、勾选/全选、删除后刷新。
 - 回归：现有 505 用例全过。
 
@@ -112,4 +130,4 @@
 
 - 不做「主信息共享同步」（用户明确变体不共享）。
 - 不做从 Ozon 下架（删除只动本地草稿）。
-- 不做变体的拖拽排序、跨商品移动变体。
+- 不做变体在卡内的拖拽**排序**（只做分组归属，不做组内顺序）。
