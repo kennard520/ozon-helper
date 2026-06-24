@@ -1573,6 +1573,21 @@ class App:
         existing = [a for a in (draft.get("attributes") or []) if isinstance(a, dict)]
         merged = [a for a in existing if not (a.get("id") is not None and int(a.get("id")) in ai_ids)]
         merged += [a for a in new_attrs if int(a.get("id")) not in keep]
+        # 型号名称(9048,合并为一张卡用)：编辑器也自动填——变体组用 variant_group(组内一致→Ozon合并)，
+        # 否则随机 M-XXXX(每个单品独立卡)。已填(用户/采集)则不覆盖；类目无此属性则不塞。让 UI 立即可见、满足必填。
+        from backend.variant_publish import MODEL_NAME_ATTR_ID  # noqa: PLC0415  # 9048
+        cat_has_model = any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID for a in all_attrs)
+        has_model = any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID
+                        and any(str(v.get("value") or "").strip() for v in (a.get("values") or []))
+                        for a in merged)
+        if cat_has_model and not has_model:
+            import uuid  # noqa: PLC0415
+            sr = draft.get("source_raw")
+            vg = str((sr or {}).get("variant_group") or "").strip() if isinstance(sr, dict) else ""
+            mv = vg or ("M-" + uuid.uuid4().hex[:8].upper())
+            merged = [a for a in merged if _to_int(a.get("id")) != MODEL_NAME_ATTR_ID]  # 去掉空的旧 9048
+            merged.append({"id": MODEL_NAME_ATTR_ID, "values": [{"value": mv}]})
+            mapped.append({"id": MODEL_NAME_ATTR_ID, "name": "型号名称", "value": mv})
         updated = self.store.update_draft(draft_id, {"attributes": merged})
         return {"ok": True, "draft": updated, "mapped_count": len(mapped),
                 "mapped": mapped, "unmapped": unmapped}
