@@ -25,6 +25,24 @@ def _uid(user_id: int | None) -> int:
     return int(current_user_id.get() if user_id is None else user_id)
 
 
+def _in_scope(fn):
+    """在请求级 session 内执行 fn：已有 ambient session 直接用，否则自开一个。
+
+    让 Store 转调仓储的方法既能跑在 HTTP 中间件 session 里，也能在请求外
+    （测试/启动/worker 无中间件）自开 session 兜底。"""
+    from ozon_common.dal.session import _current_session, session_scope  # noqa: PLC0415
+    if _current_session.get() is not None:
+        return fn()
+    with session_scope():
+        return fn()
+
+
+def _gen_job_repo():
+    """延迟构造 GenJobRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.gen_job_repo import GenJobRepo  # noqa: PLC0415
+    return GenJobRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -122,16 +140,26 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
+        # 释放请求级 session 用的 engine 连接池（否则 Windows 下 SQLite 文件被占，临时库删不掉）。
+        eng = getattr(self, "_session_engine", None)
+        if eng is not None:
+            eng.dispose()
+            self._session_engine = None
 
     def init(self) -> None:
         # 建表权威切到 SQLAlchemy metadata（与老裸 SQL DDL schema 一致，已由保真测试证明）；
         # 历史数据回填仍 run-once、自限，剥到 webui.db_backfills。
         from ozon_common.dal.engine import engine_for  # noqa: PLC0415
         from ozon_common.dal.schema import metadata  # noqa: PLC0415
+        from ozon_common.dal.session import bind_engine  # noqa: PLC0415
         from webui.db_backfills import run_backfills  # noqa: PLC0415
         eng = engine_for(self.path if not self._is_mysql else None)
         metadata.create_all(eng)          # 建全部表（替代老裸 SQL DDL / db.init_mysql）
-        eng.dispose()
+        # 绑定请求级 session 的全局 sessionmaker（与本 Store 同一个库）：
+        # 让 Store 转调仓储的方法在任何上下文（HTTP/测试/worker）都能自开 session 兜底。
+        # 注意：这里不 dispose eng——它要留给 sessionmaker 用；存到 self 以便 close() 释放。
+        self._session_engine = eng
+        bind_engine(eng)
         run_backfills(self.conn)          # 数据回填，用 Store 自己的连接
 
     # ---------- 类目/属性值 本地缓存 ----------
@@ -519,29 +547,15 @@ class Store:
 
     def get_settings(self, user_id: int | None = None) -> dict[str, Any]:
         """某用户的设置；自动并入系统级全局(user_id=0，如 OSS/jwt_secret)。"""
-        user_id = _uid(user_id)
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT key, value FROM settings WHERE user_id IN (0, ?)", (user_id,)
-            ).fetchall()
-        settings: dict[str, Any] = {}
-        for row in rows:
-            settings[row["key"]] = loads_json(row["value"], row["value"])
-        return settings
+        from ozon_common.dal.repositories.settings_repo import SettingsRepo  # noqa: PLC0415
+        uid = _uid(user_id)
+        return _in_scope(lambda: SettingsRepo().get_settings(uid))
 
     def save_settings(self, settings: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         """写设置：全局键(GLOBAL_SETTING_KEYS)落 user_id=0，其余落该用户。"""
-        user_id = _uid(user_id)
-        with self.lock:
-            for key, value in settings.items():
-                uid = 0 if key in GLOBAL_SETTING_KEYS else user_id
-                self.conn.execute(
-                    "INSERT INTO settings(user_id, key, value) VALUES(?, ?, ?) "
-                    "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
-                    (uid, key, dumps_json(value)),
-                )
-            self.conn.commit()
-        return self.get_settings(user_id)
+        from ozon_common.dal.repositories.settings_repo import SettingsRepo  # noqa: PLC0415
+        uid = _uid(user_id)
+        return _in_scope(lambda: SettingsRepo().save_settings(settings, uid))
 
     # ---- 用户（多用户鉴权）----
     def create_user(self, username: str, password_hash: str, role: str = "user",
@@ -1428,20 +1442,12 @@ class Store:
                         source: str = "generated") -> int:
         """直接插入一行 draft_images（position=当前最大+1），避免读改写 images_json 全数组。
         返回新行 id。"""
-        now = utc_now_iso()
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM draft_images WHERE draft_id=?",
-                (int(draft_id),),
-            ).fetchone()
-            pos = int(row["next_pos"]) if row else 0
-            cur = self.conn.execute(
-                "INSERT INTO draft_images (draft_id, position, url, type, source, created_at)"
-                " VALUES (?,?,?,?,?,?)",
-                (int(draft_id), pos, str(url), str(type or ""), str(source), now),
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        return _in_scope(
+            lambda: DraftImageRepo().add_draft_image(
+                draft_id, url, type=type, source=source
             )
-            self.conn.commit()
-        return cur.lastrowid
+        )
 
     def _sync_draft_images(self, draft_id: int, images: list[str],
                            image_types: dict[str, str] | None = None) -> None:
@@ -1471,129 +1477,43 @@ class Store:
 
     def create_gen_job(self, draft_id: int, target: int, user_id: int | None = None) -> dict[str, Any]:
         uid = _uid(user_id)
-        now = utc_now_iso()
-        with self.lock:
-            cur = self.conn.execute(
-                "INSERT INTO gen_jobs (draft_id, user_id, status, target, total, succeeded, failed, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
-                (int(draft_id), uid, "queued", int(target), 0, 0, 0, now, now),
-            )
-            self.conn.commit()
-        return self.get_gen_job(cur.lastrowid)
+        return _in_scope(lambda: _gen_job_repo().create_gen_job(draft_id, target, uid))
 
     def get_gen_job(self, job_id: int) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM gen_jobs WHERE id=?", (int(job_id),)
-            ).fetchone()
-        return dict(row) if row else None
+        return _in_scope(lambda: _gen_job_repo().get_gen_job(job_id))
 
     def get_latest_gen_job(self, draft_id: int, user_id: int | None = None) -> dict[str, Any] | None:
         uid = _uid(user_id)
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM gen_jobs WHERE draft_id=? AND user_id=? ORDER BY id DESC LIMIT 1",
-                (int(draft_id), uid),
-            ).fetchone()
-        return dict(row) if row else None
+        return _in_scope(lambda: _gen_job_repo().get_latest_gen_job(draft_id, uid))
 
     def list_gen_jobs(self, draft_id: int, user_id: int | None = None) -> list[dict[str, Any]]:
         uid = _uid(user_id)
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM gen_jobs WHERE draft_id=? AND user_id=? ORDER BY id DESC",
-                (int(draft_id), uid),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _gen_job_repo().list_gen_jobs(draft_id, uid))
 
     def has_active_gen_job(self, draft_id: int, user_id: int | None = None) -> bool:
         uid = _uid(user_id)
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT COUNT(*) c FROM gen_jobs WHERE draft_id=? AND user_id=? AND status IN ('queued','designing','running')",
-                (int(draft_id), uid),
-            ).fetchone()
-        return int(row["c"]) > 0
+        return _in_scope(lambda: _gen_job_repo().has_active_gen_job(draft_id, uid))
 
     def update_gen_job(self, job_id: int, patch: dict[str, Any]) -> dict[str, Any] | None:
-        keys = [k for k in patch if k != "id"]
-        if not keys:
-            return self.get_gen_job(job_id)
-        now = utc_now_iso()
-        sets = [f"{k}=?" for k in keys]
-        vals = [patch[k] for k in keys]
-        sets.append("updated_at=?")
-        vals.append(now)
-        vals.append(int(job_id))
-        with self.lock:
-            self.conn.execute(
-                f"UPDATE gen_jobs SET {', '.join(sets)} WHERE id=?",
-                tuple(vals),
-            )
-            self.conn.commit()
-        return self.get_gen_job(job_id)
+        return _in_scope(lambda: _gen_job_repo().update_gen_job(job_id, patch))
 
     def set_gen_job_status(self, job_id: int, status: str) -> None:
-        now = utc_now_iso()
-        with self.lock:
-            self.conn.execute(
-                "UPDATE gen_jobs SET status=?, updated_at=? WHERE id=?",
-                (str(status), now, int(job_id)),
-            )
-            self.conn.commit()
+        return _in_scope(lambda: _gen_job_repo().set_gen_job_status(job_id, status))
 
     def create_gen_job_images(self, job_id: int, slots: list[dict[str, Any]]) -> None:
-        now = utc_now_iso()
-        with self.lock:
-            for s in slots:
-                self.conn.execute(
-                    "INSERT INTO gen_job_images (job_id, slot_id, label, status, updated_at)"
-                    " VALUES (?,?,?,?,?)",
-                    (int(job_id), str(s.get("slot_id") or ""), str(s.get("label") or ""), "pending", now),
-                )
-            self.conn.commit()
+        return _in_scope(lambda: _gen_job_repo().create_gen_job_images(job_id, slots))
 
     def get_gen_job_images(self, job_id: int) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM gen_job_images WHERE job_id=? ORDER BY id ASC", (int(job_id),)
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _gen_job_repo().get_gen_job_images(job_id))
 
     def update_gen_job_image(self, image_id: int, patch: dict[str, Any]) -> None:
-        keys = [k for k in patch if k != "id"]
-        if not keys:
-            return
-        now = utc_now_iso()
-        sets = [f"{k}=?" for k in keys]
-        vals = [patch[k] for k in keys]
-        sets.append("updated_at=?")
-        vals.append(now)
-        vals.append(int(image_id))
-        with self.lock:
-            self.conn.execute(
-                f"UPDATE gen_job_images SET {', '.join(sets)} WHERE id=?",
-                tuple(vals),
-            )
-            self.conn.commit()
+        return _in_scope(lambda: _gen_job_repo().update_gen_job_image(image_id, patch))
 
     def set_gen_job_image_status(self, image_id: int, status: str, url: str | None = None,
                                  error: str | None = None) -> None:
-        now = utc_now_iso()
-        with self.lock:
-            self.conn.execute(
-                "UPDATE gen_job_images SET status=?, url=?, error=?, updated_at=? WHERE id=?",
-                (str(status), url or None, error or None, now, int(image_id)),
-            )
-            self.conn.commit()
+        return _in_scope(
+            lambda: _gen_job_repo().set_gen_job_image_status(image_id, status, url, error)
+        )
 
     def count_gen_job_images_by_status(self, job_id: int) -> dict[str, int]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT status, COUNT(*) c FROM gen_job_images WHERE job_id=? GROUP BY status",
-                (int(job_id),),
-            ).fetchall()
-        counts: dict[str, int] = {}
-        for r in rows:
-            counts[str(r["status"])] = int(r["c"])
-        return counts
+        return _in_scope(lambda: _gen_job_repo().count_gen_job_images_by_status(job_id))

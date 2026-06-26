@@ -17,13 +17,18 @@ GLOBAL_SETTING_KEYS: frozenset[str] = frozenset({
 
 
 def _decode(v: Any) -> Any:
-    """若 value 是 JSON 串(以 { 或 [ 开头)则反序列化,否则原样返回。"""
-    if isinstance(v, str) and v[:1] in ("{", "["):
-        try:
-            return json.loads(v)
-        except (json.JSONDecodeError, TypeError):
-            return v
-    return v
+    """反序列化存储值,语义对齐旧 Store: loads_json(value, value)。
+
+    旧 Store 写时对所有值 json.dumps(字符串也带引号存,如 "2" → '"2"'),
+    读时一律 json.loads、失败回退原值。故这里也对全部字符串值 json.loads:
+      '"2"' → "2"(字符串保形)、'0.1' → 0.1、'{...}' → dict、裸串解析失败 → 原样。
+    """
+    if not isinstance(v, str):
+        return v
+    try:
+        return json.loads(v)
+    except (json.JSONDecodeError, TypeError):
+        return v
 
 
 class SettingsRepo(BaseRepo):
@@ -53,7 +58,9 @@ class SettingsRepo(BaseRepo):
         uid = int(user_id)
         for k, v in values.items():
             target_uid = 0 if k in GLOBAL_SETTING_KEYS else uid
-            sv = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str)
+            # 对齐旧 Store dumps_json:所有值(含字符串)一律 json.dumps,
+            # 这样字符串带引号存、读时 json.loads 能保形(如 "2" 不被当成 int 2)。
+            sv = json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=str)
             self.s.execute(delete(T).where(T.c.user_id == target_uid, T.c.key == k))
             self.s.execute(insert(T).values(user_id=target_uid, key=k, value=sv))
         return self.get_settings(uid)

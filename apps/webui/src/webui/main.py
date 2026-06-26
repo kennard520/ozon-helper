@@ -75,6 +75,19 @@ class _UserContextMiddleware:
 app.add_middleware(_UserContextMiddleware)
 
 
+# 请求级 scoped-session 用的全局 sessionmaker 已在 App() → Store.init() 里 bind_engine 绑好
+# （与本进程的 Store 同一个库）；这里只需 session_scope 包请求即可。
+from ozon_common.dal.session import session_scope  # noqa: E402
+
+
+# 请求级 scoped-session：进入请求开 session 绑 ContextVar，结束提交/回滚/关闭。
+# async 中间件设的 ContextVar 会被 anyio 复制进同步端点的线程池（已实测）。
+@app.middleware("http")
+async def _db_session_mw(request: Request, call_next):
+    with session_scope():
+        return await call_next(request)
+
+
 # ---------- 鉴权 ----------
 def get_current_user(request: Request) -> dict:
     """从 Authorization: Bearer <token> 解析当前用户；无效则 401。"""
