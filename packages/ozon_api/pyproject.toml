@@ -1,0 +1,14 @@
+[project]
+name = "ozon-api"
+version = "0.1.0"
+description = "Ozon Seller API 客户端与选品/定价流"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1",      # 佣金表 Excel 导入/导出 (export.py, filter_v2.py)
+    "cloakbrowser",       # 无头浏览器 (competition_probe.py, query_variants.py, review_probe.py)
+    # ozon-scraper: 本地 editable 包(E:/personal/kuajing/tools/ozon-scraper), 非 PyPI, 需在环境中手动 pip install -e
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
