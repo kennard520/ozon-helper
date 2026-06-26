@@ -12,7 +12,8 @@ import traceback
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from gen_image import (
+from ozon_common.draft_images import DataStore
+from ozon_common.gen_image import (
     LOCALIZE_PROMPT,
     SCENE_PROMPT,
     WHITE_MAIN_PROMPT,
@@ -22,10 +23,10 @@ from gen_image import (
     edit_image,
     images_from_response,
 )
-from image_plan import build_image_plan
-from mq import consume_gen_jobs
-from oss import OssClient
-from store import DataStore, ai_config, oss_config
+from ozon_common.image_plan import build_image_plan
+from ozon_common.mq import consume_gen_jobs
+from ozon_common.oss import OssClient
+from ozon_common.settings import ai_config
 
 log = logging.getLogger("ozon.worker")
 GEN_CONCURRENCY = int(os.environ.get("GEN_CONCURRENCY") or 10)
@@ -233,7 +234,7 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
                     src_url = images[max(0, min(int(src_idx), len(images) - 1))]
                     img_bytes = _generate_with_retry(src_url, prompt, cfg)
 
-                oss_client = OssClient(**oss_config(settings))
+                oss_client = OssClient(settings)
                 oss_url = oss_client.upload_bytes(img_bytes, "png")
                 s2.add_draft_image(draft_id, oss_url, type=_img_type_from_label(label), source="generated")
                 s2.set_gen_job_image_status(image_id, "done", url=oss_url)
