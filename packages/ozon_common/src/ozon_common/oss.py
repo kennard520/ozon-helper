@@ -14,7 +14,7 @@ def _clean(v: object) -> str:
 
 
 class OssClient:
-    def __init__(self, settings: dict, *, bucket=None):
+    def __init__(self, settings: dict, *, bucket=None, local_reader=None):
         s = settings or {}
         self.endpoint = _clean(s.get("oss_endpoint")).replace("https://", "").replace("http://", "").rstrip("/")
         self.bucket_name = _clean(s.get("oss_bucket"))
@@ -22,6 +22,7 @@ class OssClient:
         self.sk = _clean(s.get("oss_access_key_secret"))
         self.public_base = _clean(s.get("oss_public_base")).rstrip("/")
         self._bucket = bucket
+        self._local_reader = local_reader
 
     def configured(self) -> bool:
         return all([self.endpoint, self.bucket_name, self.ak, self.sk])
@@ -116,17 +117,12 @@ class OssClient:
         if not u or self._on_oss(u):
             return u
         if u.startswith("/media/") or not u.startswith("http"):
-            try:
-                import importlib
-                _media_mod = importlib.import_module("backend.media")
-                read_media_bytes = _media_mod.read_media_bytes
-            except ImportError as exc:
+            if self._local_reader is None:
                 raise RuntimeError(
-                    "upload_remote: 本地 /media/ 路径需要 backend.media.read_media_bytes，"
-                    "请在 webui 应用上下文中调用，或改用 upload_bytes 直接传字节。"
-                ) from exc
+                    "upload_remote: 本地 /media/ 路径需要注入 local_reader(webui 传其媒体读取函数 read_media_bytes);"
+                    " worker 不应上传 /media 本地路径")
             media_url = u if u.startswith("/media/") else ("/media/" + u.lstrip("/"))
-            data = read_media_bytes(media_url)   # read_media_bytes 需要带 /media/ 前缀(它内部再剥)
+            data = self._local_reader(media_url)   # 期望返回 bytes 或 None
             if data is None:
                 raise RuntimeError(f"本地媒体读不到: {u}")
             ext = os.path.splitext(media_url)[1].lstrip(".") or "jpg"

@@ -334,8 +334,9 @@ def media(path: str) -> FileResponse:
 def oss_proxy(key: str) -> Response:
     if not key.startswith("ozon-media/"):
         raise HTTPException(status_code=404, detail="not found")
+    from backend.media import read_media_bytes  # noqa: PLC0415
     from backend.oss import OssClient  # noqa: PLC0415
-    oss = OssClient(APP.store.get_settings())
+    oss = OssClient(APP.store.get_settings(), local_reader=read_media_bytes)
     if not oss.configured():
         raise HTTPException(status_code=503, detail="OSS 未配置")
     try:

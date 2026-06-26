@@ -288,7 +288,7 @@ class App:
 
     def presign_media(self, items: list) -> dict:
         """给插件签一批媒体的预签名 OSS 上传地址（服务级共享桶，内容哈希去重）。"""
-        oss = OssClient(self.store.get_settings())
+        oss = OssClient(self.store.get_settings(), local_reader=_media.read_media_bytes)
         if not oss.configured():
             raise ValueError("未配置 OSS（服务级），无法签发上传地址")
         return {"results": oss.presign_items(items or [])}
@@ -951,7 +951,7 @@ class App:
         draft = self._ensure_fixed_attrs(draft)
         # 媒体托管：插件已把媒体传到卖家自己的 Ozon 店铺(ir.ozone.ru)时，全是 Ozon 原生链接、
         # 无需 OSS——跳过。只有存在非 Ozon 媒体(老路径/手动加图)时才用 OSS 兜底；未配 OSS 才硬拦。
-        oss = OssClient(store_settings)
+        oss = OssClient(store_settings, local_reader=_media.read_media_bytes)
         rehost_stats = {"uploaded": 0, "failed": 0}
         if needs_rehost(draft):
             if not oss.configured():
