@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from sqlalchemy import delete, insert, select
+
+from ozon_common.dal.repositories.base import BaseRepo
+from ozon_common.dal.schema import settings as T
+
+# 与 apps/webui/src/webui/store.py::GLOBAL_SETTING_KEYS 保持同步:
+# 这些 key 无论 user_id 传什么,一律写入 user_id=0(系统全局)。
+GLOBAL_SETTING_KEYS: frozenset[str] = frozenset({
+    "jwt_secret",
+    "oss_endpoint", "oss_bucket", "oss_access_key_id", "oss_access_key_secret", "oss_public_base",
+})
+
+
+def _decode(v: Any) -> Any:
+    """若 value 是 JSON 串(以 { 或 [ 开头)则反序列化,否则原样返回。"""
+    if isinstance(v, str) and v[:1] in ("{", "["):
+        try:
+            return json.loads(v)
+        except (json.JSONDecodeError, TypeError):
+            return v
+    return v
+
+
+class SettingsRepo(BaseRepo):
+    def get_settings(self, user_id: int = 1) -> dict[str, Any]:
+        """读取全局(user_id=0)与指定用户设置的合并结果;用户设置覆盖全局。
+
+        语义与 Store.get_settings 等价:
+          SELECT key, value FROM settings WHERE user_id IN (0, ?) — 后写者覆盖。
+        """
+        out: dict[str, Any] = {}
+        rows = self.s.execute(
+            select(T.c.user_id, T.c.key, T.c.value).where(
+                T.c.user_id.in_([0, int(user_id)])
+            ).order_by(T.c.user_id)  # user_id=0 先,user_id=N 后写可覆盖
+        ).all()
+        for _uid, k, v in rows:
+            out[k] = _decode(v)
+        return out
+
+    def save_settings(self, values: dict[str, Any], user_id: int = 1) -> dict[str, Any]:
+        """写设置:全局键(GLOBAL_SETTING_KEYS)落 user_id=0,其余落 user_id。
+
+        实现用 delete+insert 保证幂等覆盖,语义与 Store.save_settings 等价
+        (Store 用 INSERT ... ON CONFLICT DO UPDATE;两者写后读结果相同)。
+        注:若有事务内多次写同一 key,本实现同样正确(先删后插)。
+        """
+        uid = int(user_id)
+        for k, v in values.items():
+            target_uid = 0 if k in GLOBAL_SETTING_KEYS else uid
+            sv = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str)
+            self.s.execute(delete(T).where(T.c.user_id == target_uid, T.c.key == k))
+            self.s.execute(insert(T).values(user_id=target_uid, key=k, value=sv))
+        return self.get_settings(uid)
