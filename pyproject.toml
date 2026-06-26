@@ -18,3 +18,6 @@ select = ["I"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ozon_common", "ozon_api", "webui", "image_worker"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

@@ -1,21 +1,18 @@
-# Ozon 上品助手后端镜像。构建上下文 = 仓库根（含 ozon-listing-webui/ 与 ozon_api/）。
+# Ozon 上品助手 webui 镜像。构建上下文 = 仓库根。
 FROM python:3.11-slim
-
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app/ozon-listing-webui:/app \
+    UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
     WEBUI_HOST=0.0.0.0 \
     WEBUI_PORT=8585
-
-WORKDIR /app/ozon-listing-webui
-
-# 先装依赖（利用层缓存）。用阿里云 PyPI 镜像加速（服务器在国内）。
-COPY ozon-listing-webui/requirements.txt ./requirements.txt
-RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
-
-# 再拷代码（前端 dist 已在本地构建好，随 ozon-listing-webui 一起进来）
-COPY ozon-listing-webui /app/ozon-listing-webui
-COPY ozon_api /app/ozon_api
-
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY packages/ozon_common/pyproject.toml packages/ozon_common/
+COPY packages/ozon_api/pyproject.toml packages/ozon_api/
+COPY apps/webui/pyproject.toml apps/webui/
+RUN uv sync --package ozon-webui --no-dev --frozen --no-install-project
+COPY packages packages
+COPY apps/webui apps/webui
+RUN uv sync --package ozon-webui --no-dev --frozen
 EXPOSE 8585
-CMD ["python", "run_api.py"]
+CMD ["uv", "run", "--package", "ozon-webui", "ozon-webui"]
