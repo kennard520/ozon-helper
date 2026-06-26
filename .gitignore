@@ -20,6 +20,12 @@ products.db
 *.sqlite3
 .auth/
 
+# 大体积 scratch / 构建产物（绝不入库）
+outputs/
+*.zip
+_copy*.json
+*.timestamp-*.mjs
+
 # 杂项
 .DS_Store
 *.log

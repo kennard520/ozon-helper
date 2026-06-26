@@ -85,7 +85,8 @@ def media_file(rel_path: str) -> Path | None:
 
 def save_upload(key: str, filename: str, data: bytes) -> str:
     """存上传文件到 data/images/<key>/，返回 /media/<key>/<safe> 路径。"""
-    import re, time
+    import re
+    import time
     dest = MEDIA_ROOT / _safe(key)
     dest.mkdir(parents=True, exist_ok=True)
     ext = (filename.rsplit(".", 1)[-1] if "." in filename else "bin").lower()

@@ -69,7 +69,8 @@ class StoreTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(row["source"], "")
             self.assertIsNone(row["ozon_product_id"])
-            self.assertEqual(row["offer_id"], "")
+            # 货号必填：未提供时自动补随机货号（不再是空）
+            self.assertTrue(row["offer_id"])
             store.close()
 
 

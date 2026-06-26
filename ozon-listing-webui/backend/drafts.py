@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-
 _OFFER_ID_RE = re.compile(r"(?:offer/|offerId=|offer_id=)(\d{8,})")
 
 RICH_CONTENT_ATTR_ID = 11254  # Ozon "Rich-контент JSON" 系统属性；值为 richAnnotationJson 字符串

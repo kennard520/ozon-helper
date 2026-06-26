@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
+import re
 import sqlite3
+import sys
 import threading
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
@@ -9,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from backend import db
+
+log = logging.getLogger("ozon.app")
 from backend.drafts import dumps_json, loads_json, utc_now_iso, validate_draft
 
 # 当前请求的用户 ID（多用户隔离）。HTTP 中间件按 JWT 设置；非请求上下文(测试/启动)默认 1(admin)。
@@ -18,6 +23,45 @@ current_user_id: ContextVar[int] = ContextVar("current_user_id", default=1)
 
 def _uid(user_id: int | None) -> int:
     return int(current_user_id.get() if user_id is None else user_id)
+
+
+def _random_offer_id() -> str:
+    """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
+    from backend.listing_build import random_offer_id  # noqa: PLC0415
+    return random_offer_id()
+
+
+# OZ 随机占位货号(random_offer_id 生成的)模式：只有这种和空货号才会被重格式化，真实/已格式化货号不动
+_OZ_PLACEHOLDER = re.compile(r"^OZ[A-Z0-9]{10}$")
+# 货号片段清洗：去 HTML 实体 + 空白/斜杠/尖括号等不适合做货号的字符；连字符是分隔符故也去掉
+_OID_STRIP = re.compile(r"[\s/\\><&;,|+]+")
+
+
+def _oid_seg(value: Any) -> str:
+    s = str(value or "").replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
+    return _OID_STRIP.sub("", s).strip("-").strip()
+
+
+def _offer_id_base(platform: Any, source_raw: Any) -> str:
+    """按 {平台}-{变体维度值} 拼货号(可读，标明来源+哪个 SKU)：
+    1688/ozon/wb + selected_aspects 各轴值，如 1688-红-XL；无变体维度退回 spec_attrs；再没有就平台+随机短码。"""
+    plat = str(platform or "1688").strip() or "1688"
+    sr = source_raw if isinstance(source_raw, dict) else {}
+    parts = []
+    aspects = sr.get("selected_aspects")
+    if isinstance(aspects, list):
+        for a in aspects:
+            seg = _oid_seg((a or {}).get("value") if isinstance(a, dict) else "")
+            if seg:
+                parts.append(seg)
+    if not parts:
+        seg = _oid_seg(sr.get("spec_attrs") or sr.get("variant_label"))
+        if seg:
+            parts.append(seg)
+    if parts:
+        return plat + "-" + "-".join(parts)
+    import uuid  # noqa: PLC0415
+    return plat + "-" + uuid.uuid4().hex[:6].upper()
 
 
 # 默认落 ozon-listing-webui/data/products.db（data/ 不随 backend/ 下移，故用 parents[1]）；
@@ -83,6 +127,9 @@ class Store:
         if self._is_mysql:
             # MySQL：直接建最终形态表结构，跳过 SQLite 的 PRAGMA/RENAME 迁移
             db.init_mysql(self.conn)
+            self._backfill_variant_group()   # 历史数据从 source_raw_json 回填 variant_group 列（自限一次）
+            self._backfill_offer_id()        # 历史草稿空货号补随机（货号必填）
+            self._backfill_draft_images()   # 历史 images_json 回填到 draft_images 表（自限一次）
             return
         with self.lock:
             # 多用户：settings 按 user_id 隔离（user_id=0 为系统级全局）
@@ -186,6 +233,11 @@ class Store:
             self._ensure_column("drafts", "source_raw_json", "TEXT")   # 采集原始全量(喂 AI)
             self._ensure_column("drafts", "ai_proposal_json", "TEXT")   # AI 待确认草案(整份JSON)，应用后清空
             self._ensure_column("drafts", "media_status", "TEXT NOT NULL DEFAULT 'done'")  # 媒体异步：pending/done
+            # variant_group 提成真实索引列：同组兄弟查询走索引，免全表扫（原来埋 JSON 里只能整表拉）
+            self._ensure_column("drafts", "variant_group", "TEXT NOT NULL DEFAULT ''")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_drafts_variant_group ON drafts(variant_group)")
+            self._backfill_variant_group()   # 历史数据从 source_raw_json 回填到新列（自限一次）
+            self._backfill_offer_id()        # 历史草稿空货号补随机（货号必填）
             self._migrate_drafts_multiuser()   # 加 user_id + 把 source_url 全局唯一改成 (user_id,source_url) 唯一
             self._migrate_drafts_store_scoped()  # 加 store_client_id（草稿绑定店）+ 唯一键改成 (user_id,store_client_id,source_url)
             self.conn.execute(
@@ -293,6 +345,60 @@ class Store:
             self._ensure_column("procurement", "store_client_id", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column("offer_snapshots", "store_client_id", "TEXT NOT NULL DEFAULT ''")
             self._migrate_store_scoped_aux()
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS draft_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    draft_id INTEGER NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0,
+                    url TEXT NOT NULL,
+                    type TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT 'collected',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dimg_draft ON draft_images(draft_id, position)"
+            )
+            self._backfill_draft_images()   # 历史 images_json 回填到 draft_images 表（自限一次）
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gen_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    draft_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    target INTEGER NOT NULL DEFAULT 10,
+                    total INTEGER NOT NULL DEFAULT 0,
+                    succeeded INTEGER NOT NULL DEFAULT 0,
+                    failed INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_gen_jobs_draft ON gen_jobs(user_id, draft_id)"
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gen_job_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL,
+                    slot_id TEXT NOT NULL DEFAULT '',
+                    label TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    url TEXT,
+                    error TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_gen_job_images_job ON gen_job_images(job_id)"
+            )
             self.conn.commit()
 
     # ---------- 类目/属性值 本地缓存 ----------
@@ -875,6 +981,16 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def _unique_offer_id(self, base: str, exclude_id: int | None = None) -> str:
+        """保证货号唯一：撞库就加 -2/-3。调用方需已持锁（直接读 self.conn）。"""
+        cand, n = base, 1
+        while True:
+            row = self.conn.execute("SELECT id FROM drafts WHERE offer_id=? LIMIT 1", (cand,)).fetchone()
+            if not row or (exclude_id is not None and int(row["id"]) == int(exclude_id)):
+                return cand
+            n += 1
+            cand = f"{base}-{n}"
+
     def insert_draft(self, draft: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
         store_cid = str(draft.get("store_client_id") or "")
@@ -884,7 +1000,12 @@ class Store:
             if existing:
                 return existing
             errors = validate_draft(draft)
-            self.conn.execute(
+            # 货号(必填)：来源已带就用；否则按 {平台}-{变体维度} 生成、撞库去重
+            offer_id_val = str(draft.get("offer_id") or "").strip()
+            if not offer_id_val:
+                offer_id_val = self._unique_offer_id(
+                    _offer_id_base(draft.get("source_platform"), draft.get("source_raw")))
+            cur = self.conn.execute(
                 """
                 INSERT INTO drafts (
                     user_id, store_client_id,
@@ -893,11 +1014,11 @@ class Store:
                     brand_id, brand_name, price, old_price,
                     stock, weight_g, length_mm, width_mm, height_mm,
                     cost_cny, video_url, local_images_json,
-                    source, ozon_product_id, offer_id, supplier, source_raw_json,
+                    source, ozon_product_id, offer_id, supplier, source_raw_json, variant_group,
                     images_json, attributes_json, status, validation_errors_json,
                     publish_response_json, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(user_id),
@@ -926,10 +1047,11 @@ class Store:
                     dumps_json(draft.get("local_images") or []),
                     str(draft.get("source") or ""),
                     _to_int_or_none(draft.get("ozon_product_id")),
-                    str(draft.get("offer_id") or ""),
+                    offer_id_val,
                     str(draft.get("supplier") or ""),
                     dumps_json(draft.get("source_raw") or {}),
-                    dumps_json(draft["images"]),
+                    str((draft.get("source_raw") or {}).get("variant_group") or "").strip(),
+                    dumps_json([]),
                     dumps_json(draft["attributes"]),
                     "invalid" if errors else draft["status"],
                     dumps_json(errors),
@@ -938,6 +1060,9 @@ class Store:
                     draft["updated_at"],
                 ),
             )
+            self._sync_draft_images(
+                cur.lastrowid, draft["images"],
+                (draft.get("source_raw") or {}).get("image_types"))
             self.conn.commit()
             return self.find_by_source_url(draft["source_url"], user_id) or draft
 
@@ -949,28 +1074,30 @@ class Store:
 
     def apply_media_oss(self, draft_id: int, media_map: dict) -> None:
         """把草稿 images/video_url 里命中 media_map 的原 URL 换成 OSS URL，并置 media_status=done。
-        只替换命中的项，不动用户手改过的其它图。"""
+        从 draft_images 表读、_sync_draft_images 写。"""
         with self.lock:
-            row = self.conn.execute("SELECT images_json, video_url FROM drafts WHERE id=?",
-                                    (int(draft_id),)).fetchone()
-            if not row:
+            imgs = [r["url"] for r in self._load_draft_images(draft_id)]
+            if not imgs:
                 return
-            imgs = loads_json(row["images_json"], []) or []
             new_imgs = [media_map.get(u, u) for u in imgs]
-            vurl = row["video_url"] or ""
+            video_row = self.conn.execute("SELECT video_url FROM drafts WHERE id=?",
+                                         (int(draft_id),)).fetchone()
+            vurl = (video_row["video_url"] or "") if video_row else ""
             new_vurl = media_map.get(vurl, vurl)
             self.conn.execute(
-                "UPDATE drafts SET images_json=?, video_url=?, media_status='done', updated_at=? WHERE id=?",
-                (dumps_json(new_imgs), new_vurl, utc_now_iso(), int(draft_id)))
+                "UPDATE drafts SET video_url=?, media_status='done', updated_at=? WHERE id=?",
+                (new_vurl, utc_now_iso(), int(draft_id)))
+            self._sync_draft_images(draft_id, new_imgs)
             self.conn.commit()
 
     def list_pending_media_drafts(self, user_id: int) -> list[dict]:
         """当前用户 media_status=pending 的草稿，返回 [{id, images, video_url}]，供插件补传。"""
         with self.lock:
             rows = self.conn.execute(
-                "SELECT id, images_json, video_url FROM drafts WHERE user_id=? AND media_status='pending'",
+                "SELECT id, video_url FROM drafts WHERE user_id=? AND media_status='pending'",
                 (int(user_id),)).fetchall()
-        return [{"id": r["id"], "images": loads_json(r["images_json"], []) or [],
+        return [{"id": r["id"],
+                 "images": [x["url"] for x in self._load_draft_images(r["id"])],
                  "video_url": r["video_url"] or ""} for r in rows]
 
     def list_drafts(self, user_id: int | None = None) -> list[dict[str, Any]]:
@@ -981,22 +1108,136 @@ class Store:
             ).fetchall()
         return [self._row_to_draft(row) for row in rows]
 
-    def count_by_status(self, user_id: int | None = None, store_client_id: str | None = None) -> dict[str, int]:
+    def _variant_group_of(self, source_raw_json: Any) -> str:
+        """从 source_raw_json 取 variant_group（同组合并键）；无则空串。"""
+        sr = loads_json(source_raw_json, {}) or {}
+        return str((sr.get("variant_group") if isinstance(sr, dict) else "") or "").strip()
+
+    def _backfill_variant_group(self) -> None:
+        """历史草稿把 variant_group 从 source_raw_json 回填到新列。
+        只处理「列空但 JSON 里有 variant_group」的行 → 回填后列非空，下次不再命中，自限一次；
+        非变体草稿(JSON 无该键)永不命中，不浪费。失败不阻断启动(列空时分组面板退化，不崩)。"""
+        try:
+            with self.lock:
+                rows = self.conn.execute(
+                    "SELECT id, source_raw_json FROM drafts "
+                    "WHERE variant_group = '' AND source_raw_json LIKE '%variant_group%'"
+                ).fetchall()
+                changed = 0
+                for r in rows:
+                    vg = self._variant_group_of(r["source_raw_json"] if "source_raw_json" in r.keys() else None)
+                    if vg:
+                        self.conn.execute("UPDATE drafts SET variant_group=? WHERE id=?", (vg, r["id"]))
+                        changed += 1
+                if changed:
+                    self.conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(f"[store] variant_group backfill skipped: {exc}")
+
+    def _backfill_offer_id(self) -> None:
+        """历史草稿货号规整成 {平台}-{变体维度} 格式（货号必填、可读标明来源）。
+        只动**未发布**且货号为空或还是 OZ 随机占位的——真实/已发布/已格式化的货号绝不碰。
+        自限：重格式化后货号以 {平台}- 开头、不再匹配占位模式，下次启动跳过。"""
+        try:
+            with self.lock:
+                rows = self.conn.execute(
+                    "SELECT id, status, offer_id, source_platform, source_raw_json FROM drafts"
+                ).fetchall()
+                changed = 0
+                for r in rows:
+                    if r["status"] == "published":
+                        continue
+                    cur = str(r["offer_id"] or "")
+                    if cur and not _OZ_PLACEHOLDER.match(cur):
+                        continue   # 已是真实/格式化货号，不动
+                    sr = loads_json(r["source_raw_json"] if "source_raw_json" in r.keys() else None, {})
+                    base = _offer_id_base(r["source_platform"], sr)
+                    new = self._unique_offer_id(base, exclude_id=r["id"])
+                    self.conn.execute("UPDATE drafts SET offer_id=? WHERE id=?", (new, r["id"]))
+                    changed += 1
+                if changed:
+                    self.conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(f"[store] offer_id backfill skipped: {exc}")
+
+    def _backfill_draft_images(self) -> None:
+        """一次性：把 images_json 里的图回填到 draft_images 表。
+        自限：已有 draft_images 行的草稿跳过。失败不阻断启动。"""
+        try:
+            with self.lock:
+                rows = self.conn.execute(
+                    "SELECT d.id, d.images_json, d.source_raw_json FROM drafts d"
+                    " WHERE NOT EXISTS (SELECT 1 FROM draft_images di WHERE di.draft_id = d.id)"
+                    " AND d.images_json != '[]' AND d.images_json != ''"
+                ).fetchall()
+                if not rows:
+                    return
+                now = utc_now_iso()
+                inserted = 0
+                for r in rows:
+                    images = loads_json(r["images_json"], []) or []
+                    if not images:
+                        continue
+                    sr = loads_json(r["source_raw_json"], {}) if (
+                        "source_raw_json" in r.keys() and r["source_raw_json"]) else {}
+                    image_types = sr.get("image_types") if isinstance(sr.get("image_types"), dict) else {}
+                    for i, url in enumerate(images):
+                        typ = str(image_types.get(url) or "")
+                        self.conn.execute(
+                            "INSERT INTO draft_images (draft_id, position, url, type, source, created_at)"
+                            " VALUES (?,?,?,?,?,?)",
+                            (r["id"], i, str(url), typ, "collected", now))
+                    inserted += 1
+                if inserted:
+                    self.conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(f"[store] draft_images backfill skipped: {exc}")
+
+    def _group_keys(self, where: str, params: list) -> list[dict[str, Any]]:
+        """轻量分组索引：只取 id/status/variant_group(不碰大 JSON 字段)，按 variant_group 归并成组。
+        返回 [{rep_id, status, count}]，代表=组内最新(id 最大)，按代表 id DESC 排列。
+        靠 variant_group 索引列，整表只读三列、不解析 JSON——比拉全行快得多。"""
+        with self.lock:
+            rows = self.conn.execute(
+                f"SELECT id, status, variant_group FROM drafts {where} ORDER BY id DESC", params
+            ).fetchall()
+        groups: list[dict[str, Any]] = []
+        seen: dict[str, int] = {}
+        for r in rows:
+            vg = str(r["variant_group"] or "").strip() if "variant_group" in r.keys() else ""
+            key = f"vg::{vg}" if vg else f"id::{r['id']}"
+            if key in seen:
+                groups[seen[key]]["count"] += 1
+            else:
+                seen[key] = len(groups)
+                groups.append({"rep_id": r["id"], "status": r["status"], "count": 1})
+        return groups
+
+    def count_by_status(self, user_id: int | None = None, store_client_id: str | None = None,
+                        group: bool = False) -> dict[str, int]:
         """各状态计数 + all 总数（给前端 Tab 用，后端分页后前端无法自算）。
-        store_client_id 非 None 时按当前店过滤（草稿绑定店后，列表/计数都是店级）。"""
+        store_client_id 非 None 时按当前店过滤（草稿绑定店后，列表/计数都是店级）。
+        group=True：按变体组计数（一个组算一条，组的状态=代表/最新成员的状态），与分组列表对齐。"""
         user_id = _uid(user_id)
         where, params = ("WHERE user_id = ?", [int(user_id)])
         if store_client_id is not None:
             where += " AND store_client_id = ?"
             params.append(str(store_client_id or ""))
+        counts = {"all": 0, "invalid": 0, "ready": 0, "failed": 0, "published": 0}
+        if group:
+            groups = self._group_keys(where, params)   # 轻量(三列)分组，组状态=代表状态
+            for g in groups:
+                if g["status"] in counts:
+                    counts[g["status"]] += 1
+            counts["all"] = len(groups)
+            return counts
         with self.lock:
-            total = self.conn.execute(
+            counts["all"] = self.conn.execute(
                 f"SELECT COUNT(*) c FROM drafts {where}", params
             ).fetchone()["c"]
             rows = self.conn.execute(
                 f"SELECT status, COUNT(*) c FROM drafts {where} GROUP BY status", params
             ).fetchall()
-        counts = {"all": total, "invalid": 0, "ready": 0, "failed": 0, "published": 0}
         for r in rows:
             if r["status"] in counts:
                 counts[r["status"]] += r["c"]
@@ -1004,17 +1245,45 @@ class Store:
 
     def list_drafts_page(
         self, *, status: str = "all", page: int = 1, page_size: int = 20,
-        user_id: int | None = None, store_client_id: str | None = None,
+        user_id: int | None = None, store_client_id: str | None = None, group: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
-        """真·后端分页：按 user_id + status (+当前店) 过滤 + LIMIT/OFFSET。返回 (当前页草稿, 该过滤下总数)。"""
+        """真·后端分页：按 user_id + status (+当前店) 过滤 + LIMIT/OFFSET。返回 (当前页草稿, 该过滤下总数)。
+        group=True：同一 variant_group 只出代表行(最新成员)+group_count，再对「组」分页；status 按组代表状态过滤
+        （与 count_by_status(group=True) 同一口径，保证 Tab 数字 = 列表行数、不跨页重复）。"""
         user_id = _uid(user_id)
         status = (status or "all").strip()
         page = max(1, int(page))
         page_size = max(1, min(int(page_size), 200))   # 上限 200，防一次拉爆
-        where, params = ("WHERE user_id = ?", [int(user_id)])
+        base_where, base_params = ("WHERE user_id = ?", [int(user_id)])
         if store_client_id is not None:
-            where += " AND store_client_id = ?"
-            params.append(str(store_client_id or ""))
+            base_where += " AND store_client_id = ?"
+            base_params.append(str(store_client_id or ""))
+        if group:
+            groups = self._group_keys(base_where, base_params)   # 轻量分组(不解析 JSON)
+            if status not in ("", "all"):
+                groups = [g for g in groups if g["status"] == status]
+            total = len(groups)
+            offset = (page - 1) * page_size
+            page_groups = groups[offset:offset + page_size]
+            if not page_groups:
+                return [], total
+            ids = [g["rep_id"] for g in page_groups]
+            with self.lock:   # 只对「当页代表」那 ~20 行做整行解析，避免全表 _row_to_draft
+                placeholders = ",".join("?" for _ in ids)
+                rows = self.conn.execute(
+                    f"SELECT * FROM drafts WHERE id IN ({placeholders})", ids
+                ).fetchall()
+            by_id = {r["id"]: r for r in rows}
+            out = []
+            for g in page_groups:
+                r = by_id.get(g["rep_id"])
+                if r is None:
+                    continue
+                d = self._row_to_draft(r)
+                d["group_count"] = g["count"]
+                out.append(d)
+            return out, total
+        where, params = base_where, list(base_params)
         if status not in ("", "all"):
             where += " AND status = ?"
             params.append(status)
@@ -1082,7 +1351,7 @@ class Store:
                     brand_id=?, brand_name=?, price=?, old_price=?,
                     stock=?, weight_g=?, length_mm=?, width_mm=?, height_mm=?,
                     cost_cny=?, video_url=?, local_images_json=?,
-                    source=?, ozon_product_id=?, offer_id=?, supplier=?, warehouse_id=?, source_raw_json=?,
+                    source=?, ozon_product_id=?, offer_id=?, supplier=?, warehouse_id=?, source_raw_json=?, variant_group=?,
                     images_json=?, attributes_json=?, status=?,
                     validation_errors_json=?, publish_response_json=?, pricing_json=?, updated_at=?
                 WHERE id=?
@@ -1114,7 +1383,8 @@ class Store:
                     str(updated.get("supplier") or ""),
                     _to_int_or_none(updated.get("warehouse_id")),
                     dumps_json(updated.get("source_raw") or {}),
-                    dumps_json(updated["images"]),
+                    str((updated.get("source_raw") or {}).get("variant_group") or "").strip(),
+                    dumps_json([]),
                     dumps_json(updated["attributes"]),
                     status,
                     dumps_json(errors),
@@ -1124,6 +1394,10 @@ class Store:
                     draft_id,
                 ),
             )
+            if "images" in patch:
+                self._sync_draft_images(
+                    draft_id, updated["images"],
+                    (updated.get("source_raw") or {}).get("image_types"))
             self.conn.commit()
             draft = self.get_draft(draft_id, user_id)
             if draft is None:
@@ -1144,6 +1418,9 @@ class Store:
         with self.lock:
             self.conn.execute(
                 "DELETE FROM drafts WHERE id = ? AND user_id = ?", (draft_id, int(user_id))
+            )
+            self.conn.execute(
+                "DELETE FROM draft_images WHERE draft_id = ?", (draft_id,)
             )
             self.conn.commit()
 
@@ -1418,24 +1695,28 @@ class Store:
         return [dict(r) for r in rows]
 
     def list_drafts_by_variant_group(self, group: str) -> list[dict[str, Any]]:
-        """返回 source_raw.variant_group == group 的所有草稿（按 id 升序）。"""
+        """返回同组草稿（按 id 升序）。走 variant_group 索引列，只取同组那几行，不扫全表。"""
+        group = str(group or "").strip()
         if not group:
             return []
-        out = []
         with self.lock:
-            rows = self.conn.execute("SELECT id FROM drafts ORDER BY id ASC").fetchall()
-        for r in rows:
-            d = self.get_draft(r["id"])
-            sr = d.get("source_raw") if d else None
-            if isinstance(sr, str):
-                sr = loads_json(sr, {})
-            if isinstance(sr, dict) and str(sr.get("variant_group") or "") == str(group):
-                out.append(d)
-        return out
+            rows = self.conn.execute(
+                "SELECT * FROM drafts WHERE variant_group = ? ORDER BY id ASC", (group,)
+            ).fetchall()
+        return [self._row_to_draft(r) for r in rows]
 
     def _row_to_draft(self, row: sqlite3.Row) -> dict[str, Any]:
         source_platform = row["source_platform"]
         purchase_url = row["purchase_url"] or (row["source_url"] if source_platform == "1688" else "")
+        # 图片全部从 draft_images 一对多表读；images_json 列已停用
+        dimg_rows = self._load_draft_images(row["id"])
+        images = [r["url"] for r in dimg_rows]
+        image_types = {r["url"]: r["type"] for r in dimg_rows if r["type"]}
+        sr = loads_json(row["source_raw_json"], {}) if "source_raw_json" in row.keys() else {}
+        if image_types:
+            sr["image_types"] = image_types
+        elif "image_types" not in sr:
+            sr["image_types"] = {}
         return {
             "id": row["id"],
             "user_id": row["user_id"] if "user_id" in row.keys() else 1,
@@ -1448,7 +1729,7 @@ class Store:
             "offer_id": row["offer_id"] if "offer_id" in row.keys() else "",
             "supplier": row["supplier"] if "supplier" in row.keys() else "",
             "warehouse_id": row["warehouse_id"] if "warehouse_id" in row.keys() else None,
-            "source_raw": loads_json(row["source_raw_json"], {}) if "source_raw_json" in row.keys() else {},
+            "source_raw": sr,
             "source_title": row["source_title"],
             "purchase_url": purchase_url,
             "purchase_note": row["purchase_note"],
@@ -1465,7 +1746,7 @@ class Store:
             "length_mm": row["length_mm"],
             "width_mm": row["width_mm"],
             "height_mm": row["height_mm"],
-            "images": loads_json(row["images_json"], []),
+            "images": images,
             "attributes": loads_json(row["attributes_json"], {}),
             "cost_cny": row["cost_cny"] if "cost_cny" in row.keys() else None,
             "video_url": (row["video_url"] if "video_url" in row.keys() else None) or "",
@@ -1479,3 +1760,187 @@ class Store:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    # ---------- draft_images 一对多表 ----------
+
+    def _load_draft_images(self, draft_id: int) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT url, type, source FROM draft_images WHERE draft_id=? ORDER BY position",
+                (int(draft_id),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_draft_image(self, draft_id: int, url: str, *, type: str = "",
+                        source: str = "generated") -> int:
+        """直接插入一行 draft_images（position=当前最大+1），避免读改写 images_json 全数组。
+        返回新行 id。"""
+        now = utc_now_iso()
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM draft_images WHERE draft_id=?",
+                (int(draft_id),),
+            ).fetchone()
+            pos = int(row["next_pos"]) if row else 0
+            cur = self.conn.execute(
+                "INSERT INTO draft_images (draft_id, position, url, type, source, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                (int(draft_id), pos, str(url), str(type or ""), str(source), now),
+            )
+            self.conn.commit()
+        return cur.lastrowid
+
+    def _sync_draft_images(self, draft_id: int, images: list[str],
+                           image_types: dict[str, str] | None = None) -> None:
+        """把 images 数组同步到 draft_images 表行（在同一事务/锁内，调用方已持锁）。
+        保留旧行已有的 type/source（按 url 匹配），新图用 image_types 或兜底。"""
+        now = utc_now_iso()
+        old_rows = self.conn.execute(
+            "SELECT url, type, source FROM draft_images WHERE draft_id=?", (int(draft_id),)
+        ).fetchall()
+        old_map: dict[str, tuple[str, str]] = {}
+        for r in old_rows:
+            old_map[str(r["url"])] = (str(r["type"] or ""), str(r["source"] or ""))
+        types = dict(image_types or {})
+        self.conn.execute("DELETE FROM draft_images WHERE draft_id=?", (int(draft_id),))
+        for i, url in enumerate(images):
+            url = str(url)
+            prev = old_map.get(url)
+            typ = types.get(url) or (prev[0] if prev else "") or "其他"
+            src = prev[1] if prev else "collected"
+            self.conn.execute(
+                "INSERT INTO draft_images (draft_id, position, url, type, source, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                (int(draft_id), i, url, typ, src, now),
+            )
+
+    # ---------- 出图任务（gen_jobs / gen_job_images）----------
+
+    def create_gen_job(self, draft_id: int, target: int, user_id: int | None = None) -> dict[str, Any]:
+        uid = _uid(user_id)
+        now = utc_now_iso()
+        with self.lock:
+            cur = self.conn.execute(
+                "INSERT INTO gen_jobs (draft_id, user_id, status, target, total, succeeded, failed, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (int(draft_id), uid, "queued", int(target), 0, 0, 0, now, now),
+            )
+            self.conn.commit()
+        return self.get_gen_job(cur.lastrowid)
+
+    def get_gen_job(self, job_id: int) -> dict[str, Any] | None:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM gen_jobs WHERE id=?", (int(job_id),)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_latest_gen_job(self, draft_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+        uid = _uid(user_id)
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM gen_jobs WHERE draft_id=? AND user_id=? ORDER BY id DESC LIMIT 1",
+                (int(draft_id), uid),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_gen_jobs(self, draft_id: int, user_id: int | None = None) -> list[dict[str, Any]]:
+        uid = _uid(user_id)
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM gen_jobs WHERE draft_id=? AND user_id=? ORDER BY id DESC",
+                (int(draft_id), uid),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_active_gen_job(self, draft_id: int, user_id: int | None = None) -> bool:
+        uid = _uid(user_id)
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) c FROM gen_jobs WHERE draft_id=? AND user_id=? AND status IN ('queued','designing','running')",
+                (int(draft_id), uid),
+            ).fetchone()
+        return int(row["c"]) > 0
+
+    def update_gen_job(self, job_id: int, patch: dict[str, Any]) -> dict[str, Any] | None:
+        keys = [k for k in patch if k != "id"]
+        if not keys:
+            return self.get_gen_job(job_id)
+        now = utc_now_iso()
+        sets = [f"{k}=?" for k in keys]
+        vals = [patch[k] for k in keys]
+        sets.append("updated_at=?")
+        vals.append(now)
+        vals.append(int(job_id))
+        with self.lock:
+            self.conn.execute(
+                f"UPDATE gen_jobs SET {', '.join(sets)} WHERE id=?",
+                tuple(vals),
+            )
+            self.conn.commit()
+        return self.get_gen_job(job_id)
+
+    def set_gen_job_status(self, job_id: int, status: str) -> None:
+        now = utc_now_iso()
+        with self.lock:
+            self.conn.execute(
+                "UPDATE gen_jobs SET status=?, updated_at=? WHERE id=?",
+                (str(status), now, int(job_id)),
+            )
+            self.conn.commit()
+
+    def create_gen_job_images(self, job_id: int, slots: list[dict[str, Any]]) -> None:
+        now = utc_now_iso()
+        with self.lock:
+            for s in slots:
+                self.conn.execute(
+                    "INSERT INTO gen_job_images (job_id, slot_id, label, status, updated_at)"
+                    " VALUES (?,?,?,?,?)",
+                    (int(job_id), str(s.get("slot_id") or ""), str(s.get("label") or ""), "pending", now),
+                )
+            self.conn.commit()
+
+    def get_gen_job_images(self, job_id: int) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM gen_job_images WHERE job_id=? ORDER BY id ASC", (int(job_id),)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_gen_job_image(self, image_id: int, patch: dict[str, Any]) -> None:
+        keys = [k for k in patch if k != "id"]
+        if not keys:
+            return
+        now = utc_now_iso()
+        sets = [f"{k}=?" for k in keys]
+        vals = [patch[k] for k in keys]
+        sets.append("updated_at=?")
+        vals.append(now)
+        vals.append(int(image_id))
+        with self.lock:
+            self.conn.execute(
+                f"UPDATE gen_job_images SET {', '.join(sets)} WHERE id=?",
+                tuple(vals),
+            )
+            self.conn.commit()
+
+    def set_gen_job_image_status(self, image_id: int, status: str, url: str | None = None,
+                                 error: str | None = None) -> None:
+        now = utc_now_iso()
+        with self.lock:
+            self.conn.execute(
+                "UPDATE gen_job_images SET status=?, url=?, error=?, updated_at=? WHERE id=?",
+                (str(status), url or None, error or None, now, int(image_id)),
+            )
+            self.conn.commit()
+
+    def count_gen_job_images_by_status(self, job_id: int) -> dict[str, int]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT status, COUNT(*) c FROM gen_job_images WHERE job_id=? GROUP BY status",
+                (int(job_id),),
+            ).fetchall()
+        counts: dict[str, int] = {}
+        for r in rows:
+            counts[str(r["status"])] = int(r["c"])
+        return counts

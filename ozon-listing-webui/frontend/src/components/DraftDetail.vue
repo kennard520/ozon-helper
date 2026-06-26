@@ -33,107 +33,298 @@
       </div>
     </section>
 
-    <section v-if="variantList.length > 1 && !variantGroup" class="variant-prompt-bar">
-      🔗 该商品有 <b>{{ variantList.length }}</b> 个变体，但当前只采集了一个。要合并成一张多变体卡，请到来源页面（Ozon 列表卡/详情页）用插件点「<b>采集全部变体</b>」一次性采全。
-    </section>
-
-    <section v-if="variantSiblings.count > 1" class="variant-group-bar">
-      <div class="vg-head">
-        <b>🔗 变体组</b>
-        <span class="vg-count">共 {{ variantSiblings.count }} 个变体（同组合并成一张 Ozon 多变体卡）</span>
-        <el-button size="small" type="primary" :loading="publishingGroup" @click="onPublishGroup">
-          合并发布整组（{{ variantSiblings.count }} 变体）
-        </el-button>
-      </div>
-      <div class="vg-chips">
-        <span v-for="v in variantSiblings.variants" :key="v.id"
-              class="vg-chip" :class="{ current: v.current, pub: v.status === 'published' }"
-              :title="v.spec + (v.price ? ('  ¥' + v.price) : '')"
-              @click="switchToDraft(v.id)">
-          <img v-if="v.image" :src="v.image" loading="lazy" />
-          <span class="vg-spec">{{ v.spec || ('#' + v.id) }}</span>
-        </span>
-      </div>
-      <div class="vg-hint">点变体切换草稿。各变体的「区别特征」(颜色/尺寸/规格)会在 AI 填特征时按本变体规格自动填，合并后 Ozon 才显示变体选择。</div>
-    </section>
-
-    <section class="smart-listing">
-      <div class="smart-head">
-        <b>⚡ 一键上架</b>
-        <span class="smart-hint">理解 → 推荐 → 逐图俄化/重做 → 候选应用 → 富文本</span>
-        <el-button size="small" :loading="understandLoading" @click="runStep(wfStep('understand'))">看图理解</el-button>
-        <el-button size="small" :loading="recommendLoading" @click="doRecommend">智能推荐</el-button>
-        <el-button size="small" :loading="aiGenerating" @click="doAiGenerate(true)">生成文案(标题/简介/标签)</el-button>
-        <el-button size="small" :loading="planLoading" @click="loadPlan(true)">图集计划</el-button>
-        <el-button size="small" type="primary" :loading="autoImgLoading" @click="runAutoImages">🎨 AI设计并生成10张图</el-button>
-        <el-button size="small" :loading="copyLoading" @click="doTryCopy">一键复制(官方)</el-button>
-      </div>
-      <div class="wf-flow">
-        <div class="wf-flow-head">
-          <b>流程</b>
-          <span class="wf-hint">结果自动保存,失败可单步重跑,也可手动逐步</span>
-          <el-button type="primary" size="small" :loading="wfRunning" @click="runAuto">⚡ 一键自动跑(到发布)</el-button>
+    <section class="ai-workspace-panel">
+      <!-- Header -->
+      <div class="ai-ws-header">
+        <div class="ai-ws-title">
+          <span class="ai-ws-icon">⚡</span>
+          <span>AI 智能上架工作台</span>
         </div>
-        <div class="wf-step" v-for="(s, i) in WF" :key="s.id">
-          <span class="wf-idx">{{ i + 1 }}</span>
-          <span class="wf-dot" :class="wfState(s)"></span>
-          <span class="wf-label">{{ s.label }}</span>
-          <span class="wf-eta">{{ s.eta }}</span>
-          <span class="wf-st" :class="wfState(s)">{{ wfStateText(s) }}</span>
-          <el-button link size="small" :loading="wfStatus[s.id] === 'running'"
-                     :disabled="wfRunning || (!wfDepOk(s) && !wfDone(s.id))" @click="runStep(s)">
-            {{ wfDone(s.id) ? '重跑' : '运行' }}
+        <div class="ai-ws-global-actions">
+          <el-button type="primary" size="small" :loading="wfRunning || batchRunningOp === 'all'" @click="triggerRunAuto">
+            {{ variantGroup ? `⚡ 一键跑完已选变体 (${batchSelectedIds.length} 变体)` : '⚡ 当前变体一键自动跑' }}
           </el-button>
         </div>
       </div>
-      <div v-if="understanding" class="smart-und">
-        <div class="smart-und-h"><b>理解结果</b> <small>(看图抽取,供文案/作图复用)</small></div>
-        <div v-if="understanding.type || understanding.material">品类:{{ understanding.type || '-' }} ｜ 材质:{{ understanding.material || '-' }}</div>
-        <div v-if="understandingSpecs.length">规格:{{ understandingSpecs.join(' / ') }}</div>
-        <div v-if="(understanding.points || []).length">卖点:{{ understanding.points.join(' · ') }}</div>
-        <div v-if="(understanding.scenes || []).length">场景:{{ understanding.scenes.join(' · ') }}</div>
-        <div v-if="(understanding.kit || []).length">包装:{{ understanding.kit.join(' · ') }}</div>
-        <div v-if="(understanding.images || []).length" class="smart-roles">
-          图片角色:<span v-for="im in understanding.images" :key="im.idx">图{{ im.idx }}·{{ im.role }}</span>
+
+      <!-- Top horizontal capsules for Variant Group if it exists -->
+      <div v-if="variantGroup" class="ai-ws-variants-top">
+        <div class="variants-top-header">
+          <div class="variants-top-title-area">
+            <span class="variants-top-title">🔗 变体组</span>
+            <span class="variants-top-count">共 {{ variantSiblings.count }} 个变体 (同组合并成一张 Ozon 多变体卡)</span>
+          </div>
+          <div class="variants-top-actions">
+            <el-checkbox v-model="isAllSelected" :indeterminate="isIndeterminate" class="ai-ws-select-all">全选</el-checkbox>
+            <el-button type="warning" size="small" :loading="publishingGroup" :disabled="publishingGroup || !!batchRunningOp" @click="onPublishGroup" style="margin-left: 12px;">
+              合并发布整组（{{ variantSiblings.count }} 变体）
+            </el-button>
+          </div>
+        </div>
+
+        <div class="variant-card-grid">
+          <div v-for="v in variantSiblings.variants" :key="v.id"
+               class="variant-card-capsule" :class="{ current: v.id === draft.id, pub: v.status === 'published' }"
+               :title="v.spec + (v.price ? ('  ¥' + v.price) : '')"
+               @click="switchToDraft(v.id)">
+             <el-checkbox v-model="batchSelectionMap[v.id]" class="vg-checkbox" @click.stop />
+             <img v-if="v.image" :src="v.image" class="capsule-thumb" loading="lazy" referrerpolicy="no-referrer" />
+             <div v-else class="capsule-thumb capsule-thumb-empty">无图</div>
+             <span class="vg-spec capsule-spec">{{ v.spec || ('变体 #' + v.id) }}</span>
+             <span class="capsule-price" v-if="v.price">¥{{ v.price }}</span>
+             <span class="vg-chip-delete" title="删除该变体草稿" @click.stop="deleteSiblingVariant(v)">×</span>
+          </div>
+        </div>
+        
+        <div class="variants-top-tip">
+          点变体切换草稿。各变体的「区别特征」(颜色/尺寸/规格)会在 AI 填特征时按本变体规格自动填。合并后 Ozon 才显示变体选择。
         </div>
       </div>
-      <div v-if="recommendation" class="smart-rec">
-        <div>推荐:<b>{{ recommendation.recommended }}</b> — {{ recommendation.reason }}</div>
-        <table v-if="recommendation.per_image && recommendation.per_image.length" class="smart-pi">
-          <tr v-for="p in recommendation.per_image" :key="p.idx">
-            <td>图{{ p.idx }}</td><td>{{ p.role }}</td><td>默认:{{ p.default }}</td>
-            <td>
-              <el-button link size="small" :loading="imgActionLoading" @click="doWhiten(p.idx)">白底主图</el-button>
-              <el-button link size="small" :loading="imgActionLoading" @click="doLocalize(p.idx)">俄化</el-button>
-              <el-button link size="small" :loading="imgActionLoading" @click="doRegen(p)">重做</el-button>
-              <el-button link size="small" :loading="imgActionLoading" @click="doScene(p.idx)">场景图</el-button>
-            </td>
-          </tr>
-        </table>
-      </div>
-      <div v-if="plan.length" class="smart-plan">
-        <div class="smart-und-h"><b>图集计划</b> <small>(按槽生成,同类挑不同源图,避免重复同角度)</small></div>
-        <table class="smart-pi">
-          <tr v-for="s in plan" :key="s.slot_id">
-            <td>{{ s.label }}</td>
-            <td>来源:图{{ s.source_idx }}</td>
-            <td><span :class="['plan-st', s.status]">{{ planStatusText(s.status) }}</span></td>
-            <td>
-              <el-button link size="small" :loading="imgActionLoading" @click="doPlanSlot(s.slot_id)">
-                {{ s.status === 'todo' ? '生成' : '重生成' }}
-              </el-button>
-            </td>
-          </tr>
-        </table>
-      </div>
-      <div v-if="candidates.length" class="smart-cands">
-        <div>候选区 {{ candidates.length }} 张(数字请核对):</div>
-        <div class="smart-cand-grid">
-          <el-image v-for="(c, i) in candidates" :key="i" :src="c.url" :title="c.angle"
-                    :preview-src-list="candUrls" :initial-index="i" preview-teleported hide-on-click-modal />
+
+      <!-- Main body (full width, no sidebar) -->
+      <div class="ai-ws-body">
+        <!-- Main section: Active pipeline workflow -->
+        <div class="ai-ws-main">
+          <div class="main-header" v-if="variantGroup">
+            <span>👉 当前编辑：<b>{{ draft.spec_attrs || draft.variant_label || ('变体 #' + draft.id) }}</b></span>
+          </div>
+
+          <!-- Pipeline Grid Table -->
+          <div class="ai-ws-pipeline-wrapper">
+            <table class="ai-ws-pipeline-table">
+              <thead>
+                <tr>
+                  <th class="col-step">流水线步骤</th>
+                  <th class="col-status">当前状态</th>
+                  <th class="col-single">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Step 1: understand -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">1</span>
+                      <span class="step-name">图文理解 <small class="muted">~40s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('understand'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('understand'))">{{ wfStateText(wfStep('understand')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button size="small" :type="wfDone('understand') ? '' : 'primary'" plain :loading="wfStatus.understand === 'running' || batchRunningOp === 'understand'"
+                               :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('understand')) && !wfDone('understand'))" @click="runStep(wfStep('understand'))">
+                      {{ wfDone('understand') ? '重跑' : '运行' }}
+                    </el-button>
+                  </td>
+                </tr>
+
+                <!-- Step 2: category -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">2</span>
+                      <span class="step-name">AI类型识别 <small class="muted">~20s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('category'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('category'))">{{ wfStateText(wfStep('category')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button size="small" :type="wfDone('category') ? '' : 'primary'" plain :loading="wfStatus.category === 'running' || batchRunningOp === 'category'"
+                               :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('category')) && !wfDone('category'))" @click="runStep(wfStep('category'))">
+                      {{ wfDone('category') ? '重跑' : '运行' }}
+                    </el-button>
+                  </td>
+                </tr>
+
+                <!-- Step 3: copy -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">3</span>
+                      <span class="step-name">AI文案 <small class="muted">~90s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('copy'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('copy'))">{{ wfStateText(wfStep('copy')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button size="small" :type="wfDone('copy') ? '' : 'primary'" plain :loading="wfStatus.copy === 'running' || batchRunningOp === 'copy'"
+                               :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('copy')) && !wfDone('copy'))" @click="runStep(wfStep('copy'))">
+                      {{ wfDone('copy') ? '重跑' : '运行' }}
+                    </el-button>
+                  </td>
+                </tr>
+
+                <!-- Step 4: attrs -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">4</span>
+                      <span class="step-name">特征 <small class="muted">~10s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('attrs'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('attrs'))">{{ wfStateText(wfStep('attrs')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button size="small" :type="wfDone('attrs') ? '' : 'primary'" plain :loading="wfStatus.attrs === 'running' || batchRunningOp === 'attrs'"
+                               :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('attrs')) && !wfDone('attrs'))" @click="runStep(wfStep('attrs'))">
+                      {{ wfDone('attrs') ? '重跑' : '运行' }}
+                    </el-button>
+                  </td>
+                </tr>
+
+                <!-- Step 5: gallery -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">5</span>
+                      <span class="step-name">图集 <small class="muted">~10s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('gallery'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('gallery'))">{{ wfStateText(wfStep('gallery')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="step-actions-group">
+                      <el-button size="small" :type="wfDone('gallery') ? '' : 'primary'" plain :loading="wfStatus.gallery === 'running' || batchRunningOp === 'gallery'"
+                                 :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('gallery')) && !wfDone('gallery'))" @click="runStep(wfStep('gallery'))">
+                        {{ wfDone('gallery') ? '重新设计' : 'AI设计图集' }}
+                      </el-button>
+                      <el-button size="small" plain :loading="recommendLoading || batchRunningOp === 'recommend'" :disabled="wfOrBatchRunning" @click="doRecommend">
+                        智能推荐
+                      </el-button>
+                      <el-button size="small" plain :loading="planLoading || batchRunningOp === 'plan'" :disabled="wfOrBatchRunning" @click="triggerLoadPlan">
+                        图集计划
+                      </el-button>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Step 6: images -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">6</span>
+                      <span class="step-name">图片生成 <small class="muted">~2-3m</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('images'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('images'))">{{ wfStateText(wfStep('images')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="step-actions-group">
+                      <el-button size="small" :type="wfDone('images') ? '' : 'primary'" plain :loading="autoImgLoading || batchRunningOp === 'images'"
+                                 :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('images')) && !wfDone('images'))" @click="runStep(wfStep('images'))">
+                        🎨 AI出图 & A+富文本
+                      </el-button>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Step 7: publish -->
+                <tr>
+                  <td>
+                    <div class="step-meta">
+                      <span class="step-num">7</span>
+                      <span class="step-name">发布 <small class="muted">~30s</small></span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="status-cell">
+                      <span class="wf-dot" :class="wfState(wfStep('publish'))"></span>
+                      <span class="wf-st" :class="wfState(wfStep('publish'))">{{ wfStateText(wfStep('publish')) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button size="small" :type="wfDone('publish') ? 'info' : 'primary'" plain :loading="wfStatus.publish === 'running' || batchRunningOp === 'publish'"
+                               :disabled="wfOrBatchRunning || (!wfDepOk(wfStep('publish')) && !wfDone('publish'))" @click="runStep(wfStep('publish'))">
+                      {{ wfDone('publish') ? '已发布' : '核对并发布' }}
+                    </el-button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div> <!-- Close .ai-ws-main -->
+      </div> <!-- Close .ai-ws-body -->
+
+      <!-- Detail Results Cards (Underneath for verification) -->
+      <div v-if="understanding || recommendation || plan.length || candidates.length" class="ai-ws-results">
+        <!-- 理解结果 -->
+        <div v-if="understanding" class="smart-und">
+          <div class="smart-und-h"><b>理解结果</b> <small>(看图抽取,供文案/作图复用)</small></div>
+          <div v-if="understanding.type || understanding.material">品类:{{ understanding.type || '-' }} ｜ 材质:{{ understanding.material || '-' }}</div>
+          <div v-if="understandingSpecs.length">规格:{{ understandingSpecs.join(' / ') }}</div>
+          <div v-if="(understanding.points || []).length">卖点:{{ understanding.points.join(' · ') }}</div>
+          <div v-if="(understanding.scenes || []).length">场景:{{ understanding.scenes.join(' · ') }}</div>
+          <div v-if="(understanding.kit || []).length">包装:{{ understanding.kit.join(' · ') }}</div>
+          <div v-if="(understanding.images || []).length" class="smart-roles">
+            图片角色:<span v-for="im in understanding.images" :key="im.idx">图{{ im.idx }}·{{ im.role }}</span>
+          </div>
         </div>
-        <el-button size="small" type="primary" :loading="applyLoading" @click="doApplyCandidates">全部应用到图集</el-button>
-        <el-button size="small" @click="doDiscardCandidates">清空候选</el-button>
+
+        <!-- 推荐结果 -->
+        <div v-if="recommendation" class="smart-rec">
+          <div>推荐:<b>{{ recommendation.recommended }}</b> — {{ recommendation.reason }}</div>
+          <table v-if="recommendation.per_image && recommendation.per_image.length" class="smart-pi">
+            <tr v-for="p in recommendation.per_image" :key="p.idx">
+              <td>图{{ p.idx }}</td><td>{{ p.role }}</td><td>默认:{{ p.default }}</td>
+              <td>
+                <el-button link size="small" :loading="imgActionLoading" @click="doWhiten(p.idx)">白底主图</el-button>
+                <el-button link size="small" :loading="imgActionLoading" @click="doLocalize(p.idx)">俄化</el-button>
+                <el-button link size="small" :loading="imgActionLoading" @click="doRegen(p)">重做</el-button>
+                <el-button link size="small" :loading="imgActionLoading" @click="doScene(p.idx)">场景图</el-button>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- 图集计划 -->
+        <div v-if="plan.length" class="smart-plan">
+          <div class="smart-und-h"><b>图集计划</b> <small>(按槽生成,同类挑不同源图,避免重复同角度)</small></div>
+          <table class="smart-pi">
+            <tr v-for="s in plan" :key="s.slot_id">
+              <td>{{ s.label }}</td>
+              <td>来源:图{{ s.source_idx }}</td>
+              <td><span :class="['plan-st', s.status]">{{ planStatusText(s.status) }}</span></td>
+              <td>
+                <el-button link size="small" :loading="imgActionLoading" @click="doPlanSlot(s.slot_id)">
+                  {{ s.status === 'todo' ? '生成' : '重生成' }}
+                </el-button>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- 候选区 -->
+        <div v-if="candidates.length" class="smart-cands">
+          <div>候选区 {{ candidates.length }} 张(数字请核对):</div>
+          <div class="smart-cand-grid">
+            <el-image v-for="(c, i) in candidates" :key="i" :src="c.url" :title="c.angle"
+                      :preview-src-list="candUrls" :initial-index="i" preview-teleported hide-on-click-modal />
+          </div>
+        </div>
       </div>
     </section>
 
@@ -641,6 +832,314 @@ async function loadVariantGroup() {
 }
 function switchToDraft(id) { if (id && id !== props.draft.id) store.selectedId = id }
 
+const batchSelectionMap = reactive({})
+
+// Auto-check new variants by default
+watch(() => variantSiblings.value.variants, (vars) => {
+  if (!Array.isArray(vars)) return
+  for (const v of vars) {
+    if (batchSelectionMap[v.id] === undefined) {
+      batchSelectionMap[v.id] = true
+    }
+  }
+}, { deep: true, immediate: true })
+
+const batchSelectedIds = computed(() => {
+  const vars = variantSiblings.value?.variants || []
+  return vars
+    .map((v) => v.id)
+    .filter((id) => !!batchSelectionMap[id])
+})
+
+const isAllSelected = computed({
+  get: () => {
+    const vars = variantSiblings.value?.variants
+    if (!vars || !vars.length) return false
+    return vars.every((v) => !!batchSelectionMap[v.id])
+  },
+  set: (val) => {
+    const vars = variantSiblings.value?.variants || []
+    for (const v of vars) {
+      batchSelectionMap[v.id] = val
+    }
+  }
+})
+
+const isIndeterminate = computed(() => {
+  const vars = variantSiblings.value?.variants
+  if (!vars || !vars.length) return false
+  const checkedCount = vars.filter((v) => !!batchSelectionMap[v.id]).length
+  return checkedCount > 0 && checkedCount < vars.length
+})
+
+// --- Batch AI Operations and Deletion ---
+const batchRunningOp = computed(() => store.pendingOps[props.draft.id]?.batchRunningOp || null)
+const batchProgress = computed(() => store.pendingOps[props.draft.id]?.batchProgress || '')
+const wfOrBatchRunning = computed(() => wfRunning.value || !!batchRunningOp.value)
+
+async function retryCall(fn, maxRetries = 3, delayMs = 1000) {
+  let attempt = 0
+  while (true) {
+    try {
+      return await fn()
+    } catch (err) {
+      attempt++
+      if (attempt >= maxRetries) throw err
+      await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, attempt - 1)))
+    }
+  }
+}
+
+async function runConcurrent(tasks, concurrency, workerFn, onProgress) {
+  const queue = [...tasks]
+  const results = []
+  let completed = 0
+  const total = tasks.length
+
+  const worker = async () => {
+    while (queue.length > 0) {
+      const task = queue.shift()
+      try {
+        const res = await workerFn(task)
+        results.push({ task, success: true, result: res })
+      } catch (err) {
+        results.push({ task, success: false, error: err })
+      } finally {
+        completed++
+        if (onProgress) onProgress(completed, total)
+      }
+    }
+  }
+
+  const activeWorkers = []
+  for (let i = 0; i < Math.min(concurrency, tasks.length); i++) {
+    activeWorkers.push(worker())
+  }
+  await Promise.all(activeWorkers)
+  return results
+}
+
+async function runBatchOp(op) {
+  const siblingIds = batchSelectedIds.value
+  if (!siblingIds.length) {
+    ElMessage.warning('请先勾选需要批量操作的变体')
+    return
+  }
+  const allSiblingIds = variantSiblings.value.variants.map((v) => v.id)
+
+  const setBatchState = (runningOp, progressText) => {
+    for (const id of allSiblingIds) {
+      const ops = { ...(store.pendingOps[id] || {}) }
+      if (runningOp) {
+        ops.batchRunningOp = runningOp
+        ops.batchProgress = progressText
+        store.pendingOps[id] = ops
+      } else {
+        delete ops.batchRunningOp
+        delete ops.batchProgress
+        if (Object.keys(ops).length > 0) {
+          store.pendingOps[id] = ops
+        } else {
+          delete store.pendingOps[id]
+        }
+      }
+    }
+  }
+
+  const updateDraftState = (r, id) => {
+    if (r && r.draft) {
+      store.upsertDraft(r.draft)
+      if (id === props.draft.id) {
+        initFromDraft(r.draft)
+        runRequiredCheck()
+      }
+    }
+  }
+
+  const workerFn = async (id) => {
+    if (id === props.draft.id) {
+      await save()
+    }
+
+    if (op === 'understand') {
+      const r = await retryCall(() => api.understand(id))
+      updateDraftState(r, id)
+      return r
+    } else if (op === 'category') {
+      const r = await retryCall(() => api.recognizeCategory(id))
+      updateDraftState(r, id)
+      return r
+    } else if (op === 'copy') {
+      const r = await retryCall(() => api.aiCopy(id))
+      updateDraftState(r, id)
+      if (r && r.ok) {
+        const ar = await retryCall(() => api.aiProposalApply(id))
+        updateDraftState(ar, id)
+        return ar
+      }
+      return r
+    } else if (op === 'attrs') {
+      const r = await retryCall(() => api.aiFillAttributes(id))
+      updateDraftState(r, id)
+      return r
+    } else if (op === 'gallery') {
+      const r = await retryCall(() => api.designImagePlan(id, 10))
+      if (id === props.draft.id) {
+        await loadPlan()
+      }
+      return r
+    } else if (op === 'images') {
+      const r = await retryCall(() => doAutoImagesFor(id))
+      try {
+        const rRich = await retryCall(() => api.makeRichContent(id, {}))
+        updateDraftState(rRich, id)
+      } catch (err) {
+        console.warn(`[Batch Images] Rich content generation failed for draft ${id}:`, err)
+      }
+      if (id === props.draft.id) {
+        await loadPlan()
+      }
+      return r
+    } else if (op === 'recommend') {
+      const r = await retryCall(() => api.recommend(id))
+      if (id === props.draft.id && r && r.ok) {
+        recommendation.value = r.recommendation
+      }
+      return r
+    } else if (op === 'plan') {
+      const r = await retryCall(() => api.imagePlan(id, true))
+      if (id === props.draft.id && r && r.ok) {
+        plan.value = r.plan || []
+      }
+      return r
+    } else if (op === 'rich') {
+      const r = await retryCall(() => api.makeRichContent(id, {}))
+      updateDraftState(r, id)
+      return r
+    } else if (op === 'publish') {
+      const r = await retryCall(() => api.publish(id))
+      updateDraftState(r, id)
+      return r
+    } else if (op === 'all') {
+      // 1. understand
+      const rUnd = await retryCall(() => api.understand(id))
+      updateDraftState(rUnd, id)
+
+      // 2. category (non-fatal)
+      try {
+        const rCat = await retryCall(() => api.recognizeCategory(id))
+        updateDraftState(rCat, id)
+      } catch (err) {
+        console.warn(`[Batch All] Category recognition failed for draft ${id}:`, err)
+      }
+
+      // 3. copy
+      const rCopy = await retryCall(() => api.aiCopy(id))
+      updateDraftState(rCopy, id)
+      if (rCopy && rCopy.ok) {
+        const rApply = await retryCall(() => api.aiProposalApply(id))
+        updateDraftState(rApply, id)
+      }
+
+      // 4. attrs (non-fatal)
+      try {
+        const rAttrs = await retryCall(() => api.aiFillAttributes(id))
+        updateDraftState(rAttrs, id)
+      } catch (err) {
+        console.warn(`[Batch All] AI fill attributes failed for draft ${id}:`, err)
+      }
+
+      // 5. gallery (non-fatal)
+      try {
+        await retryCall(() => api.designImagePlan(id, 10))
+      } catch (err) {
+        console.warn(`[Batch All] Design image plan failed for draft ${id}:`, err)
+      }
+
+      // 6. images & rich
+      try {
+        await retryCall(() => doAutoImagesFor(id))
+        const rRich = await retryCall(() => api.makeRichContent(id, {}))
+        updateDraftState(rRich, id)
+        if (id === props.draft.id) {
+          await loadPlan()
+        }
+      } catch (err) {
+        console.warn(`[Batch All] Images & Rich content generation failed for draft ${id}:`, err)
+      }
+
+      // 7. publish (non-fatal)
+      try {
+        const rPub = await retryCall(() => api.publish(id))
+        updateDraftState(rPub, id)
+      } catch (err) {
+        console.warn(`[Batch All] Publish failed for draft ${id}:`, err)
+      }
+    }
+  }
+
+  setBatchState(op, `0/${siblingIds.length}`)
+
+  try {
+    const results = await runConcurrent(
+      siblingIds,
+      4,
+      async (id) => {
+        return await workerFn(id)
+      },
+      (completed, total) => {
+        setBatchState(op, `${completed}/${total}`)
+      }
+    )
+
+    const successCount = results.filter((r) => r.success).length
+    const failCount = results.length - successCount
+    if (failCount > 0) {
+      ElMessage.warning(`批量操作完成：成功 ${successCount}，失败 ${failCount}`)
+    } else {
+      ElMessage.success(`批量操作完成：成功 ${successCount}/${results.length}`)
+    }
+  } catch (err) {
+    ElMessage.error('批量操作失败: ' + ((err && err.message) || err))
+  } finally {
+    setBatchState(null, '')
+    await loadVariantGroup()
+    await store.loadDrafts()
+  }
+}
+
+async function deleteSiblingVariant(v) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除该变体草稿「${v.spec || '#' + v.id}」吗？该操作不可恢复！`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // canceled
+  }
+
+  try {
+    const isCurrent = v.id === props.draft.id
+    if (isCurrent) {
+      const other = variantSiblings.value.variants.find((x) => x.id !== v.id)
+      if (other) {
+        store.selectedId = other.id
+      } else {
+        store.selectedId = null
+      }
+    }
+    await api.deleteDraft(v.id)
+    store.removeDraft(v.id)
+    ElMessage.success('删除成功')
+    if (!isCurrent) {
+      await loadVariantGroup()
+    }
+  } catch (err) {
+    ElMessage.error('删除失败: ' + ((err && err.message) || err))
+  }
+}
+
 async function onPublishGroup() {
   const grp = variantGroup.value
   if (!grp) return
@@ -1120,34 +1619,51 @@ async function doAiFill() {
   } catch (e) { ElMessage.error('AI 填特征失败: ' + ((e && e.message) || e)) } finally { attrLoading.ai = false }
 }
 async function doRecommend() {
-  recommendLoading.value = true
-  try {
-    const r = await api.recommend(props.draft.id)
-    if (r && r.ok) { recommendation.value = r.recommendation; if (!r.has_understanding) ElMessage.info('还没看图理解,建议先点「看图理解」') }
-  } catch (err) { ElMessage.error(String((err && err.message) || err)) } finally { recommendLoading.value = false }
+  if (variantGroup.value) {
+    await runBatchOp('recommend')
+  } else {
+    recommendLoading.value = true
+    try {
+      const r = await api.recommend(props.draft.id)
+      if (r && r.ok) { recommendation.value = r.recommendation; if (!r.has_understanding) ElMessage.info('还没看图理解,建议先点「看图理解」') }
+    } catch (err) { ElMessage.error(String((err && err.message) || err)) } finally { recommendLoading.value = false }
+  }
 }
 const imgActionLoading = useOp('imgAction')
-// 选图生成(白底/俄化/重做/场景)统一走它：单一 loading 防并发，结果进候选区
+// 选图生成(白底/俄化/重做/场景)统一走它：单一 loading 防并发，结果自动应用
 async function _imgAction(fn, okMsg) {
   imgActionLoading.value = true
   try {
     const r = await fn()
-    if (r && r.ok) { if (r.draft) store.upsertDraft(r.draft); ElMessage.success(okMsg) }
+    if (r && r.ok) {
+      if (r.draft) store.upsertDraft(r.draft)
+      // Auto-apply candidates immediately
+      try {
+        const rApply = await api.applyCandidates(props.draft.id)
+        if (rApply && rApply.ok && rApply.draft) {
+          store.upsertDraft(rApply.draft)
+          initFromDraft(rApply.draft)
+        }
+      } catch (e) {
+        console.warn('Auto apply failed inside _imgAction:', e)
+      }
+      ElMessage.success(okMsg)
+    }
   } catch (err) {
     ElMessage.error(String((err && err.message) || err))
   } finally { imgActionLoading.value = false }
 }
 function doWhiten(idx) {
-  return _imgAction(() => api.whitenMain(props.draft.id, { source_index: idx }), '白底主图完成,已进候选区')
+  return _imgAction(() => api.whitenMain(props.draft.id, { source_index: idx }), '白底主图完成并应用')
 }
 function doLocalize(idx) {
-  return _imgAction(() => api.localizeImage(props.draft.id, { source_index: idx }), '俄化完成,已进候选区')
+  return _imgAction(() => api.localizeImage(props.draft.id, { source_index: idx }), '俄化完成并应用')
 }
 function doRegen(p) {
-  return _imgAction(() => api.regenImage(props.draft.id, { source_index: p.idx, role: (p && p.role) || '' }), '重做完成,已进候选区')
+  return _imgAction(() => api.regenImage(props.draft.id, { source_index: p.idx, role: (p && p.role) || '' }), '重做完成并应用')
 }
 function doScene(idx) {
-  return _imgAction(() => api.sceneImage(props.draft.id, { source_index: idx }), '场景图完成,已进候选区')
+  return _imgAction(() => api.sceneImage(props.draft.id, { source_index: idx }), '场景图完成并应用')
 }
 // 图集计划:槽位清单(待做/候选中/已应用),按槽生成避免重复同角度
 const plan = ref([])
@@ -1160,8 +1676,15 @@ async function loadPlan(force = false) {
     if (r && r.ok) plan.value = r.plan || []
   } catch (err) { ElMessage.error(String((err && err.message) || err)) } finally { planLoading.value = false }
 }
+async function triggerLoadPlan() {
+  if (variantGroup.value) {
+    await runBatchOp('plan')
+  } else {
+    await loadPlan(true)
+  }
+}
 async function doPlanSlot(slotId) {
-  await _imgAction(() => api.generatePlanSlot(props.draft.id, slotId), '已生成,进候选区')
+  await _imgAction(() => api.generatePlanSlot(props.draft.id, slotId), '已生成并应用')
   loadPlan()
 }
 
@@ -1173,9 +1696,8 @@ const WF = [
   { id: 'copy', label: '文案 标题/简介/标签', eta: '~90s', dep: [] },
   { id: 'attrs', label: '特征值识别(按类别填)', eta: '~10s', dep: ['category'], optional: true },
   { id: 'images', label: '图集出图', eta: '~2-3min', dep: ['understand'] },
-  { id: 'apply', label: '应用候选到图集', eta: '即时', dep: ['images'] },
-  { id: 'rich', label: '富文本', eta: '即时', dep: ['apply'] },
-  { id: 'publish', label: '发布上线', eta: '~30s', dep: ['copy', 'apply', 'rich'] },
+  { id: 'rich', label: '富文本', eta: '即时', dep: ['images'] },
+  { id: 'publish', label: '发布上线', eta: '~30s', dep: ['copy', 'images', 'rich'] },
 ]
 const wfRunning = ref(false)
 const wfStatus = reactive({})   // step_id -> 'running' | 'failed' | ''
@@ -1195,33 +1717,62 @@ const IMG_CONCURRENCY = 4   // 同时出图张数(避免把画图网关打到限
 // 一键：LLM 设计 ~10 张 Ozon 图方案 → 并发渲染进候选区(同时 IMG_CONCURRENCY 张)。
 // 注意：① 设计后 loadPlan() 不能 force(force 会用规则版重建覆盖 LLM 方案)；
 // ② 并发结束回填"候选最全"的那份草稿，避免乱序响应覆盖丢候选显示(后端已加锁防真丢)。
-async function runAutoImages() {
-  autoImgLoading.value = true
-  try {
-    const d = await api.designImagePlan(props.draft.id, 10)
-    await loadPlan()
-    const queue = plan.value.filter((s) => s.status === 'todo').map((s) => s.slot_id)
-    const total = queue.length
-    let ok = 0, failed = 0, best = null, bestLen = -1
-    async function worker() {
-      while (queue.length) {
-        const sid = queue.shift()
-        try {
-          const r = await api.generatePlanSlot(props.draft.id, sid)
-          if (r && r.draft) {
-            const n = ((r.draft.source_raw || {}).ai_image_candidates || []).length
-            if (n >= bestLen) { best = r.draft; bestLen = n }
-            store.upsertDraft(r.draft)   // 进度即时刷新
-          }
-          ok++
-        } catch (e) { failed++ }
+async function doAutoImagesFor(id) {
+  const d = await api.designImagePlan(id, 10)
+  const pr = await api.imagePlan(id, false)
+  const draftPlan = pr.plan || []
+  const queue = draftPlan.filter((s) => s.status === 'todo').map((s) => s.slot_id)
+  const total = queue.length
+  let ok = 0, failed = 0, best = null, bestLen = -1
+
+  const worker = async () => {
+    while (queue.length) {
+      const sid = queue.shift()
+      try {
+        const r = await api.generatePlanSlot(id, sid)
+        if (r && r.draft) {
+          const n = ((r.draft.source_raw || {}).ai_image_candidates || []).length
+          if (n >= bestLen) { best = r.draft; bestLen = n }
+          store.upsertDraft(r.draft)
+        }
+        ok++
+      } catch (e) {
+        failed++
       }
     }
-    await Promise.all(Array.from({ length: Math.min(IMG_CONCURRENCY, total) }, () => worker()))
-    if (best) store.upsertDraft(best)
-    await loadPlan()
-    ElMessage.success(`已设计 ${(d && d.count) || total} 张，生成 ${ok}/${total}${failed ? ` (失败 ${failed})` : ''}${d && d.fallback ? ' [LLM设计失败→规则版]' : ''}`)
-  } catch (err) { ElMessage.error('AI 图集失败: ' + ((err && err.message) || err)) } finally { autoImgLoading.value = false }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(IMG_CONCURRENCY, total) }, () => worker()))
+  // Auto-apply candidates at the end of image generation
+  try {
+    const rApply = await api.applyCandidates(id)
+    if (rApply && rApply.ok && rApply.draft) {
+      best = rApply.draft
+      store.upsertDraft(rApply.draft)
+    }
+  } catch (err) {
+    console.warn(`[doAutoImagesFor] auto-apply candidates failed for draft ${id}:`, err)
+  }
+  if (best) {
+    store.upsertDraft(best)
+    if (id === props.draft.id) {
+      initFromDraft(best)
+    }
+  }
+  return { d, total, ok, failed }
+}
+
+async function runAutoImages() {
+  if (variantGroup.value) {
+    await runBatchOp('images')
+  } else {
+    autoImgLoading.value = true
+    try {
+      const { d, total, ok, failed } = await doAutoImagesFor(props.draft.id)
+      await loadPlan()
+      ElMessage.success(`已设计 ${(d && d.count) || total} 张，生成 ${ok}/${total}${failed ? ` (失败 ${failed})` : ''}${d && d.fallback ? ' [LLM设计失败→规则版]' : ''}`)
+    } catch (err) { ElMessage.error('AI 图集失败: ' + ((err && err.message) || err)) } finally { autoImgLoading.value = false }
+  }
 }
 const preflightDlg = ref(false)
 const preflightData = ref(null)
@@ -1270,8 +1821,12 @@ function wfDone(id) {
       .some((a) => a && a.id != null && ![9048, 23171, 85].includes(Number(a.id))
         && Array.isArray(a.values) && a.values.length)
     case 'copy': return !!(d.ozon_title && d.description)
-    case 'images': return candidates.value.length > 0 || typed
-    case 'apply': return typed && candidates.value.length === 0
+    case 'images': {
+      if (plan.value.length > 0) {
+        return plan.value.every((s) => s.status === 'applied')
+      }
+      return candidates.value.length > 0 || typed
+    }
     case 'rich': return !!richContentJson.value
     case 'publish': return !!d.ozon_product_id || d.status === 'published'
   }
@@ -1290,16 +1845,35 @@ function wfStateText(s) {
   return { running: '进行中…', failed: '失败', done: '✅完成', pending: '待运行', wait: '等依赖' }[wfState(s)]
 }
 async function runStep(s) {
-  if (s.id === 'publish') return openPublishCheck()   // 手动发布:先过「发布前核对」
-  wfStatus[s.id] = 'running'
-  try { await wfRun[s.id](); wfStatus[s.id] = 'ok' } catch (e) {
-    wfStatus[s.id] = 'failed'; ElMessage.error(`「${s.label}」失败: ${(e && e.message) || e}`)
+  if (s.id === 'publish') {
+    if (variantGroup.value) {
+      try {
+        await ElMessageBox.confirm(
+          `将对已勾选的 ${batchSelectedIds.value.length} 个变体执行发布上线到 Ozon，确定？`,
+          '批量发布确认',
+          { type: 'warning', confirmButtonText: '发布', cancelButtonText: '取消' }
+        )
+      } catch (e) { return }
+      await runBatchOp('publish')
+    } else {
+      return openPublishCheck()
+    }
+    return
+  }
+
+  if (variantGroup.value) {
+    await runBatchOp(s.id)
+  } else {
+    wfStatus[s.id] = 'running'
+    try { await wfRun[s.id](); wfStatus[s.id] = 'ok' } catch (e) {
+      wfStatus[s.id] = 'failed'; ElMessage.error(`「${s.label}」失败: ${(e && e.message) || e}`)
+    }
   }
 }
 async function runAuto() {
   try {
     await ElMessageBox.confirm(
-      '「一键自动」会按顺序跑:看图理解 → 类别识别 → 文案 → 特征值识别 → 图集出图 → 应用候选 → 富文本 → 发布,并**真正发布上线到 Ozon**(出图数字/文案不再人工核对)。确定?',
+      '「一键自动」会按顺序跑:图文理解 → AI类型识别 → AI文案 → 特征 → 图集 → 图片生成 → 发布,并**真正发布上线到 Ozon**(出图数字/文案不再人工核对)。确定?',
       '全自动到发布', { type: 'warning', confirmButtonText: '开始', cancelButtonText: '取消', dangerouslyUseHTMLString: false })
   } catch (e) { return }
   wfRunning.value = true
@@ -1321,6 +1895,13 @@ async function runAuto() {
     }
     ElMessage.success('全流程跑完 🎉')
   } finally { wfRunning.value = false }
+}
+async function triggerRunAuto() {
+  if (variantGroup.value) {
+    await runBatchOp('all')
+  } else {
+    await runAuto()
+  }
 }
 async function doApplyCandidates() {
   // 不传索引 = 后端应用全部候选(权威，避免前端响应式滞后读到空候选 → 静默不应用)
@@ -1897,18 +2478,303 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
   margin-top: 12px;
 }
 .variant-section { margin-top: 12px; }
-.variant-prompt-bar { margin: 8px 0; padding: 9px 12px; border: 1px solid var(--c-warning, #faad14); border-radius: 8px; background: var(--c-warning-light, #fffbe6); font-size: 13px; color: var(--c-text-secondary, #614700); }
-.variant-group-bar { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--c-border-soft); border-radius: 8px; background: var(--c-fill-light, #f6f8fa); }
-.vg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.vg-count { color: var(--c-text-secondary, #666); font-size: 13px; }
-.vg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
-.vg-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 8px 3px 3px; border: 1px solid var(--c-border-soft); border-radius: 14px; background: #fff; cursor: pointer; font-size: 12px; }
+.ai-workspace-panel {
+  border: 1px solid var(--detail-border);
+  border-radius: 18px;
+  background: var(--gp-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(20, 34, 59, 0.06);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.ai-ws-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+.ai-ws-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.ai-ws-icon {
+  font-size: 20px;
+  color: var(--c-primary, #409eff);
+}
+.ai-ws-global-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ai-ws-variants-top {
+  background: var(--c-surface-2, #f9fafb);
+  border: 1px solid var(--detail-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+.variants-top-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.variants-top-title-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.variants-top-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text, #1f2937);
+}
+.variants-top-count {
+  font-size: 13px;
+  color: var(--c-text-secondary, #4b5563);
+}
+.variants-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.variant-card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.variant-card-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px !important;
+  border: 1px solid var(--c-border-soft, #e5e7eb);
+  border-radius: 20px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  position: relative;
+  box-sizing: border-box;
+  user-select: none;
+}
+.variant-card-capsule:hover {
+  border-color: var(--c-primary, #409eff);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08);
+}
+.variant-card-capsule.current {
+  border-color: var(--c-primary, #409eff);
+  background: var(--c-primary-light, #ecf5ff);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
+}
+.variant-card-capsule.pub {
+  background: #f3f4f6;
+  opacity: 0.8;
+}
+.capsule-thumb {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.05);
+  flex-shrink: 0;
+}
+.capsule-thumb-empty {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-surface-2, #f3f4f6);
+  color: var(--c-text-disabled, #9ca3af);
+  font-size: 9px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.capsule-spec {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text-primary, #1f2937);
+}
+.capsule-price {
+  font-size: 11px;
+  color: var(--c-text-secondary, #4b5563);
+  font-weight: 600;
+}
+.variant-card-capsule .vg-checkbox {
+  margin: 0;
+  flex-shrink: 0;
+}
+:deep(.variant-card-capsule .el-checkbox__label) {
+  display: none !important;
+}
+:deep(.variant-card-capsule .el-checkbox) {
+  margin-right: 0 !important;
+}
+.variant-card-capsule .vg-chip-delete {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: bold;
+  color: #fff;
+  background: #9ca3af;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  opacity: 0;
+  transition: all 0.2s;
+  z-index: 10;
+}
+.variant-card-capsule:hover .vg-chip-delete {
+  opacity: 1;
+}
+.variant-card-capsule .vg-chip-delete:hover {
+  background: #ef4444;
+}
+.variants-top-tip {
+  font-size: 12px;
+  color: var(--c-text-secondary, #666);
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.ai-ws-main {
+  background: #fff;
+  border: 1px solid var(--detail-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.ai-ws-main .main-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  color: var(--c-text, #1f2937);
+  display: flex;
+  align-items: center;
+}
+.ai-ws-pipeline-wrapper {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+.ai-ws-pipeline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ai-ws-pipeline-table th,
+.ai-ws-pipeline-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+.ai-ws-pipeline-table th {
+  font-weight: 700;
+  color: var(--c-text-secondary, #555);
+  background: rgba(0, 0, 0, 0.02);
+}
+.ai-ws-pipeline-table tr:hover {
+  background: rgba(0, 0, 0, 0.01);
+}
+.col-step { width: 40%; }
+.col-status { width: 30%; }
+.col-single { width: 30%; }
+
+.step-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--c-text-secondary, #666);
+  font-size: 11px;
+  font-weight: 700;
+}
+.step-name {
+  font-weight: 600;
+}
+.step-actions-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-ws-results {
+  margin-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 16px;
+}
+.vg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.vg-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 22px 3px 3px !important; border: 1px solid var(--c-border-soft); border-radius: 14px; background: #fff; cursor: pointer; font-size: 12px; }
 .vg-chip:hover { border-color: var(--c-primary, #409eff); }
 .vg-chip.current { border-color: var(--c-primary, #409eff); background: var(--c-primary-light, #ecf5ff); font-weight: 600; }
 .vg-chip.pub { opacity: 0.6; }
 .vg-chip img { width: 24px; height: 24px; object-fit: cover; border-radius: 50%; }
 .vg-spec { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vg-hint { color: var(--c-text-secondary, #888); font-size: 12px; margin-top: 4px; }
+.vg-checkbox {
+  margin-right: 0 !important;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+:deep(.vg-chip .el-checkbox__label) {
+  display: none !important;
+}
+.vg-chip-delete {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--c-text-secondary, #999);
+  font-size: 12px;
+  line-height: 1;
+  transition: all 0.2s;
+}
+.vg-chip-delete:hover {
+  background-color: #fee2e2;
+  color: var(--c-danger, #ef4444);
+}
 .rich-section {
   margin-top: 18px;
   border: 1px solid var(--detail-border);
@@ -1983,6 +2849,9 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
   }
   .detail-sidebar {
     position: static;
+  }
+  .ai-ws-body.has-variants {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2094,10 +2963,6 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
   }
 }
 
-/* 一键上架面板 */
-.smart-listing { border: 1px solid var(--c-border-soft); border-radius: 8px; padding: 10px 12px; margin: 8px 0; background: var(--c-surface-2); }
-.smart-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.smart-hint { color: var(--c-text-3); font-size: 12px; }
 .smart-und { margin-top: 8px; font-size: 13px; line-height: 1.7; background: var(--c-surface-1); border-radius: 6px; padding: 8px 10px; }
 .smart-und-h small { color: var(--c-text-3); }
 .smart-roles span { display: inline-block; margin-right: 8px; color: var(--c-text-2); }
@@ -2105,20 +2970,13 @@ defineExpose({ form, imagesText, attributesText, collectPatch, save, runRequired
 .smart-pi { width: 100%; margin-top: 6px; font-size: 12px; border-collapse: collapse; }
 .smart-pi td { padding: 2px 6px; border-bottom: 1px solid var(--c-border-soft); }
 .smart-cands { margin-top: 8px; font-size: 13px; }
-.wf-flow { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--c-border-soft); border-radius: 8px; background: var(--c-surface-1); }
-.wf-flow-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.wf-hint { color: var(--c-text-3); font-size: 12px; margin-right: auto; }
-.wf-step { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
-.wf-idx { width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 999px; background: var(--c-surface-2, #eee); color: var(--c-text-2); font-size: 11px; }
-.wf-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--c-text-3); }
+.wf-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--c-text-3); display: inline-block; }
 .wf-dot.running { background: var(--c-warning, #d48806); animation: wfblink 1s infinite; }
 .wf-dot.failed { background: var(--c-danger, #d4380d); }
 .wf-dot.done { background: var(--c-success, #389e0d); }
 .wf-dot.pending { background: var(--c-info, #3b82f6); }
 .wf-dot.wait { background: var(--c-text-3); opacity: 0.4; }
-.wf-label { min-width: 150px; }
-.wf-eta { color: var(--c-text-3); font-size: 12px; min-width: 60px; }
-.wf-st { font-size: 12px; margin-right: auto; }
+.wf-st { font-size: 12px; }
 .wf-st.failed { color: var(--c-danger, #d4380d); }
 .wf-st.done { color: var(--c-success, #389e0d); }
 .wf-st.running { color: var(--c-warning, #d48806); }

@@ -232,6 +232,7 @@ MYSQL_DDL = [
         supplier VARCHAR(255) DEFAULT '',
         warehouse_id BIGINT,
         source_raw_json LONGTEXT,
+        variant_group VARCHAR(255) NOT NULL DEFAULT '',
         ai_proposal_json LONGTEXT,
         pricing_json LONGTEXT,
         images_json LONGTEXT,
@@ -384,6 +385,47 @@ MYSQL_DDL = [
         KEY idx_dm_store_wh (store_client_id, warehouse_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    """
+    CREATE TABLE IF NOT EXISTS draft_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        draft_id INT NOT NULL,
+        position INT NOT NULL DEFAULT 0,
+        url TEXT NOT NULL,
+        type VARCHAR(32) NOT NULL DEFAULT '',
+        source VARCHAR(32) NOT NULL DEFAULT 'collected',
+        created_at VARCHAR(40) NOT NULL,
+        KEY idx_dimg_draft (draft_id, position)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS gen_jobs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        draft_id INT NOT NULL,
+        user_id INT NOT NULL DEFAULT 1,
+        status VARCHAR(16) NOT NULL DEFAULT 'queued',
+        target INT NOT NULL DEFAULT 10,
+        total INT NOT NULL DEFAULT 0,
+        succeeded INT NOT NULL DEFAULT 0,
+        failed INT NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at VARCHAR(40) NOT NULL,
+        updated_at VARCHAR(40) NOT NULL,
+        KEY idx_gen_jobs_draft (user_id, draft_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS gen_job_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        job_id INT NOT NULL,
+        slot_id VARCHAR(64) NOT NULL DEFAULT '',
+        label VARCHAR(255) NOT NULL DEFAULT '',
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        url TEXT,
+        error TEXT,
+        updated_at VARCHAR(40) NOT NULL,
+        KEY idx_gen_job_images_job (job_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
 ]
 
 
@@ -398,11 +440,25 @@ def _ensure_mysql_column(conn: "MySQLConn", table: str, column: str, ddl: str) -
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
+def _ensure_mysql_index(conn: "MySQLConn", table: str, index: str, cols: str) -> None:
+    """MySQL 的 CREATE INDEX 不支持 IF NOT EXISTS，先探测再建。"""
+    cur = conn.execute(
+        "SELECT COUNT(*) c FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?",
+        (table, index),
+    )
+    if cur.fetchone()["c"] == 0:
+        conn.execute(f"CREATE INDEX {index} ON {table} ({cols})")
+
+
 def init_mysql(conn: MySQLConn) -> None:
     for ddl in MYSQL_DDL:
         conn.execute(ddl)
     _ensure_mysql_column(conn, "users", "max_stores", "INT NOT NULL DEFAULT 1")
     _ensure_mysql_column(conn, "drafts", "media_status", "VARCHAR(16) NOT NULL DEFAULT 'done'")
+    # variant_group 提成真实索引列：同组兄弟查询走索引，免全表扫
+    _ensure_mysql_column(conn, "drafts", "variant_group", "VARCHAR(255) NOT NULL DEFAULT ''")
+    _ensure_mysql_index(conn, "drafts", "idx_drafts_variant_group", "variant_group")
     # 已部署的 delivery_methods 表补自提点等新列（CREATE IF NOT EXISTS 不会补列）
     for _col, _ddl in (
         ("tpl_integration_type", "VARCHAR(64)"), ("is_express", "INT"),

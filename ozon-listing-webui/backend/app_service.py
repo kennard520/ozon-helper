@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
 from pathlib import Path
+
+log = logging.getLogger("ozon.app")
+if not log.handlers:
+    h = logging.StreamHandler(sys.stderr)
+    h.setFormatter(logging.Formatter("%(asctime)s [ozon] %(levelname)s %(message)s"))
+    log.addHandler(h)
+    log.setLevel(logging.INFO)
+log.propagate = False  # 不往 root logger 传播，避免被 uvicorn 吞掉
 
 ROOT = Path(__file__).resolve().parents[1]   # tools/ozon-listing-webui/
 REPO = ROOT.parents[1]
@@ -17,23 +26,28 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import time  # noqa: E402
+import urllib.request  # noqa: E402
 from urllib.parse import urlparse  # noqa: E402
 
+import backend.ai_video as ai_video  # noqa: E402
+import backend.media as _media  # noqa: E402
 from backend.catalog import Catalog  # noqa: E402
 from backend.drafts import (  # noqa: E402
+    BRAND_ATTR_ID,
+    NO_BRAND,
     collected_chars,
     create_draft_from_url,
     dimension_warnings,
     match_chars_to_attributes,
     missing_required_attributes,
     normalize_category_attrs,
-    BRAND_ATTR_ID,
-    NO_BRAND,
     split_collection_value,
     to_ozon_import_item,
     utc_now_iso,
     validate_draft,
 )
+from backend.media_rehost import needs_rehost, rehost_draft_media  # noqa: E402
+from backend.oss import OssClient  # noqa: E402
 from backend.ozon_client_adapter import (  # noqa: E402
     build_client,
     get_attribute_values,
@@ -42,13 +56,8 @@ from backend.ozon_client_adapter import (  # noqa: E402
     publish_items,
     search_attribute_values,
 )
-from backend.oss import OssClient  # noqa: E402
-from backend.media_rehost import rehost_draft_media, needs_rehost  # noqa: E402
+from backend.settings_migrate import migrate_ai, normalize_stores  # noqa: E402
 from backend.store import Store  # noqa: E402
-from backend.settings_migrate import normalize_stores, migrate_ai  # noqa: E402
-import backend.media as _media  # noqa: E402
-import backend.ai_video as ai_video  # noqa: E402
-import urllib.request  # noqa: E402
 
 
 def _to_int(value: object) -> int:
@@ -177,7 +186,7 @@ class App:
         return str(self.store.get_settings().get("jwt_secret") or "")
 
     def login(self, username: str, password: str) -> dict:
-        from backend.auth import verify_password, make_token  # noqa: PLC0415
+        from backend.auth import make_token, verify_password  # noqa: PLC0415
         user = self.store.get_user_by_username((username or "").strip())
         if not user or not verify_password(password or "", user["password_hash"]):
             raise ValueError("用户名或密码错误")
@@ -538,7 +547,7 @@ class App:
             except (TypeError, ValueError):
                 pass
         if payload.get("ozon_stores") is not None:
-            from backend.settings_migrate import normalize_stores, mirror_of  # noqa: PLC0415
+            from backend.settings_migrate import mirror_of, normalize_stores  # noqa: PLC0415
             prev = {str(st.get("client_id")): str(st.get("api_key") or "")
                     for st in (self.store.get_settings().get("ozon_stores") or [])}
             incoming = []
@@ -629,15 +638,36 @@ class App:
             default_store = str((self.store.get_settings() or {}).get("ozon_client_id") or "")
             store_client_id = default_store or None
         scid = None if store_client_id is None else str(store_client_id or "")
+        # 列表按变体组聚合：同组只出一行(代表)，Tab 计数同口径——避免数字对不上/同组跨页重复
         drafts, total = self.store.list_drafts_page(
-            status=status, page=page, page_size=page_size, store_client_id=scid)
+            status=status, page=page, page_size=page_size, store_client_id=scid, group=True)
         return {
             "drafts": drafts,
             "total": total,
             "page": max(1, int(page)),
             "page_size": max(1, min(int(page_size), 200)),
-            "counts": self.store.count_by_status(store_client_id=scid),
+            "counts": self.store.count_by_status(store_client_id=scid, group=True),
         }
+
+    def get_draft(self, draft_id: int) -> dict:
+        """单草稿明细：分组列表里只出代表行，点变体组里某个兄弟变体编辑时，它可能不在当前页，
+        据此单独按 id 拉一份。这是用户主动点选时的必要加载，不是每次动作都拉整份。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        return {"draft": draft}
+
+    def regenerate_offer_id(self, draft_id: int) -> dict:
+        """按 {平台}-{变体维度} 重新生成货号（撞库自动去重），写入草稿。给「重新生成」按钮用。"""
+        from backend.store import _offer_id_base  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        base = _offer_id_base(draft.get("source_platform"), draft.get("source_raw"))
+        with self.store.lock:
+            new = self.store._unique_offer_id(base, exclude_id=draft_id)
+        updated = self.store.update_draft(draft_id, {"offer_id": new})
+        return {"ok": True, "offer_id": new, "draft": updated}
 
     def copy_draft_to_store(self, draft_id: int, target_client_id: str) -> dict:
         """把草稿复制到另一个店：克隆内容（标题/类目/属性/媒体/尺寸/描述/采购信息），
@@ -681,7 +711,37 @@ class App:
         normalized["brand_id"] = brand_id if brand_name == NO_BRAND and _to_int(brand_id) > 0 else None
         normalized["brand_name"] = NO_BRAND
         draft = self.store.update_draft(draft_id, normalized)
+        # 类别变更 → 同步到同组其它变体（合并成一张 Ozon 卡，类别必须一致）
+        if "category_id" in normalized or "type_id" in normalized:
+            self._sync_group_category(draft, draft.get("category_id"), draft.get("type_id"),
+                                      str(draft.get("category_path") or ""))
         return {"draft": draft}
+
+    def _sync_group_category(self, draft: dict, cat, typ, path: str = "") -> int:
+        """同组变体合并成一张 Ozon 多变体卡，一张卡只有一个类别 → 把类别同步到本组所有兄弟变体。
+        返回改动的兄弟数（已一致的跳过）。无 variant_group / 类别不全则不动。"""
+        from backend.drafts import loads_json  # noqa: PLC0415
+        cat_s, typ_s = str(cat or "").strip(), str(typ or "").strip()
+        if not cat_s or not typ_s:
+            return 0
+        sr = draft.get("source_raw")
+        if isinstance(sr, str):
+            sr = loads_json(sr, {})
+        group = str((sr or {}).get("variant_group") or "").strip()
+        if not group:
+            return 0
+        patch = {"category_id": cat_s, "type_id": typ_s}
+        if path:
+            patch["category_path"] = path
+        n = 0
+        for sib in self.store.list_drafts_by_variant_group(group):
+            if int(sib["id"]) == int(draft["id"]):
+                continue
+            if str(sib.get("category_id") or "") == cat_s and str(sib.get("type_id") or "") == typ_s:
+                continue
+            self.store.update_draft(int(sib["id"]), dict(patch))
+            n += 1
+        return n
 
     def batch_publish(self, ids: list, store_client_id: str | None = None) -> dict:
         """批量发布：逐个调 publish（各自校验/扣费/媒体托管），单个失败不影响其它。
@@ -727,7 +787,7 @@ class App:
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
         settings = self.store.get_settings()
-        from backend.settings_migrate import migrate_ai, ai_config  # noqa: PLC0415
+        from backend.settings_migrate import ai_config, migrate_ai  # noqa: PLC0415
         _tm = migrate_ai(settings)["translate_mode"]
         # ai translate_mode 需要 key；无 key 时降级 manual（避免抛 RuntimeError）
         if _tm == "ai" and not ai_config(settings, "text")["key"]:
@@ -976,8 +1036,12 @@ class App:
 
     def pull_ozon_products(self, visibility: str = "ALL") -> dict:
         from backend.ozon_client_adapter import (  # noqa: PLC0415
-            list_ozon_products, get_ozon_info, get_ozon_attributes, get_ozon_descriptions,
-            ozon_to_draft)
+            get_ozon_attributes,
+            get_ozon_descriptions,
+            get_ozon_info,
+            list_ozon_products,
+            ozon_to_draft,
+        )
         errors: list = []
         try:
             listing = list_ozon_products(self.store.get_settings(), visibility)
@@ -1231,8 +1295,8 @@ class App:
                                   tasks: list[tuple[int, list[str], bool]]) -> dict[int, list[dict]]:
         """并发解析多个字典属性的值。tasks = [(attr_id, texts, is_collection), ...]。
         返回 {attr_id: [{dictionary_value_id, value}, ...]}。本地命中不走网络，未命中并发实时搜。"""
-        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
         import contextvars  # noqa: PLC0415
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
         if not tasks:
             return {}
 
@@ -1254,6 +1318,7 @@ class App:
         ③ 都没传 → 用 kind 槽解析出的地址/Key。便于"选平台配模型"和"边配平台边试"两种。"""
         import json as _json  # noqa: PLC0415
         import urllib.request  # noqa: PLC0415
+
         from backend.settings_migrate import ai_config, ai_platforms  # noqa: PLC0415
         b = str(base or "").strip()
         key2 = str(key or "").strip()
@@ -1292,12 +1357,30 @@ class App:
     def recognize_category(self, draft_id: int) -> dict:
         """AI 识别 Ozon 类别(description_category_id + type_id)并写入草稿。
         **特征是按类别来的**，故这是「特征值识别(auto_map)」的前置步骤。
-        复用 navigate_category(只做类别下钻)，比「智能草案」轻——不生成文案/属性。"""
+        复用 navigate_category(只做类别下钻)，比「智能草案」轻——不生成文案/属性。
+        没看图理解(understanding)就先自动跑一遍——靠外观判类目的品类(纯文本太薄)会更准。"""
         from backend.ai_card import build_profile, navigate_category  # noqa: PLC0415
+        from backend.drafts import loads_json  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
-        raw = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
+        raw = draft.get("source_raw")
+        if isinstance(raw, str):
+            raw = loads_json(raw, {})
+        raw = dict(raw or {})
+        und_auto = False
+        if not (isinstance(raw.get("understanding"), dict) and raw.get("understanding")):
+            # 没看图理解就先做一次(无图/失败则静默跳过，仍按纯文本下钻)
+            try:
+                self.understand_draft(draft_id)
+                draft = self.store.get_draft(draft_id)
+                raw2 = draft.get("source_raw")
+                if isinstance(raw2, str):
+                    raw2 = loads_json(raw2, {})
+                raw = dict(raw2 or {})
+                und_auto = isinstance(raw.get("understanding"), dict) and bool(raw.get("understanding"))
+            except Exception:  # noqa: BLE001
+                pass
         settings = self.store.get_settings()
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
         nav = navigate_category(self._category_roots_zh(settings),
@@ -1311,10 +1394,13 @@ class App:
         patch = {"category_id": str(cat), "type_id": str(typ)}
         if path:
             patch["category_path"] = path
+        log.info(f"[recognize_category] draft={draft_id} cat={cat} type={typ} path={path}")
         updated = self.store.update_draft(draft_id, patch)
+        # 同组变体合并成一张 Ozon 卡 → 把识别到的类别同步到整组
+        synced = self._sync_group_category(updated, cat, typ, path)
         return {"ok": True, "matched": True, "category_id": cat, "type_id": typ,
                 "category_path": path, "category_fallback": nav.get("category_fallback"),
-                "draft": updated}
+                "understood": und_auto, "group_synced": synced, "draft": updated}
 
     def _physical_facts(self, draft: dict) -> dict:
         """提取确定的物理量(尽量多来源、跨品类)：净重(g)、包装尺寸(mm)、产品尺寸(mm)、容量(ml)。
@@ -1420,6 +1506,7 @@ class App:
         (名字/描述里写明 mm/cm/克/ml)从草稿+specs 确定填——单位永不出错、毛重不漏。
         已特殊处理的 9048/23171/85 不动；其余 AI 填的覆盖/补充。"""
         import json as _json  # noqa: PLC0415
+
         from backend.ai_card import _SYS_ATTRS_PICK, _SYS_TRANSLATE_RU, _extract_json, build_profile  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
@@ -1596,22 +1683,33 @@ class App:
         existing = [a for a in (draft.get("attributes") or []) if isinstance(a, dict)]
         merged = [a for a in existing if not (a.get("id") is not None and int(a.get("id")) in ai_ids)]
         merged += [a for a in new_attrs if int(a.get("id")) not in keep]
-        # 型号名称(9048,合并为一张卡用)：编辑器也自动填——变体组用 variant_group(组内一致→Ozon合并)，
-        # 否则随机 M-XXXX(每个单品独立卡)。已填(用户/采集)则不覆盖；类目无此属性则不塞。让 UI 立即可见、满足必填。
+        # 型号名称(9048,合并为一张卡用)：变体组**强制** = variant_group(整组一致→Ozon 合并)，覆盖任何旧值；
+        # 非变体则随机 M-XXXX(每个单品独立卡)、已填则不覆盖。类目无此属性则不塞。
+        import uuid  # noqa: PLC0415
+
         from backend.variant_publish import MODEL_NAME_ATTR_ID  # noqa: PLC0415  # 9048
         cat_has_model = any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID for a in all_attrs)
-        has_model = any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID
-                        and any(str(v.get("value") or "").strip() for v in (a.get("values") or []))
-                        for a in merged)
-        if cat_has_model and not has_model:
-            import uuid  # noqa: PLC0415
-            sr = draft.get("source_raw")
-            vg = str((sr or {}).get("variant_group") or "").strip() if isinstance(sr, dict) else ""
-            mv = vg or ("M-" + uuid.uuid4().hex[:8].upper())
-            merged = [a for a in merged if _to_int(a.get("id")) != MODEL_NAME_ATTR_ID]  # 去掉空的旧 9048
-            merged.append({"id": MODEL_NAME_ATTR_ID, "values": [{"value": mv}]})
-            mapped.append({"id": MODEL_NAME_ATTR_ID, "name": "型号名称", "value": mv})
-        updated = self.store.update_draft(draft_id, {"attributes": merged})
+        sr = draft.get("source_raw")
+        vg = str((sr or {}).get("variant_group") or "").strip() if isinstance(sr, dict) else ""
+        extra_patch: dict = {}
+        if cat_has_model:
+            mv = ""
+            if vg:
+                mv = vg   # 变体组：强制 = variant_group
+            else:
+                has_model = any(_to_int(a.get("id")) == MODEL_NAME_ATTR_ID
+                                and any(str(v.get("value") or "").strip() for v in (a.get("values") or []))
+                                for a in merged)
+                if not has_model:
+                    mv = "M-" + uuid.uuid4().hex[:8].upper()
+            if mv:
+                merged = [a for a in merged if _to_int(a.get("id")) != MODEL_NAME_ATTR_ID]  # 去重旧 9048
+                merged.append({"id": MODEL_NAME_ATTR_ID, "values": [{"value": mv}]})
+                mapped.append({"id": MODEL_NAME_ATTR_ID, "name": "型号名称", "value": mv})
+        # 货号：变体组里若该变体货号为空 → 随机 SP-，保证每个变体唯一货号(Ozon SKU 需唯一)
+        if vg and not str(draft.get("offer_id") or "").strip():
+            extra_patch["offer_id"] = "SP-" + uuid.uuid4().hex[:8].upper()
+        updated = self.store.update_draft(draft_id, {"attributes": merged, **extra_patch})
         return {"ok": True, "draft": updated, "mapped_count": len(mapped),
                 "mapped": mapped, "unmapped": unmapped}
 
@@ -1812,11 +1910,18 @@ class App:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
-        raw = draft.get("source_raw") or {}
-        if not raw:
-            raw = {"title": draft.get("source_title") or draft.get("ozon_title") or "",
-                   "params": draft.get("attributes") if isinstance(draft.get("attributes"), list) else [],
-                   "description_text": draft.get("description") or ""}
+        raw_sr = draft.get("source_raw") or {}
+        if isinstance(raw_sr, str):
+            from backend.drafts import loads_json  # noqa: PLC0415
+            raw_sr = loads_json(raw_sr, {})
+        raw = dict(raw_sr or {})
+        if not str(raw.get("title", "")).strip():
+            raw["title"] = draft.get("source_title") or draft.get("ozon_title") or ""
+        # 1688 采集 source_raw.attributes = [{name,value}] → params；缺则用草稿 Ozon 格式兜底
+        if not raw.get("params"):
+            raw["params"] = raw.get("attributes") or (draft.get("attributes") if isinstance(draft.get("attributes"), list) else [])
+        if not str(raw.get("description_text", "")).strip():
+            raw["description_text"] = draft.get("description") or ""
         settings = self.store.get_settings()
         r = generate_card(
             raw,
@@ -1884,21 +1989,43 @@ class App:
         """只生成文案(标题/简介/标签)——**1 次 LLM 调用**，不下钻类目、不映射属性，比 ai_generate 快得多。
         结果写 ai_proposal(预览)，用户确认后应用。类目/属性走自动匹配或 Ozon 复制，单独处理。"""
         from backend.ai_card import (  # noqa: PLC0415
-            NO_BRAND, _SYS_TITLE, _extract_json, build_profile, build_proposal_draft, clean_hashtags)
+            _SYS_TITLE,
+            NO_BRAND,
+            _extract_json,
+            build_profile,
+            build_proposal_draft,
+            clean_hashtags,
+        )
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
-        raw = draft.get("source_raw") or {}
-        if not raw:
-            raw = {"title": draft.get("source_title") or draft.get("ozon_title") or "",
-                   "params": draft.get("attributes") if isinstance(draft.get("attributes"), list) else [],
-                   "description_text": draft.get("description") or ""}
+        raw_sr = draft.get("source_raw") or {}
+        if isinstance(raw_sr, str):
+            from backend.drafts import loads_json  # noqa: PLC0415
+            raw_sr = loads_json(raw_sr, {})
+        raw = dict(raw_sr or {})
+        if not str(raw.get("title", "")).strip():
+            raw["title"] = draft.get("source_title") or draft.get("ozon_title") or ""
+        # 1688 采集 source_raw.attributes = [{name,value}] → params；缺则用草稿 Ozon 格式兜底
+        if not raw.get("params"):
+            raw["params"] = raw.get("attributes") or (draft.get("attributes") if isinstance(draft.get("attributes"), list) else [])
+        if not str(raw.get("description_text", "")).strip():
+            raw["description_text"] = draft.get("description") or ""
         understanding = raw.get("understanding") if isinstance(raw, dict) else None
         profile = build_profile(raw, understanding=understanding)
         chat = self._card_chat(self.store.get_settings(), draft)
+        raw = ""
         try:
-            body = _extract_json(chat(_SYS_TITLE, "Product:\n" + profile))
+            log.info(f"[ai_copy] draft={draft_id} requesting, profile={(profile[:500])}")
+            raw = chat(_SYS_TITLE, "Product:\n" + profile)
+            log.info(f"[ai_copy] draft={draft_id} response, raw={(str(raw)[:500])}")
+            if not str(raw).strip():
+                log.error(f"[ai_copy] draft={draft_id} LLM returned empty")
+                return {"ok": False, "error": "AI 文案输出为空（模型/网关异常）"}
+            body = _extract_json(raw)
+            log.info(f"[ai_copy] draft={draft_id} OK title={len(str(body.get('ozon_title','')))} desc={len(str(body.get('description','')))}")
         except Exception as exc:  # noqa: BLE001
+            log.exception(f"[ai_copy] draft={draft_id} LLM error, raw={str(raw)[:1000]}")
             return {"ok": False, "error": f"AI 文案输出解析失败: {exc}"}
         proposal: dict = {"ozon_title": str(body.get("ozon_title") or ""),
                           "description": str(body.get("description") or ""),
@@ -1911,9 +2038,12 @@ class App:
         report = {"category_path": "", "category_fallback": False, "brand_warning": None,
                   "unmapped": [], "mapped": mapped, "keywords": []}
         draft_json = build_proposal_draft(proposal, report, [], [], ts=utc_now_iso())
-        # 草案不含品牌/类型 → 这些 key 不进 fields，应用时 apply 跳过,沿用采集到的(品牌恒无品牌、类目有就有)
         for k in ("category_id", "type_id", "category_path", "brand_name", "brand_id"):
             (draft_json.get("fields") or {}).pop(k, None)
+        # 自动应用模式：直接写入草稿，跳过人工确认
+        if bool(self.store.get_settings().get("ai_auto_apply")):
+            updated = self.apply_ai_proposal(draft_id)
+            return {"ok": True, "mode": "applied", "draft": updated}
         self.store.set_ai_proposal(draft_id, draft_json)
         return {"ok": True, "mode": "draft", "proposal": draft_json, "report": report}
 
@@ -1921,8 +2051,7 @@ class App:
         """生成 ChatGPT 出图提示词(主图 + n_points 张卖点图)，不写库。
         同时返回原始图片 URL，供用户手动上传 ChatGPT 当参考图。
         AI 未配置 → deepseek_chat 抛 RuntimeError(路由转 400)。"""
-        from backend.ai_card import (  # noqa: PLC0415
-            build_image_prompt_input, parse_image_prompts, _SYS_IMG_PROMPTS)
+        from backend.ai_card import _SYS_IMG_PROMPTS, build_image_prompt_input, parse_image_prompts  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
@@ -1987,8 +2116,7 @@ class App:
         from backend.settings_migrate import ai_config  # noqa: PLC0415
         imgcfg = ai_config(settings, "image")
         if imgcfg["engine"] == "gptimage":
-            from backend.gen_image import (  # noqa: PLC0415
-                create_image, edit_image, images_from_response)
+            from backend.gen_image import create_image, edit_image, images_from_response  # noqa: PLC0415
             gcfg = self._gen_image_cfg(settings)
             tmp = None
             try:
@@ -2088,6 +2216,7 @@ class App:
         """Ozon 来源草稿：试官方复制(import-by-sku)。可复制→在目标店建复制卡并标记草稿；
         不可复制→返回 copyable=False（前端据此转「原创建卡」分支）。会在你店里真建一张卡。"""
         import re  # noqa: PLC0415
+
         from backend.listing_build import random_offer_id  # noqa: PLC0415
         from backend.ozon_client_adapter import copy_by_sku  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
@@ -2195,6 +2324,7 @@ class App:
         except (TypeError, ValueError):
             pass
         import re  # noqa: PLC0415
+
         from backend.drafts import loads_json  # noqa: PLC0415
         sr = draft.get("source_raw")
         if isinstance(sr, str):
@@ -2249,19 +2379,25 @@ class App:
         return {"ok": True, "recommendation": rec, "has_understanding": understanding is not None}
 
     def _add_candidate(self, draft_id: int, data: bytes, label: str, *, slot: str = "") -> str:
-        """把一张图字节存 /media(候选 key) 并追加到 source_raw.ai_image_candidates,返回本地 URL。
-        slot=图集计划槽位 id(可空)：用于把候选关联到计划槽,驱动槽位状态(待做/候选/已应用)。"""
+        """生成的图直接 INSERT draft_images 表行；记 image_types + slot_images 进 source_raw。
+        返回本地 URL。方法名沿用以减少调用点改动。"""
         if len(data) > 20 * 1024 * 1024:
-            raise RuntimeError("候选图过大(>20MB)")
-        local = _media.save_upload(f"draft-{draft_id}-cand", "cand.png", data)  # 文件落盘在锁外
-        with self._cand_lock:   # 读-改-写整段加锁：并发出图时多线程同时追加不丢候选
+            raise RuntimeError("生成图过大(>20MB)")
+        local = _media.save_upload(f"draft-{draft_id}-gen", "gen.png", data)
+        img_type = _img_type_from_label(label)
+        with self._cand_lock:
+            self.store.add_draft_image(draft_id, local, type=img_type, source="generated")
             draft = self.store.get_draft(draft_id)
             if draft is None:
                 raise KeyError(f"draft {draft_id} not found")
             sr = dict(draft.get("source_raw") or {})
-            cands = list(sr.get("ai_image_candidates") or [])
-            cands.append({"url": local, "angle": label, "slot": slot})
-            sr["ai_image_candidates"] = cands
+            types = dict(sr.get("image_types") or {})
+            types[local] = img_type
+            sr["image_types"] = types
+            if slot:
+                slot_imgs = dict(sr.get("slot_images") or {})
+                slot_imgs[str(slot)] = local
+                sr["slot_images"] = slot_imgs
             self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
         return local
 
@@ -2348,20 +2484,17 @@ class App:
         return draft, sr, plan
 
     def image_plan(self, draft_id: int, *, force: bool = False) -> dict:
-        """图集计划 + 每槽状态(todo 待做 / candidate 候选中 / applied 已应用)。
-        状态据"候选图的 slot 标记 + 是否已进 draft.images"推导。"""
+        """图集计划 + 每槽状态(todo 待做 / applied 已生成)。生成图直接进 images、不再有候选态；
+        据 slot_images(槽→已生成图url) 是否仍在 draft.images 判断该槽是否已出图。"""
         draft, sr, plan = self._load_image_plan(draft_id, force=force)
         images = {str(u) for u in (draft.get("images") or [])}
-        by_slot: dict = {}
-        for c in (sr.get("ai_image_candidates") or []):
-            if isinstance(c, dict) and c.get("slot"):
-                by_slot.setdefault(c["slot"], []).append(str(c.get("url") or ""))
+        slot_imgs = sr.get("slot_images") or {}
         out = []
         for s in plan:
-            urls = by_slot.get(s.get("slot_id"), [])
-            applied = any(u in images for u in urls)
-            out.append({**s, "status": "applied" if applied else ("candidate" if urls else "todo"),
-                        "candidate_url": (urls[-1] if urls else "")})
+            u = str(slot_imgs.get(str(s.get("slot_id"))) or "")
+            done = bool(u and u in images)   # 用户删了该图 → 回到 todo，可重出
+            out.append({**s, "status": "applied" if done else "todo",
+                        "candidate_url": u if done else ""})
         return {"ok": True, "plan": out}
 
     def design_image_plan(self, draft_id: int, *, target: int = 10) -> dict:
@@ -2369,6 +2502,7 @@ class App:
         符合 Ozon 的商品图方案(白底主图/细节俄化/场景/卖点·规格信息图)，产出与规则版同形状的槽位，
         覆盖写入 source_raw.image_plan(后续渲染/界面照旧用)。LLM 失败/空 → 回退规则版 build_image_plan。"""
         import json as _json  # noqa: PLC0415
+
         from backend.ai_card import _SYS_IMG_PLAN, _extract_json, build_profile  # noqa: PLC0415
         from backend.drafts import loads_json  # noqa: PLC0415
         from backend.image_plan import build_image_plan  # noqa: PLC0415
@@ -2436,8 +2570,13 @@ class App:
     def generate_plan_slot(self, draft_id: int, slot_id: str) -> dict:
         """生成图集计划某个槽位的图(按 action 选生成器,用槽的 source_idx 为源)→ 进候选区,标 slot。"""
         from backend.gen_image import (  # noqa: PLC0415
-            NON_PRODUCT_RULE, OZON_RU_RULE, LOCALIZE_PROMPT, SCENE_PROMPT, WHITE_MAIN_PROMPT,
-            build_infographic_prompt)
+            LOCALIZE_PROMPT,
+            NON_PRODUCT_RULE,
+            OZON_RU_RULE,
+            SCENE_PROMPT,
+            WHITE_MAIN_PROMPT,
+            build_infographic_prompt,
+        )
         _, _, plan = self._load_image_plan(draft_id)
         slot = next((s for s in plan if s.get("slot_id") == slot_id), None)
         if slot is None:
@@ -3156,6 +3295,7 @@ class App:
     def import_commission_categories_xlsx(self, data: bytes) -> dict:
         """整表覆盖佣金类目。先认 Ozon 官方 Tarifs，再认本工具模板；只取 RFBS(FBS)。"""
         import io as _io  # noqa: PLC0415
+
         import openpyxl  # noqa: PLC0415
         try:
             wb = openpyxl.load_workbook(_io.BytesIO(data), data_only=True, read_only=True)
@@ -3186,6 +3326,7 @@ class App:
     def export_commission_categories_xlsx(self) -> bytes:
         """当前佣金类目导出为模板 xlsx（中文表头 + 百分比，给用户改完再导入）。"""
         import io as _io  # noqa: PLC0415
+
         import openpyxl  # noqa: PLC0415
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -3252,7 +3393,8 @@ class App:
 
     def sync_warehouses(self, store_client_id: str | None = None) -> dict:
         from backend.ozon_client_adapter import (  # noqa: PLC0415
-            fetch_delivery_methods, fetch_warehouses,
+            fetch_delivery_methods,
+            fetch_warehouses,
         )
         settings = self._settings_for_store(store_client_id)
         scid = str(settings.get("ozon_client_id") or "")
@@ -3459,11 +3601,186 @@ class App:
         # 删除草稿只清理本地工作台记录，不级联下架/删除 Ozon 线上商品。
         # 线上商品的下架、归档、删除必须走单独的显式操作，避免误删已发布商品。
         self.store.delete_draft(draft_id)
+        # 不再回传全量 drafts（list_drafts 会把全部草稿全字段序列化，又慢又大；前端删除后自行 removeDraft/重拉分页）
         return {
             "deleted": True,
             "id": draft_id,
             "ozon_deleted": False,
             "ozon_response": None,
             "ozon_error": None,
-            "drafts": self.store.list_drafts(),
         }
+
+    # ---------- 出图任务（gen_jobs）----------
+
+    def submit_gen_job(self, draft_id: int, target: int) -> dict:
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        if self.store.has_active_gen_job(draft_id):
+            raise ValueError("该草稿已有进行中的出图任务，请等待完成")
+        job = self.store.create_gen_job(draft_id, target)
+        try:
+            from backend.mq import publish_gen_job  # noqa: PLC0415
+            publish_gen_job(job["id"], draft_id, target)
+        except Exception as exc:
+            self.store.update_gen_job(job["id"], {"status": "failed", "error": f"MQ 发送失败: {exc}"})
+            raise RuntimeError(f"消息队列不可用: {exc}")
+        return {"job_id": job["id"], "status": job["status"]}
+
+    def submit_gen_images_custom(self, draft_id: int, payload: dict) -> dict:
+        """用户自定义出图（AiImageDialog）：选 N 张源图 + 提示词 + 可选参考图 → 建 gen_job → MQ → worker。
+        每张源图一个槽，源图为空(文生图)则建 1 个空槽。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        source_urls = [str(u).strip() for u in (payload.get("source_urls") or []) if str(u).strip()]
+        if not source_urls:
+            source_urls = [""]   # text2img: 一个空槽
+        ref_url = str(payload.get("ref_url") or "").strip() or None
+        prompt = str(payload.get("prompt") or "").strip()
+        size = str(payload.get("size") or "1024x1536").strip()
+        as_main = bool(payload.get("as_main"))
+        target = len(source_urls)
+        job = self.store.create_gen_job(draft_id, target)
+        # 构造 image_plan（worker 读它来获取 prompt 和 source_url）
+        slots = []
+        for i, surl in enumerate(source_urls):
+            sid = f"custom_{i}"
+            slots.append({
+                "slot_id": sid, "label": f"自定义出图{i+1}",
+                "action": "custom", "source_idx": 0,
+                "prompt": prompt, "size": size, "as_main": (as_main and i == 0),
+                "source_url": surl or None, "ref_url": ref_url,
+            })
+        self.store.create_gen_job_images(job["id"], slots)
+        # 存 image_plan 到 source_raw 供 worker 读取
+        sr = dict(draft.get("source_raw") or {})
+        sr["image_plan"] = [(sr.get("image_plan") or []) + slots][0]
+        self.store.update_draft(draft_id, {"source_raw": sr})
+        try:
+            from backend.mq import publish_gen_job  # noqa: PLC0415
+            publish_gen_job(job["id"], draft_id, target, mode="custom")
+        except Exception as exc:
+            self.store.update_gen_job(job["id"], {"status": "failed", "error": f"MQ 发送失败: {exc}"})
+            raise RuntimeError(f"消息队列不可用: {exc}")
+        return {"job_id": job["id"], "status": job["status"]}
+
+    def submit_batch_gen_job(self, draft_id: int, source_indices: list[int], action: str) -> dict:
+        """批量出图（白底/俄化/场景/细节/重做）：每个 source_index 一个槽，走 worker 异步。"""
+        from backend.gen_image import (  # noqa: PLC0415
+            LOCALIZE_PROMPT,
+            SCENE_PROMPT,
+            WHITE_MAIN_PROMPT,
+            build_infographic_prompt,
+        )
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        if self.store.has_active_gen_job(draft_id):
+            raise ValueError("该草稿已有进行中的出图任务")
+        indices = [int(i) for i in source_indices if isinstance(i, int)]
+        if not indices:
+            raise ValueError("未选择图片")
+        label_map = {"white": "白底图", "localize": "俄化", "scene": "场景图",
+                     "detail": "细节图", "redo": "重做"}
+        label = label_map.get(action, action)
+        job = self.store.create_gen_job(draft_id, len(indices))
+        slots = []
+        for si in indices:
+            p = ""
+            if action == "white":
+                p = WHITE_MAIN_PROMPT
+            elif action == "localize":
+                p = LOCALIZE_PROMPT
+            elif action == "scene":
+                p = SCENE_PROMPT
+            elif action in ("detail", "redo"):
+                p = build_infographic_prompt(role="细节" if action == "detail" else "")
+            sid = f"batch_{action}_{si}"
+            slots.append({"slot_id": sid, "label": f"{label}#{si}", "action": "batch",
+                         "source_idx": si, "prompt": p})
+        self.store.create_gen_job_images(job["id"], slots)
+        sr = dict(draft.get("source_raw") or {})
+        sr["image_plan"] = (sr.get("image_plan") or []) + slots
+        self.store.update_draft(draft_id, {"source_raw": sr})
+        try:
+            from backend.mq import publish_gen_job  # noqa: PLC0415
+            publish_gen_job(job["id"], draft_id, len(indices), mode="batch")
+        except Exception as exc:
+            self.store.update_gen_job(job["id"], {"status": "failed", "error": f"MQ 发送失败: {exc}"})
+            raise RuntimeError(f"消息队列不可用: {exc}")
+        return {"job_id": job["id"], "status": job["status"]}
+
+    def get_gen_job_status(self, job_id: int) -> dict:
+        job = self.store.get_gen_job(job_id)
+        if job is None:
+            raise KeyError(f"job {job_id} not found")
+        images = self.store.get_gen_job_images(job_id)
+        return {"job_id": job["id"], "status": job["status"],
+                "target": job["target"], "total": job["total"],
+                "succeeded": job["succeeded"], "failed": job["failed"],
+                "error": job.get("error"), "created_at": job["created_at"],
+                "updated_at": job["updated_at"],
+                "images": [{"slot_id": i["slot_id"], "label": i["label"],
+                            "status": i["status"], "url": i.get("url"),
+                            "error": i.get("error")} for i in images]}
+
+    def get_latest_gen_job(self, draft_id: int) -> dict:
+        job = self.store.get_latest_gen_job(draft_id)
+        if job is None:
+            raise KeyError(f"draft {draft_id} 没有出图任务")
+        return self.get_gen_job_status(job["id"])
+
+    def batch_latest_gen_jobs(self, draft_ids: list[int]) -> dict:
+        """批量查多个草稿的全部出图任务（卡片列表展示用）。返回 {draft_id: [jobs]}。"""
+        out = {}
+        for did in draft_ids:
+            try:
+                jobs = self.store.list_gen_jobs(did)
+            except Exception:
+                continue
+            if jobs:
+                summaries = []
+                for j in jobs:
+                    imgs = self.store.get_gen_job_images(j["id"])
+                    done = sum(1 for i in imgs if i["status"] == "done")
+                    fail = sum(1 for i in imgs if i["status"] == "failed")
+                    run = sum(1 for i in imgs if i["status"] == "running")
+                    summaries.append({
+                        "job_id": j["id"], "status": j["status"],
+                        "target": j["target"],
+                        "total": j["total"] or len(imgs),
+                        "succeeded": done, "failed": fail, "running": run,
+                        "created_at": j.get("created_at"),
+                        "updated_at": j.get("updated_at"),
+                    })
+                out[str(did)] = summaries
+        return {"jobs": out}
+
+    def copy_images_to_draft(self, draft_id: int, image_urls: list[str],
+                             target_draft_id: int) -> dict:
+        """把当前草稿的图复制到目标草稿（同一变体组内）。"""
+        if not image_urls:
+            raise ValueError("未选择图片")
+        if not target_draft_id:
+            raise ValueError("未指定目标变体")
+        src = self.store.get_draft(draft_id)
+        if src is None:
+            raise KeyError(f"draft {draft_id} not found")
+        tgt = self.store.get_draft(target_draft_id)
+        if tgt is None:
+            raise KeyError(f"draft {target_draft_id} not found")
+        # 只允许同组内复制（验证 variant_group 一致）
+        vg_src = str((src.get("source_raw") or {}).get("variant_group") or "")
+        vg_tgt = str((tgt.get("source_raw") or {}).get("variant_group") or "")
+        if vg_src and vg_src != vg_tgt:
+            raise ValueError("只能在同一变体组内复制图片")
+        # 合并图片：去重后追加到目标末尾
+        existing = list(tgt.get("images") or [])
+        for u in image_urls:
+            u = str(u).strip()
+            if u and u not in existing:
+                existing.append(u)
+        updated = self.store.update_draft(target_draft_id, {"images": existing})
+        return {"ok": True, "added": len(existing) - len(tgt.get("images") or []),
+                "draft": updated}

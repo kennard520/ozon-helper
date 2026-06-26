@@ -6,35 +6,35 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app_service import FRONTEND_DIST, App
-from backend.store import current_user_id
+from backend.media import media_file
 from backend.models import (
-    AuthIn,
+    AdminCreateUserIn,
+    AdminUpdateUserIn,
     AiImageBatchIn,
     AiImageIn,
     AiProposalPatchIn,
     AiVideoIn,
+    AuthIn,
     BatchCollectIn,
-    ExtCollectIn,
-    ExtCollectParsedIn,
-    ExtSnapshotIn,
-    ImageCandidatesApplyIn,
-    ImagePromptsIn,
     BatchUpdateDraftsIn,
     CollectIn,
     CollectKeywordIn,
     CommissionMapIn,
     DefaultWarehouseIn,
+    ExtCollectIn,
+    ExtCollectParsedIn,
+    ExtSnapshotIn,
     FbsPullIn,
+    ImageCandidatesApplyIn,
+    ImagePromptsIn,
     OzonPullIn,
     ProcStateIn,
     PublishGroupIn,
     PublishIn,
     SettingsIn,
     ShipIn,
-    AdminCreateUserIn,
-    AdminUpdateUserIn,
 )
-from backend.media import media_file
+from backend.store import current_user_id
 
 app = FastAPI(title="Ozon 运营助理")
 # 只放行浏览器插件来源（chrome-extension://...），不放行任何网站 → 恶意网页连不上本机后端。
@@ -170,6 +170,26 @@ def get_drafts(status: str = "all", page: int = 1, page_size: int = 20,
                store_client_id: str | None = None) -> dict:
     # 草稿绑定店：前端传当前店 → 只列该店草稿；不传(None)=不按店过滤（兼容）
     return APP.list_drafts(status=status, page=page, page_size=page_size, store_client_id=store_client_id)
+
+
+@app.post("/api/drafts/{draft_id}/regen-offer-id")
+def regen_offer_id(draft_id: int) -> dict:
+    """按 {平台}-{变体维度} 重新生成货号。"""
+    try:
+        return APP.regenerate_offer_id(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/drafts/{draft_id}")
+def get_draft(draft_id: int) -> dict:
+    """单草稿明细（点变体组里不在当前页的兄弟变体时按 id 拉取）。段数与 /drafts/{id}/... 子路由不同，不冲突。"""
+    try:
+        return APP.get_draft(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.get("/api/category/search")
@@ -844,6 +864,79 @@ def ext_update_draft_media(body: dict) -> dict:
 @app.get("/api/ext/pending-media-drafts")
 def ext_pending_media_drafts() -> dict:
     return APP.pending_media_drafts()
+
+
+# ---------- 出图任务 ----------
+@app.post("/api/drafts/{draft_id}/gen-images-batch")
+def submit_gen_images_batch(draft_id: int, body: dict) -> dict:
+    try:
+        return APP.submit_batch_gen_job(
+            draft_id, (body or {}).get("source_indices") or [],
+            str((body or {}).get("action") or ""))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/copy-images-to")
+def copy_images_to_target(draft_id: int, body: dict) -> dict:
+    try:
+        return APP.copy_images_to_draft(
+            draft_id,
+            (body or {}).get("image_urls") or [],
+            int((body or {}).get("target_draft_id") or 0))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/gen-jobs/batch-latest")
+def batch_latest_gen_jobs(body: dict) -> dict:
+    return APP.batch_latest_gen_jobs((body or {}).get("draft_ids") or [])
+
+
+@app.post("/api/drafts/{draft_id}/gen-images-custom")
+def submit_gen_images_custom(draft_id: int, body: dict) -> dict:
+    try:
+        return APP.submit_gen_images_custom(draft_id, body)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/api/drafts/{draft_id}/gen-images")
+def submit_gen_images(draft_id: int, body: dict) -> dict:
+    try:
+        return APP.submit_gen_job(draft_id, int((body or {}).get("target") or 10))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/gen-jobs/{job_id}")
+def gen_job_status(job_id: int) -> dict:
+    try:
+        return APP.get_gen_job_status(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/drafts/{draft_id}/gen-job/latest")
+def latest_gen_job(draft_id: int) -> dict:
+    try:
+        return APP.get_latest_gen_job(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 # catch-all 静态挂载：托管 Vue 构建产物 frontend/dist。

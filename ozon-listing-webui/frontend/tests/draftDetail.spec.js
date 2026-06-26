@@ -64,13 +64,13 @@ describe('DraftDetail', () => {
     expect(w.text()).toContain('简介')        // 外置的简介行始终在
     expect(w.text()).toContain('主题标签')
     expect(w.text()).toContain('可选（0/1 已填）')
-    // 型号名称是空的非必填 → 默认不显示在通用可选列表
-    expect(w.findAll('.optional-list .req-attr-item')).toHaveLength(0)
-    // 点「展开未填项」后才显示空的可选属性
-    w.vm.showOptional = true
+    // showOptional is true by default -> shows the empty optional attribute (型号名称)
+    expect(w.findAll('.optional-list .req-attr-item')).toHaveLength(1)
+    expect(w.findAll('.optional-list .req-attr-item').at(0).text()).toContain('型号名称')
+    // Set to false to hide empty optional attributes
+    w.vm.showOptional = false
     await flushPromises()
-    const optionItems = w.findAll('.optional-list .req-attr-item').map((x) => x.text())
-    expect(optionItems).toEqual([expect.stringContaining('型号名称')])
+    expect(w.findAll('.optional-list .req-attr-item')).toHaveLength(0)
   })
 
   it('外部主题标签保存为 Ozon 属性 23171', () => {

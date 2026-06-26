@@ -63,6 +63,36 @@ class TestPagination(unittest.TestCase):
             self.assertEqual(c["published"], 1)
             store.close()
 
+    def test_grouped_by_variant_group(self) -> None:
+        # 同 variant_group 的草稿在 group=True 下归并为一行（代表=最新成员），计数同口径
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "p.db")
+            ids = {}
+            for t, vg in [("A1", "A"), ("A2", "A"), ("A3", "A"), ("B1", "B"), ("B2", "B"),
+                          ("s1", None), ("s2", None)]:
+                over = {"source_url": "u" + t, "source_offer_id": t, "source_title": t}
+                if vg:
+                    over["source_raw"] = {"variant_group": vg}
+                ids[t] = store.insert_draft(_draft(**over))["id"]
+            reps, total = store.list_drafts_page(group=True)
+            self.assertEqual(total, 4)                       # A组 + B组 + s1 + s2
+            by_title = {d["source_title"]: d for d in reps}
+            self.assertEqual(by_title["A3"]["group_count"], 3)   # 代表=最新(A3)，组内3条
+            self.assertEqual(by_title["B2"]["group_count"], 2)
+            self.assertEqual(by_title["s1"]["group_count"], 1)
+            self.assertNotIn("A1", by_title)                 # 非代表不出现
+            # 扁平模式仍是 7 条
+            self.assertEqual(store.list_drafts_page(group=False)[1], 7)
+            # 状态计数按组（组状态=代表状态），与分组列表一致
+            store.update_draft(ids["A3"], {"status": "published"})
+            c = store.count_by_status(group=True)
+            self.assertEqual(c["all"], 4)
+            self.assertEqual(c["published"], 1)
+            pub, ptot = store.list_drafts_page(group=True, status="published")
+            self.assertEqual(ptot, 1)
+            self.assertEqual(pub[0]["source_title"], "A3")
+            store.close()
+
     def test_page_size_capped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "p.db")

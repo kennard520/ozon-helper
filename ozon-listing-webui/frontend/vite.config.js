@@ -7,8 +7,8 @@ export default defineConfig({
   build: { outDir: 'dist', emptyOutDir: true },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8787',
-      '/media': 'http://127.0.0.1:8787',
+      '/api': 'http://8.152.196.119:8585',
+      '/media': 'http://8.152.196.119:8585',
     },
   },
 })

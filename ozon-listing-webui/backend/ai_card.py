@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 from typing import Any, Callable
 
@@ -15,9 +16,12 @@ _SYS_TITLE = ("You write the Ozon listing copy in Russian. Based on the product 
               "capacity/size, core features, materials, what's included), then present them as **persuasive, "
               "benefit-oriented marketing** around the product's selling points, the buyer's needs and use scenarios. "
               "Fluent and engaging, not a dry bullet list, but factually complete. Base everything on the provided "
-              "product info / selling points; do NOT fabricate. Keep it STRICTLY about the product — NO brand / "
-              "manufacturer / shop names, NO guarantees / warranties / free-trial / money-back, NO shipping or service "
-              "promises, NO OEM / factory / dropshipping claims, NO price / contact / promotions. "
+              "product info / selling points; do NOT fabricate. Keep it STRICTLY about the product itself (appearance, "
+              "category, features, specs, materials, dimensions, usage) — NO brand / manufacturer / shop names, "
+              "NO guarantees / warranties / free-trial / money-back, NO free gifts / giveaways ('赠品'/'赠送'/'买X送Y'), "
+              "NO invoices ('发票'), NO customization / made-to-order ('定制'), NO shipping or service promises, "
+              "NO OEM / factory / dropshipping claims, NO price / contact / promotions. "
+              "IGNORE any such seller/transaction phrases even if they appear in the source product info. "
               "3) hashtags: up to 30 Russian search hashtags. Each MUST start with '#'; a multi-word tag joins words with "
               "'_' (no spaces inside a tag). NO brand, NO parameters, NO product name — only trend/style/theme. "
               "Output only JSON, no explanation.")
@@ -63,6 +67,10 @@ _SYS_TRANSLATE_RU = (
 # 图集设计：全模态/文本 LLM 当"美术总监"，据看图理解+源图清单设计一整套 Ozon 商品图(目标张数在 user 里给)
 _SYS_IMG_PLAN = (
     "You are an e-commerce art director planning the image set for an Ozon (Russia) product card. "
+    "DESIGN FOR THE RUSSIAN OZON SHOPPER: they respond to information-dense, benefit-driven cards — bold legible "
+    "Russian headlines, big numbers, key specs and simple icons; clear trust/quality cues (warranty, material, "
+    "what's in the box / комплектация); bright, clean, high-contrast and practical visuals; realistic everyday "
+    "Russian-home context for lifestyle shots; avoid gaudy colors, fake luxury and clutter. "
     "You are given the product understanding (type, selling points, use scenes, specs, materials, what's included) "
     "and an inventory of available source photos (each with an index and a role tag). Design the number of images "
     "requested (Target image count in the user message) that together make a strong, Ozon-compliant card. "
@@ -83,6 +91,10 @@ _SYS_IMG_PLAN = (
     "material, proportions, details). For any text that should appear ON the image (infographic heading/bullets, a "
     "translated label, etc.), spell it out IN FLUENT RUSSIAN inside the prompt — this is the Ozon marketplace in Russia, "
     "so the image must contain ZERO Chinese characters (translate or remove any Chinese on the product/packaging). "
+    "STRICT — headings/bullets/prompts must describe ONLY the product (features, specs, materials, dimensions, usage). "
+    "NEVER put free gifts / giveaways ('赠品'/'赠送'/buy-X-get-Y), invoices ('发票'), customization ('定制'), shipping, "
+    "warranty, brand/shop names, price or any seller/transaction terms on the images — IGNORE such phrases even if they "
+    "appear in the product info or selling points. "
     "Compose a balanced set: 1 white main, 1-2 detail(localize), 1-2 scene, the rest infographic cards covering the key "
     "selling points + a size/容量/重量 spec card. All on-image text MUST be fluent Russian. source_idx MUST be a valid index "
     "from the given inventory. label is a short Chinese tag for the UI. Output only JSON, no explanation.")
@@ -122,10 +134,16 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
     品类/材质/规格/卖点/场景/包装喂给文案,让简介基于图上卖点写(解决纯文本太薄)。"""
     raw = raw or {}
     parts = [f"Title: {raw.get('title') or ''}"]
-    for p in (raw.get("params") or []):
-        k = p.get("k") or p.get("name") or ""
+    # 兼容两种格式：1688 {name, value} 和 Ozon {id, values: [{dictionary_value_id, value}]}
+    for p in (raw.get("params") or raw.get("attributes") or []):
+        k = p.get("k") or p.get("name") or str(p.get("id") or "")
         v = p.get("v") or p.get("value") or ""
-        if k:
+        # Ozon 格式：从 values 数组提取
+        if not v and isinstance(p.get("values"), list):
+            vals = [x.get("value", "") for x in p["values"] if x.get("value")]
+            if vals:
+                v = ", ".join(vals)
+        if k and v:
             parts.append(f"{k}: {v}")
     desc = str(raw.get("description_text") or "")
     parts.append("Description: " + desc)
@@ -399,7 +417,8 @@ def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | No
     if not base or not key:
         raise RuntimeError("未配置 AI 引擎（设置里选 remote 并填 base/key/model）")
     import json as _json  # noqa: PLC0415
-    from urllib.error import HTTPError  # noqa: PLC0415
+    import time as _time  # noqa: PLC0415
+    from urllib.error import HTTPError, URLError  # noqa: PLC0415
     from urllib.request import Request, urlopen  # noqa: PLC0415
     if images:
         content: object = [{"type": "text", "text": user}] + [
@@ -412,12 +431,28 @@ def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | No
     req = Request(base.rstrip("/") + "/chat/completions", data=body,
                   headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                   method="POST")
-    try:
-        with urlopen(req, timeout=180) as res:  # noqa: S310  DeepSeek 长 prompt 可能慢
-            data = _json.loads(res.read().decode("utf-8"))
-    except HTTPError as exc:
-        raise RuntimeError(f"AI 接口报错 HTTP {exc.code}: {exc.read().decode('utf-8','replace')[:200]}")
-    return (data["choices"][0]["message"]["content"] or "").strip()
+    # 网关偶发 429/5xx 或超时 → 退避重试(0.8s,2s,4s)；非可重试错或重试用尽才抛
+    _RETRYABLE = {429, 500, 502, 503, 504}
+    last_exc = None
+    for attempt in range(4):
+        try:
+            with urlopen(req, timeout=180) as res:  # noqa: S310  长 prompt/视觉可能慢
+                data = _json.loads(res.read().decode("utf-8"))
+            return (data["choices"][0]["message"]["content"] or "").strip()
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:200]
+            if exc.code in _RETRYABLE and attempt < 3:
+                last_exc = RuntimeError(f"AI 接口报错 HTTP {exc.code}: {detail}")
+                _time.sleep([0.8, 2, 4][attempt])
+                continue
+            raise RuntimeError(f"AI 接口报错 HTTP {exc.code}: {detail}")
+        except (URLError, TimeoutError, OSError) as exc:  # 连接/超时类同样退避重试
+            if attempt < 3:
+                last_exc = exc
+                _time.sleep([0.8, 2, 4][attempt])
+                continue
+            raise RuntimeError(f"AI 接口连接失败：{exc}")
+    raise last_exc or RuntimeError("AI 接口重试用尽")
 
 
 _SYS_NAV = ("You navigate the Ozon category tree to classify a product. Given a numbered list of "

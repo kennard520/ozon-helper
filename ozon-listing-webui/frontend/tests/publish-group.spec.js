@@ -55,7 +55,7 @@ describe('DraftDetail 整组发布按钮', () => {
       global: { plugins: [ElementPlus] },
       props: { draft: { ...baseDraft, source_raw: null } },
     })
-    expect(w.text()).not.toContain('整组发布')
+    expect(w.text()).not.toContain('发布整组')
   })
 
   it('隐藏：source_raw.variant_group 为空字符串时不渲染整组发布按钮', () => {
@@ -63,7 +63,7 @@ describe('DraftDetail 整组发布按钮', () => {
       global: { plugins: [ElementPlus] },
       props: { draft: { ...baseDraft, source_raw: { variant_group: '' } } },
     })
-    expect(w.text()).not.toContain('整组发布')
+    expect(w.text()).not.toContain('发布整组')
   })
 
   it('显示：source_raw.variant_group 有值时渲染整组发布按钮', () => {
@@ -71,7 +71,7 @@ describe('DraftDetail 整组发布按钮', () => {
       global: { plugins: [ElementPlus] },
       props: { draft: { ...baseDraft, source_raw: { variant_group: '12345678' } } },
     })
-    expect(w.text()).toContain('整组发布')
+    expect(w.text()).toContain('发布整组')
   })
 
   it('variantGroup computed 返回正确字符串', () => {

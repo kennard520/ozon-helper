@@ -1,5 +1,6 @@
-import os
 import base64
+import os
+
 from openai import OpenAI
 
 # 1. 配置客户端

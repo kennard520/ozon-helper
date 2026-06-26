@@ -6,7 +6,11 @@
 限速：每账号每分钟 1 次。
 """
 from __future__ import annotations
-import sys, json, sqlite3, datetime as dt
+
+import datetime as dt
+import json
+import sqlite3
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -14,7 +18,7 @@ TOOLS = HERE.parents[2]                       # backend → webui → tools
 WEBUI = HERE.parents[1]                        # ozon-listing-webui（让 `from backend import db` 可用）
 sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(WEBUI))
-from ozon_api.client import OzonSellerClient, OzonApiError  # noqa: E402
+from ozon_api.client import OzonApiError, OzonSellerClient  # noqa: E402
 
 DB = HERE.parents[1] / "data" / "products.db"
 
