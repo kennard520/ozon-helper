@@ -1,18 +1,20 @@
-# 仓库级工具配置（Python 后端：ozon-listing-webui/backend 与 ozon-image-worker）
-# 当前只用于规范 import 顺序，不改动其它代码风格。
-#
-# 用法：
-#   python -m pip install ruff
-#   python -m ruff check --select I --fix ozon-listing-webui/backend ozon-image-worker
-#   python -m ruff check --select I ozon-listing-webui/backend ozon-image-worker   # 仅检查不改
+[tool.uv.workspace]
+members = ["packages/*", "apps/*"]
+
+[tool.uv]
+# 国内加速:阿里云 PyPI 镜像(本地与 Docker 共用)
+index-url = "https://mirrors.aliyun.com/pypi/simple/"
+
+[tool.uv.sources]
+ozon-common = { workspace = true }
+ozon-api = { workspace = true }
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]
-# 只启用 isort（import 排序）规则，避免大面积改动既有代码
 select = ["I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["backend"]
+known-first-party = ["ozon_common", "ozon_api", "webui", "image_worker"]
