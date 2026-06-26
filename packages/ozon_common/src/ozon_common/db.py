@@ -477,3 +477,8 @@ def load_raw_settings() -> dict[str, str]:
         return {r["key"]: r["value"] for r in rows}
     finally:
         conn.close()
+
+
+def make_conn() -> "MySQLConn":
+    """worker 用的 MySQL 连接工厂别名(= make_mysql_conn)。"""
+    return make_mysql_conn()

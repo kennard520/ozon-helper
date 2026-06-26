@@ -116,7 +116,15 @@ class OssClient:
         if not u or self._on_oss(u):
             return u
         if u.startswith("/media/") or not u.startswith("http"):
-            from backend.media import read_media_bytes  # noqa: PLC0415
+            try:
+                import importlib
+                _media_mod = importlib.import_module("backend.media")
+                read_media_bytes = _media_mod.read_media_bytes
+            except ImportError as exc:
+                raise RuntimeError(
+                    "upload_remote: 本地 /media/ 路径需要 backend.media.read_media_bytes，"
+                    "请在 webui 应用上下文中调用，或改用 upload_bytes 直接传字节。"
+                ) from exc
             media_url = u if u.startswith("/media/") else ("/media/" + u.lstrip("/"))
             data = read_media_bytes(media_url)   # read_media_bytes 需要带 /media/ 前缀(它内部再剥)
             if data is None:

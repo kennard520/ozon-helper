@@ -45,8 +45,8 @@ def publish_gen_job(job_id: int, draft_id: int, target: int, mode: str = "plan")
         conn.close()
 
 
-def consume_gen_jobs(callback: Callable[[int, int, int], None]) -> None:
-    """阻塞消费：每条消息调 callback(job_id, draft_id, target)；成功返回才 ack。"""
+def consume_gen_jobs(callback: Callable[[int, int, int, str], None]) -> None:
+    """阻塞消费：每条消息调 callback(job_id, draft_id, target, mode)；成功返回才 ack。"""
     conn = _connect()
     try:
         ch = conn.channel()
@@ -55,8 +55,9 @@ def consume_gen_jobs(callback: Callable[[int, int, int], None]) -> None:
 
         def _handle(ch, method, _properties, body):
             msg = json.loads(body.decode("utf-8"))
+            mode = str(msg.get("mode") or "plan")
             try:
-                callback(int(msg["job_id"]), int(msg["draft_id"]), int(msg["target"]))
+                callback(int(msg["job_id"]), int(msg["draft_id"]), int(msg["target"]), mode)
             except Exception:
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
             else:
