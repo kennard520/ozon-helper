@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
-from ozon_common.db import session as S
-from ozon_common.db.engine import build_engine
+from ozon_common.dal import session as S
+from ozon_common.dal.engine import build_engine
 
 
 def _setup(tmp):

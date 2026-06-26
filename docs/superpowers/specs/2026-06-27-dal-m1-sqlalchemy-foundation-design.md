@@ -33,7 +33,7 @@
 ## 2. 组件与分层
 
 ```
-packages/ozon_common/src/ozon_common/db/
+packages/ozon_common/src/ozon_common/dal/
 ├── engine.py        # build_engine():QueuePool;SQLite 走 WAL,MySQL 走 pool_pre_ping/recycle
 ├── session.py       # session_scope() 上下文管理器 + ContextVar(_current_session)+ current_session()
 ├── schema.py        # 全部 ~20 表 Core MetaData/Table(schema 唯一权威)
@@ -44,7 +44,7 @@ packages/ozon_common/src/ozon_common/db/
     └── gen_job_repo.py      # gen_jobs / gen_job_images
 migrations/                  # 仓库根
 ├── alembic.ini
-├── env.py                   # target_metadata = ozon_common.db.schema.metadata;双后端 URL 由 env 决定
+├── env.py                   # target_metadata = ozon_common.dal.schema.metadata;双后端 URL 由 env 决定
 └── versions/0001_baseline.py
 ```
 

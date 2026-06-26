@@ -4,7 +4,7 @@
 
 **Goal:** 立起 SQLAlchemy engine(连接池)+ Alembic + 请求级 scoped-session 基座,把 settings / draft_images / gen_jobs 三组共享聚合迁到 Core 仓储,webui 与 worker 共用、退役 worker `DataStore`,全程 512 测试不下降。
 
-**Architecture:** 绞杀者路径第一步。新基座加在 `packages/ozon_common/src/ozon_common/db/`;schema 用全表 Core metadata 接管(`Store.__init__` 改触发 `metadata.create_all`,老裸 SQL DDL 退役,回填剥离为 run-once);三仓储基于 Core、返回 dict 形状不变;webui 经 ASGI 中间件提供请求级 session,worker 用 `with session_scope()`。其余 ~17 表 M2 再迁。
+**Architecture:** 绞杀者路径第一步。新基座加在 `packages/ozon_common/src/ozon_common/dal/`;schema 用全表 Core metadata 接管(`Store.__init__` 改触发 `metadata.create_all`,老裸 SQL DDL 退役,回填剥离为 run-once);三仓储基于 Core、返回 dict 形状不变;webui 经 ASGI 中间件提供请求级 session,worker 用 `with session_scope()`。其余 ~17 表 M2 再迁。
 
 **Tech Stack:** SQLAlchemy 2.x Core、Alembic、FastAPI 中间件、pytest、uv workspace。
 
@@ -25,14 +25,14 @@
 | 路径 | 职责 |
 |---|---|
 | `packages/ozon_common/pyproject.toml` | 加 `sqlalchemy>=2.0`、`alembic>=1.13` 依赖 |
-| `packages/ozon_common/src/ozon_common/db/__init__.py` | 子包导出 |
-| `…/db/engine.py` | `build_engine(url)`:SQLite(WAL)/MySQL(pool);`engine_for(path_or_none)` 按现有 env 判定 |
-| `…/db/session.py` | `_current_session` ContextVar、`session_scope()`、`current_session()`、`bind_engine()` |
-| `…/db/schema.py` | 全部 ~20 表 Core `MetaData`/`Table`(schema 权威);`metadata` 导出 |
-| `…/db/repositories/base.py` | `BaseRepo`(取 `current_session()`、`_row_to_dict`) |
-| `…/db/repositories/settings_repo.py` | `SettingsRepo` |
-| `…/db/repositories/draft_image_repo.py` | `DraftImageRepo` |
-| `…/db/repositories/gen_job_repo.py` | `GenJobRepo` |
+| `packages/ozon_common/src/ozon_common/dal/__init__.py` | 子包导出 |
+| `…/dal/engine.py` | `build_engine(url)`:SQLite(WAL)/MySQL(pool);`engine_for(path_or_none)` 按现有 env 判定 |
+| `…/dal/session.py` | `_current_session` ContextVar、`session_scope()`、`current_session()`、`bind_engine()` |
+| `…/dal/schema.py` | 全部 ~20 表 Core `MetaData`/`Table`(schema 权威);`metadata` 导出 |
+| `…/dal/repositories/base.py` | `BaseRepo`(取 `current_session()`、`_row_to_dict`) |
+| `…/dal/repositories/settings_repo.py` | `SettingsRepo` |
+| `…/dal/repositories/draft_image_repo.py` | `DraftImageRepo` |
+| `…/dal/repositories/gen_job_repo.py` | `GenJobRepo` |
 | `migrations/alembic.ini`、`migrations/env.py`、`migrations/versions/0001_baseline.py` | Alembic |
 | `apps/webui/src/webui/store.py` | `__init__` 改触发 `metadata.create_all`;回填剥离;三组方法转调仓储 |
 | `apps/webui/src/webui/db_backfills.py`(新) | 从 store 剥离的 `_backfill_*` run-once |
@@ -46,7 +46,7 @@
 
 **Files:**
 - Modify: `packages/ozon_common/pyproject.toml`
-- Create: `packages/ozon_common/src/ozon_common/db/__init__.py`、`db/engine.py`、`db/session.py`
+- Create: `packages/ozon_common/src/ozon_common/dal/__init__.py`、`db/engine.py`、`db/session.py`
 - Create: `packages/ozon_common/tests/test_session.py`
 
 - [ ] **Step 1: 加依赖**
@@ -60,7 +60,7 @@
 
 - [ ] **Step 2: 写 engine.py**
 
-Create `packages/ozon_common/src/ozon_common/db/engine.py`:
+Create `packages/ozon_common/src/ozon_common/dal/engine.py`:
 ```python
 """SQLAlchemy engine 工厂:SQLite(WAL)与 MySQL(连接池)。"""
 
@@ -122,7 +122,7 @@ def engine_for(sqlite_path: str | None) -> Engine:
 
 - [ ] **Step 3: 写 session.py**
 
-Create `packages/ozon_common/src/ozon_common/db/session.py`:
+Create `packages/ozon_common/src/ozon_common/dal/session.py`:
 ```python
 """请求级 scoped-session:ContextVar 绑定 + session_scope 上下文管理器。"""
 
@@ -184,8 +184,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
-from ozon_common.db.engine import build_engine
-from ozon_common.db import session as S
+from ozon_common.dal.engine import build_engine
+from ozon_common.dal import session as S
 
 
 def _setup(tmp):
@@ -229,7 +229,7 @@ def test_session_scope_rollback_on_error():
             n = sess.execute(text("SELECT COUNT(*) FROM t")).scalar()
             assert n == 0
 ```
-Create `packages/ozon_common/src/ozon_common/db/__init__.py`:
+Create `packages/ozon_common/src/ozon_common/dal/__init__.py`:
 ```python
 """SQLAlchemy 数据访问基座(engine/session/schema/repositories)。"""
 ```
@@ -254,14 +254,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 2：全表 schema metadata + 保真 diff 测试（M1 关键护栏）
 
 **Files:**
-- Create: `packages/ozon_common/src/ozon_common/db/schema.py`
+- Create: `packages/ozon_common/src/ozon_common/dal/schema.py`
 - Create: `packages/ozon_common/tests/test_schema_fidelity.py`
 
 > 这是 M1 最易错处:把现有 schema **如实**翻译成 Core `Table`。正确性不靠肉眼,靠 Step 3 的保真测试(对比"老 `Store.init()` 建出来的库" vs "`metadata.create_all()` 建出来的库")。
 
 - [ ] **Step 1: 写 schema.py(逐表对照转写)**
 
-Create `packages/ozon_common/src/ozon_common/db/schema.py`,用 `sqlalchemy.MetaData()` + `Table(...)` 定义**全部 ~20 张表**。逐字段对照来源:
+Create `packages/ozon_common/src/ozon_common/dal/schema.py`,用 `sqlalchemy.MetaData()` + `Table(...)` 定义**全部 ~20 张表**。逐字段对照来源:
 - SQLite 形态:`apps/webui/src/webui/store.py` 的 `init()`(`CREATE TABLE` 段,约 135–401 行)+ 各 `_ensure_column`(追加列)+ `_migrate_*`(最终列形态)。
 - MySQL 形态:`packages/ozon_common/src/ozon_common/db.py` 的 `MYSQL_DDL` + `init_mysql` 的 `_ensure_mysql_column`。
 
@@ -312,7 +312,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 
-from ozon_common.db.schema import metadata
+from ozon_common.dal.schema import metadata
 
 
 def _schema_snapshot(db_path: str) -> dict:
@@ -387,11 +387,11 @@ Run:
 ```bash
 cd /e/personal/ozon-helper && python -m uv run alembic init migrations 2>&1 | tail -3
 ```
-改 `migrations/env.py`:`target_metadata = ozon_common.db.schema.metadata`;`run_migrations_online` 用 `ozon_common.db.engine.engine_for(...)` 或从 `alembic.ini`/env 取 URL(MySQL env 优先,否则 SQLite 路径由 `-x dbpath=` 传)。删 `alembic.ini` 里写死的 `sqlalchemy.url`,改为运行时注入。
+改 `migrations/env.py`:`target_metadata = ozon_common.dal.schema.metadata`;`run_migrations_online` 用 `ozon_common.dal.engine.engine_for(...)` 或从 `alembic.ini`/env 取 URL(MySQL env 优先,否则 SQLite 路径由 `-x dbpath=` 传)。删 `alembic.ini` 里写死的 `sqlalchemy.url`,改为运行时注入。
 
 - [ ] **Step 2: 写 baseline 迁移**
 
-Create `migrations/versions/0001_baseline.py`:`upgrade()` 调 `from ozon_common.db.schema import metadata; metadata.create_all(op.get_bind())`;`downgrade()` 调 `metadata.drop_all(op.get_bind())`。`revision="0001_baseline", down_revision=None`。
+Create `migrations/versions/0001_baseline.py`:`upgrade()` 调 `from ozon_common.dal.schema import metadata; metadata.create_all(op.get_bind())`;`downgrade()` 调 `metadata.drop_all(op.get_bind())`。`revision="0001_baseline", down_revision=None`。
 
 - [ ] **Step 3: 测试 baseline 可建库**
 
@@ -447,8 +447,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 把 `store.py` 的 `init()` 改为:
 ```python
 def init(self) -> None:
-    from ozon_common.db.schema import metadata
-    from ozon_common.db.engine import engine_for
+    from ozon_common.dal.schema import metadata
+    from ozon_common.dal.engine import engine_for
     from webui.db_backfills import run_backfills
     eng = engine_for(self.path if not self._is_mysql else None)
     metadata.create_all(eng)          # 建全部表(替代老裸 SQL DDL)
@@ -480,18 +480,18 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 5：BaseRepo + SettingsRepo + 单测
 
 **Files:**
-- Create: `packages/ozon_common/src/ozon_common/db/repositories/__init__.py`、`base.py`、`settings_repo.py`
+- Create: `packages/ozon_common/src/ozon_common/dal/repositories/__init__.py`、`base.py`、`settings_repo.py`
 - Create: `packages/ozon_common/tests/test_settings_repo.py`
 
 - [ ] **Step 1: BaseRepo**
 
-Create `…/db/repositories/base.py`:
+Create `…/dal/repositories/base.py`:
 ```python
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ozon_common.db.session import current_session
+from ozon_common.dal.session import current_session
 
 
 class BaseRepo:
@@ -499,11 +499,11 @@ class BaseRepo:
     def s(self) -> Session:
         return current_session()
 ```
-Create `…/db/repositories/__init__.py`:`"""仓储层。"""`
+Create `…/dal/repositories/__init__.py`:`"""仓储层。"""`
 
 - [ ] **Step 2: SettingsRepo(对齐现有 get_settings/save_settings 语义)**
 
-现有语义(webui `Store.get_settings`):读 user_id=0(全局)再读传入 user_id 覆盖;value 若是 JSON 串则解析。worker `DataStore.get_settings()` 等价(uid 0 then 1)。Create `…/db/repositories/settings_repo.py`:
+现有语义(webui `Store.get_settings`):读 user_id=0(全局)再读传入 user_id 覆盖;value 若是 JSON 串则解析。worker `DataStore.get_settings()` 等价(uid 0 then 1)。Create `…/dal/repositories/settings_repo.py`:
 ```python
 from __future__ import annotations
 
@@ -512,8 +512,8 @@ from typing import Any
 
 from sqlalchemy import delete, insert, select
 
-from ozon_common.db.repositories.base import BaseRepo
-from ozon_common.db.schema import settings as T
+from ozon_common.dal.repositories.base import BaseRepo
+from ozon_common.dal.schema import settings as T
 
 
 def _decode(v):
@@ -554,9 +554,9 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 
-from ozon_common.db import session as S
-from ozon_common.db.schema import metadata
-from ozon_common.db.repositories.settings_repo import SettingsRepo
+from ozon_common.dal import session as S
+from ozon_common.dal.schema import metadata
+from ozon_common.dal.repositories.settings_repo import SettingsRepo
 
 
 def _bind(tmp):
@@ -601,11 +601,11 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 6：DraftImageRepo + 单测
 
 **Files:**
-- Create: `…/db/repositories/draft_image_repo.py`、`packages/ozon_common/tests/test_draft_image_repo.py`
+- Create: `…/dal/repositories/draft_image_repo.py`、`packages/ozon_common/tests/test_draft_image_repo.py`
 
 - [ ] **Step 1: 实现(对齐 store.add_draft_image / worker DataStore 出图读取)**
 
-参照 `store.py` 的 `add_draft_image`(取 `MAX(position)+1` 后插入)、`_load_draft_images`,以及 worker `DataStore.get_draft`/`_row_to_draft`。Create `…/db/repositories/draft_image_repo.py`:
+参照 `store.py` 的 `add_draft_image`(取 `MAX(position)+1` 后插入)、`_load_draft_images`,以及 worker `DataStore.get_draft`/`_row_to_draft`。Create `…/dal/repositories/draft_image_repo.py`:
 ```python
 from __future__ import annotations
 
@@ -613,8 +613,8 @@ from typing import Any
 
 from sqlalchemy import func, insert, select
 
-from ozon_common.db.repositories.base import BaseRepo
-from ozon_common.db.schema import draft_images as DI
+from ozon_common.dal.repositories.base import BaseRepo
+from ozon_common.dal.schema import draft_images as DI
 from ozon_common.jsonio import utc_now_iso
 
 
@@ -651,7 +651,7 @@ PASS;512;提交 `feat(db): DraftImageRepo(Core)+ 单测`。
 ## Task 7：GenJobRepo + 单测
 
 **Files:**
-- Create: `…/db/repositories/gen_job_repo.py`、`packages/ozon_common/tests/test_gen_job_repo.py`
+- Create: `…/dal/repositories/gen_job_repo.py`、`packages/ozon_common/tests/test_gen_job_repo.py`
 
 - [ ] **Step 1: 实现(对齐 store/DataStore 的 12 个 gen_job 方法)**
 
@@ -677,8 +677,8 @@ PASS;512;提交 `feat(db): GenJobRepo(Core)+ 单测`。
 
 `main.py`:应用启动处(模块级或 startup)调一次:
 ```python
-from ozon_common.db.engine import engine_for
-from ozon_common.db.session import bind_engine, session_scope
+from ozon_common.dal.engine import engine_for
+from ozon_common.dal.session import bind_engine, session_scope
 bind_engine(engine_for(None if _mysql else str(APP.store.path)))
 ```
 (engine 与 Store 用同一库:MySQL 走 env,SQLite 用 `APP.store.path`。)
@@ -702,7 +702,7 @@ async def _db_session(request, call_next):
 把 `store.py` 的 `get_settings/save_settings`、`add_draft_image`(及 `_load_draft_images` 读取)、以及 12 个 gen_job 方法改为**转调仓储**。因为 Store 方法可能在请求外被调(启动/测试无中间件),用「有 ambient session 则用,否则自开」的辅助:
 ```python
 def _in_scope(fn):
-    from ozon_common.db.session import _current_session, session_scope
+    from ozon_common.dal.session import _current_session, session_scope
     if _current_session.get() is not None:
         return fn()
     with session_scope():
@@ -711,7 +711,7 @@ def _in_scope(fn):
 例:
 ```python
 def get_settings(self, user_id=None):
-    from ozon_common.db.repositories.settings_repo import SettingsRepo
+    from ozon_common.dal.repositories.settings_repo import SettingsRepo
     uid = self._uid(user_id) if hasattr(self, "_uid") else (user_id or 1)
     return _in_scope(lambda: SettingsRepo().get_settings(uid))
 ```
@@ -773,9 +773,9 @@ Create `test_coexistence.py`:同一 SQLite 文件,一边用老 `Store`(裸连接
 import tempfile
 from pathlib import Path
 from sqlalchemy import create_engine
-from ozon_common.db import session as S
-from ozon_common.db.schema import metadata
-from ozon_common.db.repositories.settings_repo import SettingsRepo
+from ozon_common.dal import session as S
+from ozon_common.dal.schema import metadata
+from ozon_common.dal.repositories.settings_repo import SettingsRepo
 
 
 def test_legacy_conn_and_pool_coexist():
