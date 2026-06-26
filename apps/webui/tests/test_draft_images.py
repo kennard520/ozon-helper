@@ -126,7 +126,8 @@ class DraftImagesTest(unittest.TestCase):
         ).fetchone()["c"]
         self.assertEqual(rows_before, 0)
 
-        self.store._backfill_draft_images()
+        from webui.db_backfills import _backfill_draft_images
+        _backfill_draft_images(self.store.conn)
 
         rows = self._draft_images_rows(cur.lastrowid)
         self.assertEqual(len(rows), 2)
@@ -136,7 +137,7 @@ class DraftImagesTest(unittest.TestCase):
         self.assertEqual(rows[1]["type"], "场景")
 
         # 自限：再跑不重复
-        self.store._backfill_draft_images()
+        _backfill_draft_images(self.store.conn)
         rows2 = self._draft_images_rows(cur.lastrowid)
         self.assertEqual(len(rows2), 2)
 
