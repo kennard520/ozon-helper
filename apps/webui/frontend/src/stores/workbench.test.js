@@ -37,4 +37,14 @@ describe('workbench store', () => {
     wb.invertSelection(); expect([...wb.selectedVariantIds].sort()).toEqual([1])
     wb.selectAll(); expect(wb.selectedVariantIds.size).toBe(2)
   })
+  it('stepProgress 聚合选中变体某步完成数', async () => {
+    api.variantGroup.mockResolvedValue({ ok: true, group: 'G', count: 2, variants: [
+      { id: 1, steps: { copy: true, images: false }, done: 1 },
+      { id: 2, steps: { copy: true, images: true }, done: 2 }] })
+    const wb = useWorkbenchStore(); await wb.loadForDraft(1)
+    expect(wb.stepProgress('copy')).toEqual({ done: 2, total: 2 })
+    expect(wb.stepProgress('images')).toEqual({ done: 1, total: 2 })
+    wb.clearSelection(); wb.toggleVariant(1)
+    expect(wb.stepProgress('images')).toEqual({ done: 0, total: 1 })
+  })
 })

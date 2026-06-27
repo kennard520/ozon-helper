@@ -11,6 +11,10 @@ export const useWorkbenchStore = defineStore('workbench', {
     selectedVariants: (s) => s.variants.filter(v => s.selectedVariantIds.has(v.id)),
     variantCount: (s) => s.variants.length,
     allSelected: (s) => s.variants.length > 0 && s.variants.every(v => s.selectedVariantIds.has(v.id)),
+    stepProgress: (s) => (stepId) => {
+      const sel = s.variants.filter(v => s.selectedVariantIds.has(v.id))
+      return { done: sel.filter(v => v.steps && v.steps[stepId]).length, total: sel.length }
+    },
   },
   actions: {
     async loadForDraft(draftId) {
