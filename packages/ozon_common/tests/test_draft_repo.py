@@ -422,7 +422,12 @@ def test_media_status_flow():
                     "http://old/v.mp4": "http://oss/v.mp4",
                 })
                 d2 = repo.get_draft(did, 1)
-                assert d2["images"] == ["http://oss/a.jpg", "http://old/b.jpg"]
+                # 两池:采集图是素材(in_gallery=0),OSS 换 url 不改归属 →
+                # 图集仍空,素材含换后 url(a 换成 oss,b 未命中 map 保持原值)
+                assert d2["images"] == []
+                mat = {m["url"] for m in d2["materials"]}
+                assert mat == {"http://oss/a.jpg", "http://old/b.jpg"}
+                assert all(m["in_gallery"] == 0 for m in d2["materials"])
                 assert d2["video_url"] == "http://oss/v.mp4"
                 assert d2["media_status"] == "done"
                 # 已 done,不再出现在 pending

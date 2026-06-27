@@ -242,11 +242,17 @@ class DraftRepo(BaseRepo):
 
     def apply_media_oss(self, draft_id: int, media_map: dict) -> None:
         """把草稿 images/video_url 里命中 media_map 的原 URL 换成 OSS URL,并置 media_status=done。
-        从 draft_images 表读、_sync_draft_images 写。"""
-        imgs = [r["url"] for r in self._load_draft_images(draft_id)]
-        if not imgs:
+        按行 UPDATE url(保留 in_gallery/position,不改两池归属)——素材换 url 后仍是素材,
+        图集换 url 后仍是图集。**不走 _sync**(_sync gallery=True 会把素材误升进图集)。"""
+        rows = self.s.execute(
+            select(DI.c.id, DI.c.url).where(DI.c.draft_id == int(draft_id))
+        ).all()
+        if not rows:
             return
-        new_imgs = [media_map.get(u, u) for u in imgs]
+        for r in rows:
+            new_url = media_map.get(str(r.url))
+            if new_url and new_url != r.url:
+                self.s.execute(update(DI).where(DI.c.id == r.id).values(url=new_url))
         video_row = self.s.execute(
             select(D.c.video_url).where(D.c.id == int(draft_id))
         ).first()
@@ -257,7 +263,6 @@ class DraftRepo(BaseRepo):
             .where(D.c.id == int(draft_id))
             .values(video_url=new_vurl, media_status="done", updated_at=utc_now_iso())
         )
-        self._sync_draft_images(draft_id, new_imgs)
 
     def delete_draft(self, draft_id: int, user_id: int) -> None:
         # 只删 drafts 行本身;draft_images / gen_jobs / gen_job_images 由

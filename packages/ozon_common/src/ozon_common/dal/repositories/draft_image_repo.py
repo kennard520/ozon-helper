@@ -114,11 +114,10 @@ class DraftImageRepo(BaseRepo):
                 select(DI.c.url).where(DI.c.draft_id == tid)).all()}
             added = 0
             for u in urls:
-                if u in have:
-                    continue
                 sr = src_rows.get(u)
-                self.add_draft_image(tid, u, type=(sr.type if sr else ""),
-                                     source=(sr.source if sr else "generated"), in_gallery=1)
+                if sr is None or u in have:
+                    continue  # 只复制确实属于源草稿的图(防注入任意 url),且去重
+                self.add_draft_image(tid, u, type=sr.type, source=sr.source, in_gallery=1)
                 added += 1
             out[tid] = added
         return out

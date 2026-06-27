@@ -51,7 +51,11 @@ class MediaStatusStoreTest(unittest.TestCase):
             store.apply_media_oss(did, {"https://ir.ozone.ru/a.jpg": "https://oss/a.jpg",
                                         "https://v.ozone.ru/v.mp4": "https://oss/v.mp4"})
             d = store.get_draft(did)
-            self.assertEqual(d["images"], ["https://oss/a.jpg", "https://ir.ozone.ru/b.jpg"])  # 只换命中的
+            # 两池:采集图是素材(in_gallery=0),rehost 换 url 不改归属 →
+            # 图集空,素材含换后 url(a 换 oss,b 未命中保持原值)
+            self.assertEqual(d["images"], [])
+            self.assertEqual({m["url"] for m in d["materials"]},
+                             {"https://oss/a.jpg", "https://ir.ozone.ru/b.jpg"})
             self.assertEqual(d["video_url"], "https://oss/v.mp4")
             self.assertEqual(d["media_status"], "done")
             self.assertEqual(store.list_pending_media_drafts(1), [])  # done 后不再 pending
@@ -113,7 +117,9 @@ class UpdateDraftMediaTest(unittest.TestCase):
                                               "media_map": {"https://ir.ozone.ru/a.jpg": "https://oss/a.jpg"}})
                 self.assertTrue(out.get("ok"))
                 d = app.store.get_draft(did)
-                self.assertEqual(d["images"], ["https://oss/a.jpg"])
+                # 两池:采集图是素材,rehost 换 url 不改归属 → 图集空,素材含换后 url
+                self.assertEqual(d["images"], [])
+                self.assertEqual({m["url"] for m in d["materials"]}, {"https://oss/a.jpg"})
                 self.assertEqual(d["media_status"], "done")
             finally:
                 app.store.close()
