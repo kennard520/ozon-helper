@@ -397,42 +397,35 @@ class AnalyticsRouterTest(unittest.TestCase):
         importlib.reload(main_mod)
         return TestClient(main_mod.app), main_mod
 
+    # 注:不调 main_mod.APP.store.close()——它会 dispose 全局 engine 单例,污染后续 test_api（reload main 不重建 engine→撞已 dispose）。
+    # 临时库残留由 ignore_cleanup_errors=True 容忍（同 test_api/test_copy_images_multi 范式）。
     def test_dashboard_no_creds_400(self):
         import tempfile
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client, main_mod = self._app_client(tmp)
-            try:
-                resp = client.post("/api/analytics/dashboard", json={
-                    "date_from": "2026-06-01", "date_to": "2026-06-07"
-                })
-                self.assertEqual(resp.status_code, 400)
-                self.assertIn("凭证", resp.json().get("detail", ""))
-            finally:
-                main_mod.APP.store.close()
+            resp = client.post("/api/analytics/dashboard", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("凭证", resp.json().get("detail", ""))
 
     def test_traffic_no_creds_400(self):
         import tempfile
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client, main_mod = self._app_client(tmp)
-            try:
-                resp = client.post("/api/analytics/traffic", json={
-                    "date_from": "2026-06-01", "date_to": "2026-06-07"
-                })
-                self.assertEqual(resp.status_code, 400)
-            finally:
-                main_mod.APP.store.close()
+            resp = client.post("/api/analytics/traffic", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
 
     def test_keywords_no_creds_400(self):
         import tempfile
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client, main_mod = self._app_client(tmp)
-            try:
-                resp = client.post("/api/analytics/keywords", json={
-                    "date_from": "2026-06-01", "date_to": "2026-06-07"
-                })
-                self.assertEqual(resp.status_code, 400)
-            finally:
-                main_mod.APP.store.close()
+            resp = client.post("/api/analytics/keywords", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
 
 
 if __name__ == "__main__":
