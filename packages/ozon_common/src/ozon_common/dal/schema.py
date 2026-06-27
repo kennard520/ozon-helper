@@ -37,7 +37,7 @@ settings = Table(
 users = Table(
     "users", metadata,
     Column("id", Integer, primary_key=True),
-    Column("username", Text, nullable=False, unique=True),
+    Column("username", String(191), nullable=False, unique=True),
     Column("password_hash", Text, nullable=False),
     Column("role", String(32), nullable=False, server_default="user"),
     Column("status", String(32), nullable=False, server_default="active"),
@@ -84,7 +84,7 @@ drafts = Table(
     Column("id", Integer, primary_key=True),
     Column("user_id", Integer, nullable=False, server_default="1"),
     Column("source_platform", String(32), nullable=False, server_default="1688"),
-    Column("source_url", Text, nullable=False),
+    Column("source_url", String(1024), nullable=False),
     Column("source_offer_id", Text),
     Column("source_title", Text, nullable=False),
     Column("purchase_url", String(1024), nullable=False, server_default=""),
@@ -97,7 +97,7 @@ drafts = Table(
     Column("stock", Integer, nullable=False),
     Column("images_json", Text, nullable=False),
     Column("attributes_json", Text, nullable=False),
-    Column("status", Text, nullable=False),
+    Column("status", String(32), nullable=False),
     Column("validation_errors_json", Text, nullable=False),
     Column("publish_response_json", Text),
     Column("created_at", ISODateTime, nullable=False),
@@ -125,7 +125,10 @@ drafts = Table(
     Column("variant_group", String(255), nullable=False, server_default=""),
     # _migrate_drafts_store_scoped 追加
     Column("store_client_id", String(64), nullable=False, server_default=""),
-    UniqueConstraint("user_id", "store_client_id", "source_url"),
+    Index(
+        "uq_draft", "user_id", "store_client_id", "source_url",
+        unique=True, mysql_length={"source_url": 255},
+    ),
     Index("idx_drafts_variant_group", "variant_group"),
     Index("idx_drafts_offer_id", "offer_id"),
     Index("idx_drafts_user_status", "user_id", "status"),
@@ -145,14 +148,14 @@ commission_map = Table(
 
 catalog_cache = Table(
     "catalog_cache", metadata,
-    Column("language", Text, primary_key=True),
+    Column("language", String(32), primary_key=True),
     Column("leaves_json", Text, nullable=False),
     Column("fetched_at", ISODateTime, nullable=False),
 )
 
 catalog_tree_cache = Table(
     "catalog_tree_cache", metadata,
-    Column("language", Text, primary_key=True),
+    Column("language", String(32), primary_key=True),
     Column("tree_json", Text, nullable=False),
     Column("fetched_at", ISODateTime, nullable=False),
 )
@@ -175,12 +178,13 @@ attribute_values_cache = Table(
     Column("attribute_id", Integer, primary_key=True),
     Column("language", String(32), primary_key=True, nullable=False, server_default="ZH_HANS"),
     Column("dictionary_value_id", Integer, primary_key=True),
-    Column("value", Text),
+    Column("value", String(1024)),
     Column("info", Text),
     Column("fetched_at", ISODateTime),
     Index(
         "idx_av_cache",
         "description_category_id", "type_id", "attribute_id", "language", "value",
+        mysql_length={"value": 100},
     ),
 )
 
@@ -232,7 +236,7 @@ delivery_methods = Table(
 
 postings = Table(
     "postings", metadata,
-    Column("posting_number", Text, primary_key=True),
+    Column("posting_number", String(128), primary_key=True),
     Column("ozon_order_id", Text),
     Column("status", Text),
     Column("ship_by", Text),
@@ -248,11 +252,11 @@ procurement = Table(
     "procurement", metadata,
     Column("id", Integer, primary_key=True),
     Column(
-        "posting_number", Text,
+        "posting_number", String(128),
         ForeignKey("postings.posting_number", ondelete="CASCADE"),
         nullable=False,
     ),
-    Column("offer_id", Text, nullable=False),
+    Column("offer_id", String(191), nullable=False),
     Column("qty", Integer, nullable=False, server_default="1"),
     Column("purchase_state", String(32), nullable=False, server_default="待采购"),
     Column("supplier", String(255), nullable=False, server_default=""),
@@ -268,7 +272,7 @@ procurement = Table(
 offer_snapshots = Table(
     "offer_snapshots", metadata,
     Column("id", Integer, primary_key=True),
-    Column("product_id", Text, nullable=False),
+    Column("product_id", String(191), nullable=False),
     Column("sku", Text),
     Column("captured_at", ISODateTime, nullable=False),
     Column("follow_count", Integer),
