@@ -1,12 +1,13 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { setAuth } from '../auth.js'
 
-const emit = defineEmits(['logged-in'])
 const form = ref({ username: '', password: '' })
 const loading = ref(false)
+const router = useRouter()
 
 async function submit() {
   if (!form.value.username || !form.value.password) {
@@ -18,7 +19,7 @@ async function submit() {
     const r = await api.login(form.value.username, form.value.password)
     setAuth(r.token, r.user)
     ElMessage.success('登录成功')
-    emit('logged-in', r.user)
+    router.push('/')
   } catch (e) {
     ElMessage.error(e.message || '失败')
   } finally {
