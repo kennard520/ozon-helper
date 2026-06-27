@@ -45,6 +45,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 APP = App()
+# 把单例写入 app_instance，供 routers 直接 import 而无需经过 main（避免循环）
+import webui.app_instance as _ai_mod  # noqa: E402
+_ai_mod.APP = APP
 
 
 # 纯 ASGI 中间件：从 Authorization Bearer 解出 user_id 存进 ContextVar，本请求内 store 全部按此用户隔离。
