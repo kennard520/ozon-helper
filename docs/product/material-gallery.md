@@ -50,8 +50,14 @@ repo 方法均按 `image_id`，用 `draft_id + id` 双条件防越权。
 **架构**：`composables/useGallery.js`（单一真相=后端 draft；派生 `galleryItems`(in_gallery 真按 position)/`materialItems`(假)；mutation 调 api 成功后 `onChange()`→DetailTabs `fm.load` 重拉）+ `components/workbench/ImageCard.vue`（纯展示:localUrl 优先/类型来源徽章/选中/actions 插槽）。`localUrl` 走 `draft.images`↔`draft.local_images` zip（图集本地代理防 1688 防盗链），素材回退原 url。
 **api.js 新增**：`galleryAdd/galleryRemove/galleryReorder(id,image_ids)` + `deleteImage(id,image_id)` + `copyImagesTo(id,image_urls,target_draft_ids)`。
 
-### F1d-3b AI 出图 —— 📋 待建
-design-image-plan（AI 设计图集槽位）→ image-plan（拉计划+槽状态）→ generate-plan-slot（按槽生成进候选区）→ apply-candidates/discard-candidates（应用/丢弃候选）。候选区 + 槽位 UI 待建。
+### F1d-3b AI 出图 —— ✅ 已完成（2026-06-27）
+图片 tab 顶部 `components/workbench/AiImagePanel.vue`（`composables/useImagePlan.js` 驱动）：
+- 「AI 设计图集」(designImagePlan)→ LLM 据看图理解+源图设计槽位方案(白底主图/细节俄化/场景/信息图)写 `source_raw.image_plan`；无 understanding 自动先跑 understand，LLM 失败回退规则版 build_image_plan。
+- 槽位列表：每槽 label + action 徽章 + 状态(待做/已出图) + 「生成」/「重出」(generatePlanSlot)。
+- 「刷新计划」(imagePlan force)、「一键出全部」(对 todo 槽串行 generateSlot)。
+**纠正认知**：`generate-plan-slot` 生成图**直接 INSERT draft_images(source=generated, in_gallery=1)进图集**（方法名 `_add_candidate`/「候选区」docstring 是历史遗留）→ 生成图自动出现在 F1d-3a 图集区。**plan 流无候选阶段、无 apply/discard**。`ai_image_candidates`+applyCandidates/discardCandidates 是另一条 legacy 批量手工编辑流（whiten/scene/regen），本期未接。
+- 槽状态：`image-plan` 据 `source_raw.slot_images[slot_id]` 的 url 是否仍在 `draft.images` 判 applied/todo（删图→回 todo 可重出）。
+- generatePlanSlot 同步阻塞（AI 生图 10-30s），UI 按槽转圈。
 
 ### ✅ 已修复（2026-06-27）
 素材（in_gallery=0 采集图）防盗链显示问题已彻底修复：

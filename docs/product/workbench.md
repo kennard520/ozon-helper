@@ -27,7 +27,7 @@
 **详情 tab（DetailTabs，6 个）**：
 1. 商品信息 InfoTab — 标题/类目/品牌/价/尺寸
 2. 特征 AttributesTab — Ozon 类目属性填充（详见 §特征 tab）
-3. 图片 ImagesTab — 三段:图集(排序/移出/删除/上传)+ 素材库(加入图集/批量/删除)+ 来自变体借图;对接两池后端,详见 [material-gallery.md](material-gallery.md)。AI 出图 F1d-3b 待建
+3. 图片 ImagesTab — 顶部 AI 出图(设计图集→按槽生成,直进图集)+ 三段:图集(排序/移出/删除/上传)+ 素材库(加入图集/批量/删除)+ 来自变体借图;对接两池后端,详见 [material-gallery.md](material-gallery.md)
 4. 视频 VideoTab — 复用 `MediaManager(only=video)` + `AiVideoDialog`
 5. 富文本 RichTextTab — 复用 `RichContentPreview`，数据 `source_raw.rich_content_json`
 6. 采购信息 PurchaseTab — 采购链接/备注/供应商/offer_id
@@ -112,4 +112,5 @@ InfoTab 内：`categoryModel` computed（form.category_id+type_id ↔ CategorySe
 ## 变更历史
 - 2026-06-27 建基线（F0 设计系统 / F1a 三栏地基 / F1c AI 流水线 / F1d-1 详情 tab 壳 + 简单 tab）。
 - 2026-06-27 F1d-2 特征 tab（AttributesTab + AttrField + useAttributes）：三组布局、字典/文本字段、AI 填充、missing 提示；单一真相值模型 + 客户端算 missing + 防抖存。
-- 2026-06-27 F1d-3a 图片 tab（ImagesTab + ImageCard + useGallery）：两池(图集/素材)管理、↑↓排序、加入/移出图集、删除、来自变体借图、上传;接两池后端。AI 出图(F1d-3b)待建。
+- 2026-06-27 F1d-3a 图片 tab（ImagesTab + ImageCard + useGallery）：两池(图集/素材)管理、↑↓排序、加入/移出图集、删除、来自变体借图、上传;接两池后端。
+- 2026-06-27 F1d-3b AI 出图（AiImagePanel + useImagePlan）：AI 设计图集方案 + 按槽生成(直进图集)+ 一键出全部 + 槽位状态。
