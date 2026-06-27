@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
 TOOLS = HERE.parents[2]                       # backend → webui → tools
-WEBUI = HERE.parents[1]                        # ozon-listing-webui（让 `from ozon_common import db` 可用）
+WEBUI = HERE.parents[1]                        # ozon-listing-webui
 sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(WEBUI))
 from ozon_api.client import OzonApiError, OzonSellerClient  # noqa: E402
@@ -38,14 +37,17 @@ BASE_METRICS = [("ordered_units", "下单件数"), ("revenue", "销售额")]
 
 
 def _load_settings_raw() -> dict:
-    """凭证设置 {key: value_raw}。容器里设了 OZON_MYSQL_* 走 MySQL，否则读本地 SQLite。"""
+    """凭证设置 {key: value_raw}（原始字符串，不解析）。MySQL/SQLite 由 dal engine 自动判定。"""
+    from sqlalchemy import text
+
+    from ozon_common.dal.engine import engine_for, mysql_url_from_env
+    eng = engine_for(None if mysql_url_from_env() else str(DB))
     try:
-        from ozon_common import db
-        if db.mysql_enabled():
-            return db.load_raw_settings()
-    except Exception:
-        pass
-    return dict(sqlite3.connect(DB).execute("SELECT key,value FROM settings").fetchall())
+        with eng.connect() as c:
+            rows = c.execute(text("SELECT `key`, value FROM settings")).fetchall()
+    finally:
+        eng.dispose()
+    return {r[0]: r[1] for r in rows}
 
 
 def load_client() -> OzonSellerClient:
