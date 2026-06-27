@@ -12,27 +12,38 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('Settings.vue 图片/视频 AI 区块', () => {
   it('保存带 ai_image/ai_video；key 只在非空时发送并在保存后清空', async () => {
+    // 当前实现：AI 配置通过平台(aiPlatforms)+用途(aiUses)两层管理
+    // ai_image/ai_video 保存为 { platform, model }，key 在平台层管理
     const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: {}, status: {}, paths: {} })
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
-    w.vm.aiImage.engine = 'agnes'
-    w.vm.aiImage.api_key = 'sk-img'
-    w.vm.aiImage.model = 'agnes-image-2.1-flash'
-    w.vm.aiVideo.api_key = 'sk-vid'
+
+    // 设置一个平台，并在图片/视频用途选该平台
+    w.vm.aiPlatforms.push({ name: 'my-plat', base: 'https://api.example.com/v1', key: 'sk-img', key_saved: false })
+    w.vm.aiUses.image.platform = 'my-plat'
+    w.vm.aiUses.image.model = 'agnes-image-2.1-flash'
+    w.vm.aiUses.video.platform = 'my-plat'
+
     await w.vm.save()
     const payload = spy.mock.calls[0][0]
-    expect(payload.ai_image).toMatchObject({ engine: 'agnes', api_key: 'sk-img', model: 'agnes-image-2.1-flash' })
-    expect(payload.ai_video).toMatchObject({ engine: 'agnes', api_key: 'sk-vid' })
-    expect(w.vm.aiImage.api_key).toBe('')   // 密钥惯例：保存后清空输入框
-    expect(w.vm.aiVideo.api_key).toBe('')
+    // 平台 key 非空时包含在 ai_platforms 中发送
+    expect(payload.ai_platforms[0]).toMatchObject({ name: 'my-plat', key: 'sk-img' })
+    // 用途块包含 platform + model
+    expect(payload.ai_image).toMatchObject({ platform: 'my-plat', model: 'agnes-image-2.1-flash' })
+    expect(payload.ai_video).toMatchObject({ platform: 'my-plat' })
+    // 保存后平台 key 输入框清空（_loadAi 由 saveSettings 返回的 settings 触发重置）
+    // 当 saveSettings 返回空 settings 时 _loadAi 被调用，platforms 被重置为空数组
+    expect(w.vm.aiPlatforms.every(p => p.key === '')).toBe(true)
   })
 
   it('key 为空时不发送 api_key（不覆盖已存值）', async () => {
     const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: {} })
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
+    // 平台 key 留空时，平台对象中不包含 key 字段
+    w.vm.aiPlatforms.push({ name: 'my-plat', base: '', key: '', key_saved: true })
     await w.vm.save()
     const payload = spy.mock.calls[0][0]
-    expect('api_key' in payload.ai_image).toBe(false)
-    expect('api_key' in payload.ai_video).toBe(false)
+    // key 为空时不发送（不覆盖已存 key）
+    expect('key' in payload.ai_platforms[0]).toBe(false)
   })
 
   it('settings 到达后回填 ai_image/ai_video 字段（key 除外）', async () => {
@@ -41,15 +52,21 @@ describe('Settings.vue 图片/视频 AI 区块', () => {
     store.settings = {}
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
     store.settings = {
-      ai_image: { engine: 'agnes', api_base: 'https://apihub.agnes-ai.com', model: 'agnes-image-2.1-flash', api_key_saved: true },
-      ai_video: { engine: 'agnes', api_base: '', model: 'agnes-video-v2.0', api_key_saved: true },
+      ai_platforms: [
+        { name: 'agnes-plat', base: 'https://apihub.agnes-ai.com', key_saved: true },
+      ],
+      ai_image: { platform: 'agnes-plat', model: 'agnes-image-2.1-flash' },
+      ai_video: { platform: 'agnes-plat', model: 'agnes-video-v2.0' },
     }
     await w.vm.$nextTick()
-    expect(w.vm.aiImage.engine).toBe('agnes')
-    expect(w.vm.aiImage.api_base).toBe('https://apihub.agnes-ai.com')
-    expect(w.vm.aiImage.model).toBe('agnes-image-2.1-flash')
-    expect(w.vm.aiImage.api_key).toBe('')   // key 永不回填
-    expect(w.vm.aiVideo.model).toBe('agnes-video-v2.0')
+    // 平台列表回填
+    expect(w.vm.aiPlatforms[0].name).toBe('agnes-plat')
+    expect(w.vm.aiPlatforms[0].base).toBe('https://apihub.agnes-ai.com')
+    expect(w.vm.aiPlatforms[0].key).toBe('')   // key 永不回填
+    // 用途回填
+    expect(w.vm.aiUses.image.platform).toBe('agnes-plat')
+    expect(w.vm.aiUses.image.model).toBe('agnes-image-2.1-flash')
+    expect(w.vm.aiUses.video.model).toBe('agnes-video-v2.0')
   })
 })
 

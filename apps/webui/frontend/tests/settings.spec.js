@@ -26,23 +26,31 @@ describe('Settings.vue', () => {
     expect(payload.contract_currency).toBe('CNY')     // 有效值照常发
   })
 
-  it('文本 AI(ai_text)：回填 base/model，key 只在非空时发送', async () => {
+  it('文本 AI(ai_text)：回填 platform/model，key 只在非空时发送', async () => {
+    // 当前实现：ai_text 用 platform+model 而非 engine+api_base+api_key
+    // 平台级别管理 base 和 key；ai_text 只存 platform 名 + model + multimodal
     const { useAppStore } = await import('../src/stores/app.js')
     const store = useAppStore()
     store.settings = {
-      ai_text: { engine: 'openai', api_base: 'https://x/v1', model: 'm', api_key_saved: true },
+      ai_platforms: [{ name: 'openai-plat', base: 'https://x/v1', key_saved: true }],
+      ai_text: { platform: 'openai-plat', model: 'm' },
       contract_currency: 'CNY',
     }
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
     await w.vm.$nextTick()
-    expect(w.vm.aiText.api_base).toBe('https://x/v1')
-    expect(w.vm.aiText.model).toBe('m')
-    w.vm.aiText.api_key = 'sk-1'
+    // 回填：平台列表和用途选择
+    expect(w.vm.aiPlatforms[0].base).toBe('https://x/v1')
+    expect(w.vm.aiUses.text.platform).toBe('openai-plat')
+    expect(w.vm.aiUses.text.model).toBe('m')
+    // 平台 key 设为非空时，保存时发送到 ai_platforms[].key
+    w.vm.aiPlatforms[0].key = 'sk-1'
     const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: {}, status: {}, paths: {} })
     await w.vm.save()
     const payload = spy.mock.calls[0][0]
-    expect(payload.ai_text.api_key).toBe('sk-1')
-    expect(payload.ai_text.api_base).toBe('https://x/v1')
+    // 平台 key 非空时发送
+    expect(payload.ai_platforms[0].key).toBe('sk-1')
+    // ai_text 包含 platform 和 model
+    expect(payload.ai_text.platform).toBe('openai-plat')
     expect(payload.ai_text.model).toBe('m')
   })
 
