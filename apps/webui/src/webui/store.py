@@ -55,6 +55,12 @@ def _commission_repo():
     return CommissionRepo()
 
 
+def _user_repo():
+    """延迟构造 UserRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.user_repo import UserRepo  # noqa: PLC0415
+    return UserRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -435,92 +441,34 @@ class Store:
     # ---- 用户（多用户鉴权）----
     def create_user(self, username: str, password_hash: str, role: str = "user",
                     max_stores: int = 1) -> dict[str, Any]:
-        with self.lock:
-            cur = self.conn.execute(
-                "INSERT INTO users(username, password_hash, role, status, created_at, max_stores) "
-                "VALUES(?, ?, ?, 'active', ?, ?)",
-                (username, password_hash, role, utc_now_iso(), int(max_stores)),
-            )
-            self.conn.commit()
-            uid = cur.lastrowid
-        return self.get_user_by_id(uid)
+        return _in_scope(lambda: _user_repo().create_user(username, password_hash, role, max_stores))
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM users WHERE username = ?", (username,)
-            ).fetchone()
-        return dict(row) if row else None
+        return _in_scope(lambda: _user_repo().get_user_by_username(username))
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM users WHERE id = ?", (user_id,)
-            ).fetchone()
-        return dict(row) if row else None
+        return _in_scope(lambda: _user_repo().get_user_by_id(user_id))
 
     def count_users(self) -> int:
-        with self.lock:
-            return int(self.conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+        return _in_scope(lambda: _user_repo().count_users())
 
     # ---- 用户管理（仅 admin 用；不返回 password_hash）----
     def list_users(self) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT id, username, role, status, max_stores, created_at "
-                "FROM users ORDER BY id"
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _user_repo().list_users())
 
     def set_max_stores(self, user_id: int, max_stores: int) -> None:
-        with self.lock:
-            self.conn.execute(
-                "UPDATE users SET max_stores=? WHERE id=?", (int(max_stores), int(user_id))
-            )
-            self.conn.commit()
+        return _in_scope(lambda: _user_repo().set_max_stores(user_id, max_stores))
 
     def set_status(self, user_id: int, status: str) -> None:
-        with self.lock:
-            self.conn.execute(
-                "UPDATE users SET status=? WHERE id=?", (str(status), int(user_id))
-            )
-            self.conn.commit()
+        return _in_scope(lambda: _user_repo().set_status(user_id, status))
 
     def set_password_hash(self, user_id: int, password_hash: str) -> None:
-        with self.lock:
-            self.conn.execute(
-                "UPDATE users SET password_hash=? WHERE id=?", (str(password_hash), int(user_id))
-            )
-            self.conn.commit()
+        return _in_scope(lambda: _user_repo().set_password_hash(user_id, password_hash))
 
     def delete_user(self, user_id: int) -> None:
         """硬删用户：连同 user_id 关联数据（草稿/钱包/流水/设置）+ 其店铺的
         store_client_id 关联数据（仓库/订单/采购/快照）一起删。不可逆。"""
-        uid = int(user_id)
-        with self.lock:
-            cids: set[str] = set()
-            row = self.conn.execute(
-                "SELECT value FROM settings WHERE user_id=? AND key='ozon_stores'", (uid,)
-            ).fetchone()
-            if row:
-                for st in (loads_json(row["value"], []) or []):
-                    c = str((st or {}).get("client_id") or "").strip()
-                    if c:
-                        cids.add(c)
-            row2 = self.conn.execute(
-                "SELECT value FROM settings WHERE user_id=? AND key='ozon_client_id'", (uid,)
-            ).fetchone()
-            if row2:
-                c = str(loads_json(row2["value"], "") or "").strip()
-                if c:
-                    cids.add(c)
-            for t in ("warehouses", "delivery_methods", "postings", "procurement", "offer_snapshots"):
-                for c in cids:
-                    self.conn.execute(f"DELETE FROM {t} WHERE store_client_id=?", (c,))
-            for t in ("drafts", "accounts", "account_txns", "settings"):
-                self.conn.execute(f"DELETE FROM {t} WHERE user_id=?", (uid,))
-            self.conn.execute("DELETE FROM users WHERE id=?", (uid,))
-            self.conn.commit()
+        return _in_scope(lambda: _user_repo().delete_user(user_id))
 
     # ---- 钱包（按 user_id 隔离，contextvar 默认）----
     def get_account(self, user_id: int | None = None) -> dict[str, Any]:
