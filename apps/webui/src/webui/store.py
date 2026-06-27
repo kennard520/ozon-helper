@@ -1325,41 +1325,16 @@ class Store:
 
     # ---------- 跟卖快照（插件用）----------
     def add_offer_snapshot(self, snap: dict[str, Any]) -> dict[str, Any]:
-        with self.lock:
-            cur = self.conn.execute(
-                "INSERT INTO offer_snapshots (product_id, sku, captured_at, follow_count, price_min, price_max, sellers_json, store_client_id)"
-                " VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    str(snap.get("product_id") or ""),
-                    snap.get("sku"),
-                    str(snap.get("captured_at") or utc_now_iso()),
-                    _to_int_or_none(snap.get("follow_count")),
-                    _to_float_or_none(snap.get("price_min")),
-                    _to_float_or_none(snap.get("price_max")),
-                    snap.get("sellers_json"),
-                    str(snap.get("store_client_id") or ""),
-                ),
-            )
-            self.conn.commit()
-            return {"id": cur.lastrowid}
+        from ozon_common.dal.repositories.offer_snapshot_repo import OfferSnapshotRepo  # noqa: PLC0415
+        return _in_scope(lambda: OfferSnapshotRepo().add_offer_snapshot(snap))
 
     def latest_offer_snapshot(self, product_id: str) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT id, product_id, sku, captured_at, follow_count, price_min, price_max, sellers_json"
-                " FROM offer_snapshots WHERE product_id=? ORDER BY captured_at DESC, id DESC LIMIT 1",
-                (str(product_id),),
-            ).fetchone()
-        return dict(row) if row else None
+        from ozon_common.dal.repositories.offer_snapshot_repo import OfferSnapshotRepo  # noqa: PLC0415
+        return _in_scope(lambda: OfferSnapshotRepo().latest_offer_snapshot(product_id))
 
     def list_offer_snapshots(self, product_id: str, limit: int = 500) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT id, product_id, sku, captured_at, follow_count, price_min, price_max, sellers_json"
-                " FROM offer_snapshots WHERE product_id=? ORDER BY captured_at ASC, id ASC LIMIT ?",
-                (str(product_id), int(limit)),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        from ozon_common.dal.repositories.offer_snapshot_repo import OfferSnapshotRepo  # noqa: PLC0415
+        return _in_scope(lambda: OfferSnapshotRepo().list_offer_snapshots(product_id, limit))
 
     def list_drafts_by_variant_group(self, group: str) -> list[dict[str, Any]]:
         """返回同组草稿（按 id 升序）。走 variant_group 索引列，只取同组那几行，不扫全表。"""
