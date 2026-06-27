@@ -1,5 +1,5 @@
-"""启动后端。
-- 开发(本机)：python run_api.py [port]；不带参数从候选端口自动挑（Windows 保留端口多）。
+"""启动后端（console_script: ozon-webui → server:main）。
+- 开发(本机)：python -m uv run --package ozon-webui ozon-webui [port]；不带参数从候选端口自动挑（Windows 保留端口多）。
 - 服务器部署：设环境变量 WEBUI_HOST=0.0.0.0 WEBUI_PORT=8585，则按固定 host/port 监听
   （给 Caddy/Nginx 反代用），不再自动选端口。"""
 from __future__ import annotations

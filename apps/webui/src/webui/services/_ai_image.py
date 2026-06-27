@@ -1,10 +1,9 @@
-"""AiImageMixin — App 的「AI 出图」域（候选/计划/批量/信息图/富文本）。"""
+"""AiImageMixin — App 的「AI 出图」域（候选/图集计划/信息图/富文本）。"""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-import webui.ai_image_batch as ai_image_batch  # noqa: E402
 import webui.media as _media  # noqa: E402
 from webui.services._helpers import _img_type_from_label  # noqa: E402
 
@@ -471,55 +470,6 @@ class AiImageMixin:
         data = self._edit_source_image(draft_id, src, prompt)
         url = self._add_candidate(draft_id, data, str(slot.get("label") or slot_id), slot=slot_id)
         return {"ok": True, "slot_id": slot_id, "candidate": url, "draft": self.store.get_draft(draft_id)}
-
-    def start_image_batch(self, draft_id: int, *, source_url: str | None = None) -> dict:
-        """启动 Agnes 整套商品图后台任务（12 角度·全图生图·候选区）。
-        参考图优先用本地副本（避 1688 防盗链 Agnes 拉不到）；生成结果进候选区不进正式图集。"""
-        from webui import agnes  # noqa: PLC0415
-        draft = self.store.get_draft(draft_id)
-        if draft is None:
-            raise KeyError(f"draft {draft_id} not found")
-        settings = self.store.get_settings()
-        agnes._conf(settings)   # 没配 key 启动前就报错（不进后台线程，前端能看到 400）
-        ref_in = str(source_url or "").strip()
-        if not ref_in:
-            locs = draft.get("local_images") or []
-            imgs = draft.get("images") or []
-            ref_in = str(locs[0]) if locs else (str(imgs[0]) if imgs else "")
-        if not ref_in:
-            raise ValueError("草稿没有图片，无法整套图生图（先采集或上传图片）")
-        ref = self._resolve_image_input(ref_in)
-        title = str(draft.get("ozon_title") or draft.get("source_title") or "")
-        plan = agnes.plan_image_angles(title)
-        # 开新批先清空旧候选（避免多次生成累积）
-        sr = dict(draft.get("source_raw") or {})
-        sr["ai_image_candidates"] = []
-        self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
-        gen_fn = lambda prompt: agnes.generate_image(settings, prompt, source_images=[ref])  # noqa: E731
-        return ai_image_batch.start_batch(gen_fn, self._on_image_candidate, plan, draft_id)
-
-    def _on_image_candidate(self, draft_id: int, angle: str, url: str) -> None:
-        """单张候选完成回调（后台线程，串行）：下载本地 + 追加 source_raw.ai_image_candidates。
-        Agnes 图 URL 可能过期 → 下载到 /media（候选 key 与正式图分开）。失败抛出由批量层记 failed。"""
-        import webui.app_service as _app_svc  # noqa: PLC0415  # patch 兼容
-        data = _app_svc._download_bytes(url, timeout=120)
-        if len(data) > 20 * 1024 * 1024:
-            raise RuntimeError("候选图过大(>20MB)")
-        local = _media.save_upload(f"draft-{draft_id}-cand", "cand.png", data)
-        draft = self.store.get_draft(draft_id)
-        if draft is None:
-            return
-        sr = dict(draft.get("source_raw") or {})
-        cands = list(sr.get("ai_image_candidates") or [])
-        cands.append({"url": local, "angle": angle})
-        sr["ai_image_candidates"] = cands
-        self.store.update_draft(draft_id, {"source_raw": sr, "status": draft.get("status")})
-
-    def image_batch_status(self) -> dict:
-        return ai_image_batch.batch_status()
-
-    def stop_image_batch(self) -> dict:
-        return ai_image_batch.request_stop()
 
     def apply_image_candidates(self, draft_id: int, indices: list[int] | None = None) -> dict:
         """把候选区的图加入正式图集 draft.images，清空候选区。

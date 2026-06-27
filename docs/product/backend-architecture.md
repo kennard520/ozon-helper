@@ -42,8 +42,6 @@ apps/webui/src/webui/
 - mixin 是"同一 god-object 拆多文件可读化"的第一步;某域若日后需真隔离(独立测试/复用),再演进成 collaborator service(注入 store)——按域按需,非现在。
 - `店铺数据分析`(analytics)落点:独立 `services/_analytics.py`(纯函数,不进 App)+ `routers/analytics.py`,见 [analytics spec](../superpowers/specs/2026-06-27-analytics-store-data-design.md)。
 
-## 遗留(待产品决策)
-- `start_image_batch/_on_image_candidate/image_batch_status/stop_image_batch`(`_ai_image.py`,Agnes 12 角度批量出图):**无端点接线、无测试、无调用方**(已被 MQ 版 `submit_batch_gen_job` 取代)。所依赖 `webui/ai_image_batch.py` 原本缺失、拆分时据调用点重建。**后续要么接端点+测试启用,要么连方法一起删**。
-
 ## 变更历史
 - 2026-06-27/28 绞杀拆分(BE-T1~T10):main 980→143、app_service 3875→118;12 routers + 13 mixin;714 测试全绿、OpenAPI 89 路径契约不变、运行态 curl 各域端点正常。
+- 2026-06-28 删死代码:`start_image_batch/_on_image_candidate/image_batch_status/stop_image_batch`(Agnes 12 角度批量出图)+ `webui/ai_image_batch.py` —— 无端点/无测试/无调用方,已被 MQ 版 `submit_batch_gen_job` 取代。
