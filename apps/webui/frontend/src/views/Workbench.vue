@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import DraftListPane from '../components/workbench/DraftListPane.vue'
+import VariantCardsPane from '../components/workbench/VariantCardsPane.vue'
 
 const store = useAppStore()
 const wb = useWorkbenchStore()
@@ -43,7 +44,9 @@ async function onBatchPublish() {}
       </div>
       <div v-else class="wb-center-placeholder">中栏(AI 工作台 + 详情)将在 F1c/F1d 实现</div>
     </main>
-    <aside class="wb-right"><!-- Task4: VariantCardsPane --></aside>
+    <aside class="wb-right">
+      <VariantCardsPane @variant-deleted="store.loadDrafts()" />
+    </aside>
   </div>
 </template>
 <style scoped>
