@@ -289,7 +289,8 @@ class DraftRepo(BaseRepo):
         rows = self.s.execute(
             select(D).where(D.c.user_id == int(user_id)).order_by(D.c.id.desc())
         ).all()
-        return [self._row_to_draft(row) for row in rows]
+        imgs = self._load_draft_images_batch([r._mapping["id"] for r in rows])
+        return [self._row_to_draft(r, imgs.get(r._mapping["id"], [])) for r in rows]
 
     def count_by_status(
         self,
@@ -353,12 +354,13 @@ class DraftRepo(BaseRepo):
             ids = [g["rep_id"] for g in page_groups]
             rows = self.s.execute(select(D).where(D.c.id.in_(ids))).all()
             by_id = {r._mapping["id"]: r for r in rows}
+            imgs = self._load_draft_images_batch(list(by_id.keys()))
             out = []
             for g in page_groups:
                 r = by_id.get(g["rep_id"])
                 if r is None:
                     continue
-                d = self._row_to_draft(r)
+                d = self._row_to_draft(r, imgs.get(r._mapping["id"], []))
                 d["group_count"] = g["count"]
                 out.append(d)
             return out, total
@@ -374,7 +376,8 @@ class DraftRepo(BaseRepo):
             .limit(page_size)
             .offset(offset)
         ).all()
-        return [self._row_to_draft(r) for r in rows], total
+        imgs = self._load_draft_images_batch([r._mapping["id"] for r in rows])
+        return [self._row_to_draft(r, imgs.get(r._mapping["id"], [])) for r in rows], total
 
     def get_draft(self, draft_id: int, user_id: int) -> dict[str, Any] | None:
         row = self.s.execute(
@@ -414,7 +417,8 @@ class DraftRepo(BaseRepo):
         rows = self.s.execute(
             select(D).where(D.c.variant_group == group).order_by(D.c.id.asc())
         ).all()
-        return [self._row_to_draft(r) for r in rows]
+        imgs = self._load_draft_images_batch([r._mapping["id"] for r in rows])
+        return [self._row_to_draft(r, imgs.get(r._mapping["id"], [])) for r in rows]
 
     # ------------------------------------------------------------------
     # 私有辅助
@@ -453,6 +457,23 @@ class DraftRepo(BaseRepo):
         ).all()
         return [{"url": r.url, "type": r.type, "source": r.source} for r in rows]
 
+    def _load_draft_images_batch(self, draft_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """一次查多个 draft 的图,按 draft_id 分组。空 ids → {}。"""
+        ids = [int(i) for i in draft_ids]
+        if not ids:
+            return {}
+        rows = self.s.execute(
+            select(DI.c.draft_id, DI.c.url, DI.c.type, DI.c.source)
+            .where(DI.c.draft_id.in_(ids))
+            .order_by(DI.c.draft_id, DI.c.position)
+        ).all()
+        out: dict[int, list[dict[str, Any]]] = {}
+        for r in rows:
+            out.setdefault(int(r.draft_id), []).append(
+                {"url": r.url, "type": r.type, "source": r.source}
+            )
+        return out
+
     def _sync_draft_images(
         self,
         draft_id: int,
@@ -488,15 +509,15 @@ class DraftRepo(BaseRepo):
                 )
             )
 
-    def _row_to_draft(self, row) -> dict[str, Any]:
+    def _row_to_draft(self, row, images: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         m = row._mapping
         source_platform = m["source_platform"]
         purchase_url = m["purchase_url"] or (
             m["source_url"] if source_platform == "1688" else ""
         )
-        # 图片全部从 draft_images 一对多表读;images_json 列已停用
-        dimg_rows = self._load_draft_images(m["id"])
-        images = [r["url"] for r in dimg_rows]
+        # 图片从 draft_images 一对多表读;列表场景由调用方预加载(批量),单行场景回退单查
+        dimg_rows = images if images is not None else self._load_draft_images(m["id"])
+        images_list = [r["url"] for r in dimg_rows]
         image_types = {r["url"]: r["type"] for r in dimg_rows if r["type"]}
         sr = loads_json(m["source_raw_json"], {})
         if image_types:
@@ -532,7 +553,7 @@ class DraftRepo(BaseRepo):
             "length_mm": m["length_mm"],
             "width_mm": m["width_mm"],
             "height_mm": m["height_mm"],
-            "images": images,
+            "images": images_list,
             "attributes": loads_json(m["attributes_json"], {}),
             "cost_cny": _to_float_or_none(m["cost_cny"]),
             "video_url": m["video_url"] or "",
