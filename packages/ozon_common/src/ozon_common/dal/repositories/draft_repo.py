@@ -533,7 +533,7 @@ class DraftRepo(BaseRepo):
             "height_mm": m["height_mm"],
             "images": images,
             "attributes": loads_json(m["attributes_json"], {}),
-            "cost_cny": m["cost_cny"],
+            "cost_cny": _to_float_or_none(m["cost_cny"]),
             "video_url": m["video_url"] or "",
             "local_images": loads_json(m["local_images_json"], []),
             "status": m["status"],

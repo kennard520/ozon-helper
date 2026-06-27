@@ -81,7 +81,12 @@ class OfferSnapshotRepo(BaseRepo):
             .order_by(T.c.captured_at.desc(), T.c.id.desc())
             .limit(1)
         ).first()
-        return dict(row._mapping) if row is not None else None
+        if row is None:
+            return None
+        d = dict(row._mapping)
+        d["price_min"] = _to_float_or_none(d.get("price_min"))
+        d["price_max"] = _to_float_or_none(d.get("price_max"))
+        return d
 
     def list_offer_snapshots(
         self, product_id: str, limit: int = 500
@@ -107,4 +112,10 @@ class OfferSnapshotRepo(BaseRepo):
             .order_by(T.c.captured_at.asc(), T.c.id.asc())
             .limit(int(limit))
         ).all()
-        return [dict(r._mapping) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r._mapping)
+            d["price_min"] = _to_float_or_none(d.get("price_min"))
+            d["price_max"] = _to_float_or_none(d.get("price_max"))
+            out.append(d)
+        return out

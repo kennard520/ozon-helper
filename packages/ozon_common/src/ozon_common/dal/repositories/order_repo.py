@@ -30,6 +30,15 @@ def _to_int_or_none(value: Any) -> int | None:
         return None
 
 
+def _to_float_or_none(value: Any) -> float | None:
+    if value in (None, "", " "):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class OrderRepo(BaseRepo):
     # ---------- 订单(postings) ----------
 
@@ -190,7 +199,12 @@ class OrderRepo(BaseRepo):
         if store_client_id is not None:
             q = q.where(PR.c.store_client_id == str(store_client_id or ""))
         rows = self.s.execute(q).all()
-        return [dict(r._mapping) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r._mapping)
+            d["cost_cny"] = _to_float_or_none(d.get("cost_cny"))
+            out.append(d)
+        return out
 
     def set_procurement_state(
         self, proc_id: int, state: str, *, note: str | None = None
