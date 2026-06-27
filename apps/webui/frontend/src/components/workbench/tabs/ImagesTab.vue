@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox, ElSelect, ElOption } from 'element-plus'
 import { useWorkbenchStore } from '../../../stores/workbench.js'
 import { useGallery } from '../../../composables/useGallery.js'
 import ImageCard from '../ImageCard.vue'
+import AiImagePanel from '../AiImagePanel.vue'
 import { SButton } from '../../../ui/index.js'
 
 const props = defineProps({ draft: { type: Object, default: () => ({}) } })
@@ -46,6 +47,7 @@ async function onFile(e) {
 
 <template>
   <div class="images-tab">
+    <AiImagePanel :draft="draft" @changed="emit('saved')" />
     <!-- 图集段 -->
     <section class="images-tab__sec">
       <div class="images-tab__head">
