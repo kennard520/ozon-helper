@@ -16,6 +16,12 @@
 
 **主流程**：左栏选草稿 → 右栏出该草稿所属**变体组**的全部变体卡（默认全选）→ 中栏流水线对「选中的变体」批量跑 AI 步骤 → 中栏下半 DetailTabs 展示/编辑「当前变体」明细。
 
+**§AI 提案审阅（ProposalPanel）**：DetailTabs 顶部条件面板（`components/workbench/ProposalPanel.vue` + `composables/useProposal.js`）。
+- **空态**（无 `draft.ai_proposal`）：「AI 文案草案」+「生成草案」(aiGenerate 完整)/「快速文案」(aiCopy)。
+- **审阅态**（有草案）：俄语标题/简介/标签(attr 23171) 编辑 + **AI 属性**(source=ai) 逐项改删 + **缺失必填**(source=missing) 待补 + 「应用到商品」(aiProposalApply 合并进正式字段+清草案)/「放弃」(patch discard)/「重新生成」。
+- 数据：`draft.ai_proposal={fields,attributes:[{id,name,value,source('ai'|'missing'),required?}]}`；逐项 `aiProposalPatch(id,{op,key?,id?,value?})`(op:edit_field/delete_field/edit_attr/delete_attr/discard)，本地 proposal 用返回值更新。
+- 规则：与 F1d-2 直填(aiFillAttributes 直写无审阅)、F1d-3b 图集计划独立；与流水线 copy 步(aiGenerate+自动 apply 批量)互补——本面板是**当前单变体精细审阅**。apply 后 `fm.load`+`wb.reload`(InfoTab/AttributesTab/流水线 copy 进度刷新)；`unmapped` 非空→toast 提示去特征 tab 手动补。
+
 **§特征 tab（AttributesTab）**：按当前变体所选 Ozon 类目展示/填写属性，三组布局：
 - **区别特征（变体维度）** 置顶，说明「合并成一张卡时各变体靠它区分」。
 - **必填** 组（标题带计数；尾注「品牌在『商品信息』tab 填」）。
@@ -114,3 +120,4 @@ InfoTab 内：`categoryModel` computed（form.category_id+type_id ↔ CategorySe
 - 2026-06-27 F1d-2 特征 tab（AttributesTab + AttrField + useAttributes）：三组布局、字典/文本字段、AI 填充、missing 提示；单一真相值模型 + 客户端算 missing + 防抖存。
 - 2026-06-27 F1d-3a 图片 tab（ImagesTab + ImageCard + useGallery）：两池(图集/素材)管理、↑↓排序、加入/移出图集、删除、来自变体借图、上传;接两池后端。
 - 2026-06-27 F1d-3b AI 出图（AiImagePanel + useImagePlan）：AI 设计图集方案 + 按槽生成(直进图集)+ 一键出全部 + 槽位状态。
+- 2026-06-27 F1d-4 AI 提案审阅（ProposalPanel + useProposal）：DetailTabs 顶部条件面板,生成草案→逐项审(标题/简介/标签/AI属性/缺失必填)→应用合并/放弃/重生成。前端重建 F1d 全部完成。
