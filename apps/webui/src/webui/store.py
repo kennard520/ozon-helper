@@ -73,6 +73,12 @@ def _warehouse_repo():
     return WarehouseRepo()
 
 
+def _order_repo():
+    """延迟构造 OrderRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.order_repo import OrderRepo  # noqa: PLC0415
+    return OrderRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -900,139 +906,25 @@ class Store:
 
     # ---------- 订单（功能5）----------
     def upsert_postings(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
-        now = utc_now_iso()
-        scid = str(store_client_id or "")
-        with self.lock:
-            for p in items or []:
-                num = str(p.get("posting_number") or "").strip()
-                if not num:
-                    continue
-                self.conn.execute(
-                    "INSERT INTO postings(posting_number, ozon_order_id, status, ship_by, "
-                    "products_json, warehouse_id, raw_json, synced_at, store_client_id) VALUES(?,?,?,?,?,?,?,?,?) "
-                    "ON CONFLICT(posting_number) DO UPDATE SET ozon_order_id=excluded.ozon_order_id, "
-                    "status=excluded.status, ship_by=excluded.ship_by, "
-                    "products_json=excluded.products_json, warehouse_id=excluded.warehouse_id, "
-                    "raw_json=excluded.raw_json, synced_at=excluded.synced_at, store_client_id=excluded.store_client_id",
-                    (num, str(p.get("ozon_order_id") or ""), str(p.get("status") or ""),
-                     p.get("ship_by"), dumps_json(p.get("products") or []),
-                     _to_int_or_none(p.get("warehouse_id")), dumps_json(p.get("raw") or {}), now, scid),
-                )
-            self.conn.commit()
+        _in_scope(lambda: _order_repo().upsert_postings(items, store_client_id))
 
     def list_postings(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
-        sql = "SELECT * FROM postings"
-        params: list[Any] = []
-        if store_client_id is not None:
-            sql += " WHERE store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        sql += " ORDER BY synced_at DESC"
-        with self.lock:
-            rows = self.conn.execute(sql, params).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["products"] = loads_json(d.pop("products_json"), [])
-            d["raw"] = loads_json(d.pop("raw_json"), {})
-            out.append(d)
-        return out
+        return _in_scope(lambda: _order_repo().list_postings(store_client_id))
 
     def get_posting(self, posting_number: str) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM postings WHERE posting_number=? LIMIT 1", (str(posting_number),)
-            ).fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        d["products"] = loads_json(d.pop("products_json"), [])
-        d["raw"] = loads_json(d.pop("raw_json"), {})
-        return d
+        return _in_scope(lambda: _order_repo().get_posting(posting_number))
 
     # ---------- 备货（功能5）----------
     def rebuild_procurement(self, store_client_id: str = "") -> None:
         """按 postings × drafts(offer_id) JOIN 重建待采购行；已存在的保留采购状态/备注。
         按店重建：只用该店 postings，offer_id 在该店草稿里找供应商/成本，采购行带 store_client_id。"""
-        scid = str(store_client_id or "")
-        with self.lock:
-            existing = {
-                (r["posting_number"], r["offer_id"]): r
-                for r in self.conn.execute(
-                    "SELECT posting_number, offer_id, purchase_state, note FROM procurement WHERE store_client_id=?",
-                    (scid,),
-                ).fetchall()
-            }
-            now = utc_now_iso()
-            for p in self.conn.execute(
-                "SELECT posting_number, products_json FROM postings WHERE store_client_id=?", (scid,)
-            ).fetchall():
-                for prod in loads_json(p["products_json"], []):
-                    offer_id = str(prod.get("offer_id") or "").strip()
-                    if not offer_id:
-                        continue
-                    qty = _to_int_or_none(prod.get("quantity")) or 1
-                    src = self.conn.execute(
-                        "SELECT supplier, purchase_url, cost_cny FROM drafts "
-                        "WHERE offer_id=? AND store_client_id=? LIMIT 1",
-                        (offer_id, scid),
-                    ).fetchone()
-                    # SELECT 已显式取这 3 列；src 为空（草稿里没这个 offer_id）时回退默认
-                    supplier = src["supplier"] if src else ""
-                    purchase_url = src["purchase_url"] if src else ""
-                    cost_cny = src["cost_cny"] if src else None
-                    prev = existing.get((p["posting_number"], offer_id))
-                    state = prev["purchase_state"] if prev else "待采购"
-                    note = prev["note"] if prev else ""
-                    self.conn.execute(
-                        "INSERT INTO procurement(posting_number, offer_id, qty, purchase_state, "
-                        "supplier, purchase_url, cost_cny, note, updated_at, store_client_id) "
-                        "VALUES(?,?,?,?,?,?,?,?,?,?) "
-                        "ON CONFLICT(posting_number, offer_id) DO UPDATE SET qty=excluded.qty, "
-                        "supplier=excluded.supplier, purchase_url=excluded.purchase_url, "
-                        "cost_cny=excluded.cost_cny, updated_at=excluded.updated_at, "
-                        "store_client_id=excluded.store_client_id",
-                        (p["posting_number"], offer_id, qty, state,
-                         str(supplier or ""), str(purchase_url or ""), cost_cny, note, now, scid),
-                    )
-            self.conn.commit()
+        _in_scope(lambda: _order_repo().rebuild_procurement(store_client_id))
 
     def list_procurement(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
-        where = ""
-        params: list[Any] = []
-        if store_client_id is not None:
-            where = "WHERE p.store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        with self.lock:
-            # JOIN postings 取 ship_by，按截止时间升序（最紧急在前）；
-            # NULL/空 ship_by 放最后（CASE coalesce NULL/'' → '9999...'）；
-            # 相同 ship_by 按 posting_number 稳定排序。
-            rows = self.conn.execute(
-                f"""
-                SELECT p.*, COALESCE(po.ship_by, '') AS ship_by
-                FROM procurement p
-                LEFT JOIN postings po ON po.posting_number = p.posting_number
-                {where}
-                ORDER BY
-                    CASE WHEN COALESCE(po.ship_by, '') = '' THEN '9999-99-99' ELSE po.ship_by END ASC,
-                    p.posting_number ASC
-                """,
-                params,
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _order_repo().list_procurement(store_client_id))
 
     def set_procurement_state(self, proc_id: int, state: str, *, note: str | None = None) -> None:
-        with self.lock:
-            if note is None:
-                self.conn.execute(
-                    "UPDATE procurement SET purchase_state=?, updated_at=? WHERE id=?",
-                    (str(state), utc_now_iso(), int(proc_id)),
-                )
-            else:
-                self.conn.execute(
-                    "UPDATE procurement SET purchase_state=?, note=?, updated_at=? WHERE id=?",
-                    (str(state), str(note), utc_now_iso(), int(proc_id)),
-                )
-            self.conn.commit()
+        _in_scope(lambda: _order_repo().set_procurement_state(proc_id, state, note=note))
 
     # ---------- 跟卖快照（插件用）----------
     def add_offer_snapshot(self, snap: dict[str, Any]) -> dict[str, Any]:
