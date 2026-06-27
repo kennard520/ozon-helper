@@ -53,8 +53,10 @@ repo 方法均按 `image_id`，用 `draft_id + id` 双条件防越权。
 ### F1d-3b AI 出图 —— 📋 待建
 design-image-plan（AI 设计图集槽位）→ image-plan（拉计划+槽状态）→ generate-plan-slot（按槽生成进候选区）→ apply-candidates/discard-candidates（应用/丢弃候选）。候选区 + 槽位 UI 待建。
 
-### ⚠️ 已知风险（验收实证）
-素材（in_gallery=0 采集图）若是 1688 防盗链原链、且 `local_images` 只并行图集 → 素材区可能显示不出。若发生，小后端补丁：getDraft 给每个 material 加 `local_url`。
+### ✅ 已修复（2026-06-27）
+素材（in_gallery=0 采集图）防盗链显示问题已彻底修复：
+- **后端**：`draft_images` 加 `local_url` 列（String(1024), nullable=False, server_default=""）；迁移 0007（MySQL 存量库加列）；采集落库 `_sync_draft_images(gallery=False)` 时按 `images[i] ↔ local_images[i]` 平行取值随行存；`getDraft` 的 `materials` 每项返回 `local_url`。
+- **前端**：`useGallery.js` 新增并导出 `localUrlOf(item)` = `(item.local_url) || localUrl(item.url)`；`ImagesTab.vue` 三段 ImageCard（图集、素材库、借图）的 `:local-url` 均改用 `g.localUrlOf(it/m)`，优先 `local_url`，无则回退图集 zip 代理。
 
 ## 5. 遗留 Minor（可跟进，非阻塞）
 - `list_pending_media_drafts` 返回字段名 `images` 实含全部图（语义模糊，插件用）。
@@ -63,3 +65,4 @@ design-image-plan（AI 设计图集槽位）→ image-plan（拉计划+槽状态
 
 ## 变更历史
 - 2026-06-27 后端两池模型完成（提交链 `3a854d2`→`e016e8c`+`6001b5c`，673 passed）。建文档基线。
+- 2026-06-27 draft_images 加 local_url 列（迁移 0007）+ 前端 localUrlOf 优先用，素材防盗链显示已修复。
