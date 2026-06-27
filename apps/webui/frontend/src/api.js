@@ -26,6 +26,7 @@ export const api = {
   saveSettings: (p) => req('POST', '/api/settings', p),
   aiModels: (kind, base, key, platform) => req('POST', '/api/ai/models', { kind, base, key, platform }),
   listDrafts: (params = {}) => { const q = qs(params); return req('GET', q ? `/api/drafts?${q}` : '/api/drafts') },
+  getDraft: (id) => req('GET', `/api/drafts/${id}`),
   patchDraft: (id, patch) => req('PATCH', `/api/drafts/${id}`, patch),
   batchUpdateDrafts: (ids, patch) => req('POST', '/api/drafts/batch-update', { ids, ...patch }),
   batchPublish: (ids, store_client_id) => req('POST', '/api/drafts/batch-publish', store_client_id ? { ids, store_client_id } : { ids }),
