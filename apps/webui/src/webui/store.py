@@ -61,6 +61,12 @@ def _user_repo():
     return UserRepo()
 
 
+def _wallet_repo():
+    """延迟构造 WalletRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.wallet_repo import WalletRepo  # noqa: PLC0415
+    return WalletRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -470,86 +476,39 @@ class Store:
         store_client_id 关联数据（仓库/订单/采购/快照）一起删。不可逆。"""
         return _in_scope(lambda: _user_repo().delete_user(user_id))
 
-    # ---- 钱包（按 user_id 隔离，contextvar 默认）----
+    # ---- 钱包（按 user_id 隔离，contextvar 默认；转调 WalletRepo）----
+    # recharge/deduct/refund「改余额 + 写流水」整体在一个 _in_scope 内完成 →
+    # 单 session 单事务 → 原子（详见 wallet_repo.py）。
     def get_account(self, user_id: int | None = None) -> dict[str, Any]:
         """取账户，没有则开户（余额0）。"""
         user_id = _uid(user_id)
-        with self.lock:
-            row = self.conn.execute("SELECT * FROM accounts WHERE user_id = ?", (user_id,)).fetchone()
-            if row is None:
-                self.conn.execute(
-                    "INSERT INTO accounts(user_id, balance, total_recharge, total_consume, updated_at) "
-                    "VALUES(?, 0, 0, 0, ?)",
-                    (user_id, utc_now_iso()),
-                )
-                self.conn.commit()
-                row = self.conn.execute("SELECT * FROM accounts WHERE user_id = ?", (user_id,)).fetchone()
-        return dict(row)
-
-    def _add_txn(self, user_id: int, txn_type: str, amount: float, balance_after: float,
-                 biz_no: str | None, remark: str | None) -> None:
-        self.conn.execute(
-            "INSERT INTO account_txns(user_id, txn_type, amount, balance_after, biz_no, remark, created_at) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (user_id, txn_type, float(amount), float(balance_after), biz_no, remark, utc_now_iso()),
-        )
+        return _in_scope(lambda: _wallet_repo().get_account(user_id))
 
     def recharge(self, amount: float, *, remark: str = "", biz_no: str | None = None,
                  user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
-        self.get_account(user_id)
-        with self.lock:
-            self.conn.execute(
-                "UPDATE accounts SET balance=balance+?, total_recharge=total_recharge+?, updated_at=? "
-                "WHERE user_id=?",
-                (float(amount), float(amount), utc_now_iso(), user_id),
-            )
-            bal = self.conn.execute("SELECT balance FROM accounts WHERE user_id=?", (user_id,)).fetchone()[0]
-            self._add_txn(user_id, "recharge", amount, bal, biz_no, remark)
-            self.conn.commit()
-        return self.get_account(user_id)
+        return _in_scope(
+            lambda: _wallet_repo().recharge(amount, remark=remark, biz_no=biz_no, user_id=user_id)
+        )
 
     def deduct(self, amount: float, *, biz_no: str | None = None, remark: str = "",
                user_id: int | None = None) -> bool:
         """原子扣款：仅 balance>=amount 才扣（条件 UPDATE 防并发超扣）。成功 True，余额不足 False。"""
         user_id = _uid(user_id)
-        self.get_account(user_id)
-        with self.lock:
-            cur = self.conn.execute(
-                "UPDATE accounts SET balance=balance-?, total_consume=total_consume+?, updated_at=? "
-                "WHERE user_id=? AND balance>=?",
-                (float(amount), float(amount), utc_now_iso(), user_id, float(amount)),
-            )
-            if cur.rowcount != 1:
-                self.conn.commit()
-                return False
-            bal = self.conn.execute("SELECT balance FROM accounts WHERE user_id=?", (user_id,)).fetchone()[0]
-            self._add_txn(user_id, "consume", amount, bal, biz_no, remark)
-            self.conn.commit()
-        return True
+        return _in_scope(
+            lambda: _wallet_repo().deduct(amount, biz_no=biz_no, remark=remark, user_id=user_id)
+        )
 
     def refund(self, amount: float, *, biz_no: str | None = None, remark: str = "",
                user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
-        self.get_account(user_id)
-        with self.lock:
-            self.conn.execute(
-                "UPDATE accounts SET balance=balance+?, updated_at=? WHERE user_id=?",
-                (float(amount), utc_now_iso(), user_id),
-            )
-            bal = self.conn.execute("SELECT balance FROM accounts WHERE user_id=?", (user_id,)).fetchone()[0]
-            self._add_txn(user_id, "refund", amount, bal, biz_no, remark)
-            self.conn.commit()
-        return self.get_account(user_id)
+        return _in_scope(
+            lambda: _wallet_repo().refund(amount, biz_no=biz_no, remark=remark, user_id=user_id)
+        )
 
     def list_txns(self, user_id: int | None = None, limit: int = 200) -> list[dict[str, Any]]:
         user_id = _uid(user_id)
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM account_txns WHERE user_id=? ORDER BY id DESC LIMIT ?",
-                (user_id, int(limit)),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _wallet_repo().list_txns(user_id, limit))
 
     def _unique_offer_id(self, base: str, exclude_id: int | None = None) -> str:
         """保证货号唯一：撞库就加 -2/-3。调用方需已持锁（直接读 self.conn）。"""
