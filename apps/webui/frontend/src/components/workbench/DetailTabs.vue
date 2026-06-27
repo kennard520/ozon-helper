@@ -8,6 +8,7 @@ import PurchaseTab from './tabs/PurchaseTab.vue'
 import VideoTab from './tabs/VideoTab.vue'
 import RichTextTab from './tabs/RichTextTab.vue'
 import AttributesTab from './tabs/AttributesTab.vue'
+import ImagesTab from './tabs/ImagesTab.vue'
 
 const wb = useWorkbenchStore()
 const fm = useDraftForm(computed(() => wb.currentVariantId))
@@ -27,7 +28,7 @@ const TABS = [
       <VideoTab v-else-if="active === 'video'" :draft="fm.draft.value" @save="fm.save" />
       <RichTextTab v-else-if="active === 'richtext'" :draft="fm.draft.value" />
       <AttributesTab v-else-if="active === 'attrs'" :draft="fm.draft.value" @saved="fm.load" />
-      <div v-else-if="active === 'images'" class="dt__ph">图片 tab 将在 F1d-3 实现(接素材/图集)</div>
+      <ImagesTab v-else-if="active === 'images'" :draft="fm.draft.value" @saved="fm.load" />
     </div>
   </div>
 </template>
