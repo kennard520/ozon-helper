@@ -1,7 +1,7 @@
 # 变体工作台（Workbench）
 
 > 核心页面：商品草稿 + 变体 + AI 上架工作台。挂在路由 `/`（`views/Workbench.vue`）。
-> 这是前端重建的主战场，绞杀旧 `DraftDetail.vue`（2992 行 god-component，临时挂 `/drafts-classic` 兜底，F1 完成后删）。
+> 这是前端重建的主战场。旧 `DraftDetail.vue`（2992 行 god-component）+ `Collect.vue` + `/drafts-classic` 路由 **已于 2026-06-27 F1 收口删除**（能力全迁入本工作台，提交 a35f824）。
 > 本文档随功能改动持续更新（交互/数据/规则三块）。
 
 ## 1. 交互（页面结构与操作流程）
@@ -121,3 +121,4 @@ InfoTab 内：`categoryModel` computed（form.category_id+type_id ↔ CategorySe
 - 2026-06-27 F1d-3a 图片 tab（ImagesTab + ImageCard + useGallery）：两池(图集/素材)管理、↑↓排序、加入/移出图集、删除、来自变体借图、上传;接两池后端。
 - 2026-06-27 F1d-3b AI 出图（AiImagePanel + useImagePlan）：AI 设计图集方案 + 按槽生成(直进图集)+ 一键出全部 + 槽位状态。
 - 2026-06-27 F1d-4 AI 提案审阅（ProposalPanel + useProposal）：DetailTabs 顶部条件面板,生成草案→逐项审(标题/简介/标签/AI属性/缺失必填)→应用合并/放弃/重生成。前端重建 F1d 全部完成。
+- 2026-06-27 F1 收口（a35f824）：删 DraftDetail.vue(2992行)+Collect.vue god-component、退役 /drafts-classic;净删 4019 行;历史失败测试 32→5(剩 Settings.vue AI 配置既有 rot)。**前端重建闭环**。
