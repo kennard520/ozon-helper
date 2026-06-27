@@ -450,27 +450,34 @@ class DraftRepo(BaseRepo):
         return groups
 
     def _load_draft_images(self, draft_id: int) -> list[dict[str, Any]]:
+        """加载单个 draft 的全部图(含 id/in_gallery),按 position 排序。"""
         rows = self.s.execute(
-            select(DI.c.url, DI.c.type, DI.c.source)
+            select(DI.c.id, DI.c.url, DI.c.type, DI.c.source, DI.c.in_gallery, DI.c.position)
             .where(DI.c.draft_id == int(draft_id))
             .order_by(DI.c.position)
         ).all()
-        return [{"url": r.url, "type": r.type, "source": r.source} for r in rows]
+        return [
+            {"id": int(r.id), "url": r.url, "type": r.type, "source": r.source,
+             "in_gallery": int(r.in_gallery), "position": int(r.position)}
+            for r in rows
+        ]
 
     def _load_draft_images_batch(self, draft_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
-        """一次查多个 draft 的图,按 draft_id 分组。空 ids → {}。"""
+        """一次查多个 draft 的全部图(含 id/in_gallery),按 draft_id 分组。空 ids → {}。"""
         ids = [int(i) for i in draft_ids]
         if not ids:
             return {}
         rows = self.s.execute(
-            select(DI.c.draft_id, DI.c.url, DI.c.type, DI.c.source)
+            select(DI.c.draft_id, DI.c.id, DI.c.url, DI.c.type, DI.c.source,
+                   DI.c.in_gallery, DI.c.position)
             .where(DI.c.draft_id.in_(ids))
             .order_by(DI.c.draft_id, DI.c.position)
         ).all()
         out: dict[int, list[dict[str, Any]]] = {}
         for r in rows:
             out.setdefault(int(r.draft_id), []).append(
-                {"url": r.url, "type": r.type, "source": r.source}
+                {"id": int(r.id), "url": r.url, "type": r.type, "source": r.source,
+                 "in_gallery": int(r.in_gallery), "position": int(r.position)}
             )
         return out
 
@@ -516,9 +523,11 @@ class DraftRepo(BaseRepo):
             m["source_url"] if source_platform == "1688" else ""
         )
         # 图片从 draft_images 一对多表读;列表场景由调用方预加载(批量),单行场景回退单查
-        dimg_rows = images if images is not None else self._load_draft_images(m["id"])
-        images_list = [r["url"] for r in dimg_rows]
-        image_types = {r["url"]: r["type"] for r in dimg_rows if r["type"]}
+        # all_imgs = 全部图(materials);images/image_types 只取图集(in_gallery=1)
+        all_imgs = images if images is not None else self._load_draft_images(m["id"])
+        gallery = [r for r in all_imgs if r.get("in_gallery", 1)]
+        images_list = [r["url"] for r in gallery]
+        image_types = {r["url"]: r["type"] for r in gallery if r["type"]}
         sr = loads_json(m["source_raw_json"], {})
         if image_types:
             sr["image_types"] = image_types
@@ -554,6 +563,12 @@ class DraftRepo(BaseRepo):
             "width_mm": m["width_mm"],
             "height_mm": m["height_mm"],
             "images": images_list,
+            "materials": [
+                {"id": r["id"], "url": r["url"], "type": r["type"],
+                 "source": r["source"], "in_gallery": r["in_gallery"],
+                 "position": r["position"]}
+                for r in all_imgs
+            ],
             "attributes": loads_json(m["attributes_json"], {}),
             "cost_cny": _to_float_or_none(m["cost_cny"]),
             "video_url": m["video_url"] or "",
