@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 
 from ozon_common.dal.repositories.base import BaseRepo
 from ozon_common.dal.schema import draft_images as DI
@@ -69,6 +69,38 @@ class DraftImageRepo(BaseRepo):
             )
         )
         return int(res.inserted_primary_key[0])
+
+    # ------------------------------------------------------------------
+    # 图集细粒度操作(按 image_id,不误删素材池)
+    # ------------------------------------------------------------------
+
+    def add_to_gallery(self, draft_id, image_ids):
+        """将指定 id 的图片加入图集(in_gallery=1),并在图集末尾追加 position。"""
+        ids = [int(i) for i in image_ids]
+        if not ids:
+            return
+        base = (self.s.execute(select(func.coalesce(func.max(DI.c.position), -1) + 1)
+                .where(DI.c.draft_id == int(draft_id), DI.c.in_gallery == 1)).scalar() or 0)
+        for off, iid in enumerate(ids):
+            self.s.execute(update(DI).where(DI.c.id == iid, DI.c.draft_id == int(draft_id))
+                           .values(in_gallery=1, position=int(base) + off))
+
+    def remove_from_gallery(self, draft_id, image_ids):
+        """将指定 id 的图片移出图集(in_gallery=0),图片本身保留在素材池。"""
+        ids = [int(i) for i in image_ids]
+        if ids:
+            self.s.execute(update(DI).where(DI.c.draft_id == int(draft_id), DI.c.id.in_(ids))
+                           .values(in_gallery=0))
+
+    def delete_image(self, draft_id, image_id):
+        """彻底删除单张图片行(素材池+图集都不保留)。双条件防跨草稿误删。"""
+        self.s.execute(delete(DI).where(DI.c.draft_id == int(draft_id), DI.c.id == int(image_id)))
+
+    def reorder_gallery(self, draft_id, ordered_image_ids):
+        """按给定 id 顺序重设图集 position(从 0 开始)。只更新 in_gallery=1 的图片。"""
+        for pos, iid in enumerate(int(i) for i in ordered_image_ids):
+            self.s.execute(update(DI).where(DI.c.id == iid, DI.c.draft_id == int(draft_id),
+                           DI.c.in_gallery == 1).values(position=pos))
 
     # ------------------------------------------------------------------
     # drafts 读(含拼装 draft_images)
