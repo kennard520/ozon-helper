@@ -79,6 +79,12 @@ def _order_repo():
     return OrderRepo()
 
 
+def _draft_repo():
+    """延迟构造 DraftRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.draft_repo import DraftRepo  # noqa: PLC0415
+    return DraftRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -522,157 +528,33 @@ class Store:
         user_id = _uid(user_id)
         return _in_scope(lambda: _wallet_repo().list_txns(user_id, limit))
 
-    def _unique_offer_id(self, base: str, exclude_id: int | None = None) -> str:
-        """保证货号唯一：撞库就加 -2/-3。调用方需已持锁（直接读 self.conn）。"""
-        cand, n = base, 1
-        while True:
-            row = self.conn.execute("SELECT id FROM drafts WHERE offer_id=? LIMIT 1", (cand,)).fetchone()
-            if not row or (exclude_id is not None and int(row["id"]) == int(exclude_id)):
-                return cand
-            n += 1
-            cand = f"{base}-{n}"
-
     def insert_draft(self, draft: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
         store_cid = str(draft.get("store_client_id") or "")
-        with self.lock:
-            # 草稿绑定店：去重按 (user, store, source_url)，让同一来源能在多个店各存一份
-            existing = self.find_by_source_url(draft["source_url"], user_id, store_cid)
-            if existing:
-                return existing
-            errors = validate_draft(draft)
-            # 货号(必填)：来源已带就用；否则按 {平台}-{变体维度} 生成、撞库去重
-            offer_id_val = str(draft.get("offer_id") or "").strip()
-            if not offer_id_val:
-                offer_id_val = self._unique_offer_id(
-                    _offer_id_base(draft.get("source_platform"), draft.get("source_raw")))
-            cur = self.conn.execute(
-                """
-                INSERT INTO drafts (
-                    user_id, store_client_id,
-                    source_platform, source_url, source_offer_id, source_title, purchase_url,
-                    purchase_note, ozon_title, description, category_id, type_id,
-                    brand_id, brand_name, price, old_price,
-                    stock, weight_g, length_mm, width_mm, height_mm,
-                    cost_cny, video_url, local_images_json,
-                    source, ozon_product_id, offer_id, supplier, source_raw_json, variant_group,
-                    images_json, attributes_json, status, validation_errors_json,
-                    publish_response_json, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    int(user_id),
-                    store_cid,
-                    draft.get("source_platform", "1688"),
-                    draft["source_url"],
-                    draft.get("source_offer_id"),
-                    draft["source_title"],
-                    draft.get("purchase_url", ""),
-                    draft.get("purchase_note", ""),
-                    draft["ozon_title"],
-                    draft["description"],
-                    draft["category_id"],
-                    draft.get("type_id", ""),
-                    _to_int_or_none(draft.get("brand_id")),
-                    str(draft.get("brand_name") or ""),
-                    draft["price"],
-                    draft["old_price"],
-                    draft["stock"],
-                    draft.get("weight_g"),
-                    draft.get("length_mm"),
-                    draft.get("width_mm"),
-                    draft.get("height_mm"),
-                    _to_float_or_none(draft.get("cost_cny")),
-                    str(draft.get("video_url") or ""),
-                    dumps_json(draft.get("local_images") or []),
-                    str(draft.get("source") or ""),
-                    _to_int_or_none(draft.get("ozon_product_id")),
-                    offer_id_val,
-                    str(draft.get("supplier") or ""),
-                    dumps_json(draft.get("source_raw") or {}),
-                    str((draft.get("source_raw") or {}).get("variant_group") or "").strip(),
-                    dumps_json([]),
-                    dumps_json(draft["attributes"]),
-                    "invalid" if errors else draft["status"],
-                    dumps_json(errors),
-                    dumps_json(draft["publish_response"]) if draft["publish_response"] is not None else None,
-                    draft["created_at"],
-                    draft["updated_at"],
-                ),
-            )
-            self._sync_draft_images(
-                cur.lastrowid, draft["images"],
-                (draft.get("source_raw") or {}).get("image_types"))
-            self.conn.commit()
-            return self.find_by_source_url(draft["source_url"], user_id) or draft
+        # validate_draft / _offer_id_base 是 webui-only 逻辑，留在 Store 层算好再转调 repo
+        errors = list(validate_draft(draft))
+        status = "invalid" if errors else draft["status"]
+        offer_id_base = _offer_id_base(draft.get("source_platform"), draft.get("source_raw"))
+        return _in_scope(lambda: _draft_repo().insert_draft(
+            draft, user_id=user_id, store_cid=store_cid,
+            errors=errors, status=status, offer_id_base=offer_id_base,
+        ))
 
     def set_media_status(self, draft_id: int, status: str) -> None:
-        with self.lock:
-            self.conn.execute("UPDATE drafts SET media_status=?, updated_at=? WHERE id=?",
-                              (str(status), utc_now_iso(), int(draft_id)))
-            self.conn.commit()
+        _in_scope(lambda: _draft_repo().set_media_status(draft_id, status))
 
     def apply_media_oss(self, draft_id: int, media_map: dict) -> None:
         """把草稿 images/video_url 里命中 media_map 的原 URL 换成 OSS URL，并置 media_status=done。
         从 draft_images 表读、_sync_draft_images 写。"""
-        with self.lock:
-            imgs = [r["url"] for r in self._load_draft_images(draft_id)]
-            if not imgs:
-                return
-            new_imgs = [media_map.get(u, u) for u in imgs]
-            video_row = self.conn.execute("SELECT video_url FROM drafts WHERE id=?",
-                                         (int(draft_id),)).fetchone()
-            vurl = (video_row["video_url"] or "") if video_row else ""
-            new_vurl = media_map.get(vurl, vurl)
-            self.conn.execute(
-                "UPDATE drafts SET video_url=?, media_status='done', updated_at=? WHERE id=?",
-                (new_vurl, utc_now_iso(), int(draft_id)))
-            self._sync_draft_images(draft_id, new_imgs)
-            self.conn.commit()
+        _in_scope(lambda: _draft_repo().apply_media_oss(draft_id, media_map))
 
     def list_pending_media_drafts(self, user_id: int) -> list[dict]:
         """当前用户 media_status=pending 的草稿，返回 [{id, images, video_url}]，供插件补传。"""
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT id, video_url FROM drafts WHERE user_id=? AND media_status='pending'",
-                (int(user_id),)).fetchall()
-        return [{"id": r["id"],
-                 "images": [x["url"] for x in self._load_draft_images(r["id"])],
-                 "video_url": r["video_url"] or ""} for r in rows]
+        return _in_scope(lambda: _draft_repo().list_pending_media_drafts(int(user_id)))
 
     def list_drafts(self, user_id: int | None = None) -> list[dict[str, Any]]:
         user_id = _uid(user_id)
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM drafts WHERE user_id = ? ORDER BY id DESC", (int(user_id),)
-            ).fetchall()
-        return [self._row_to_draft(row) for row in rows]
-
-    def _variant_group_of(self, source_raw_json: Any) -> str:
-        """从 source_raw_json 取 variant_group（同组合并键）；无则空串。"""
-        sr = loads_json(source_raw_json, {}) or {}
-        return str((sr.get("variant_group") if isinstance(sr, dict) else "") or "").strip()
-
-    def _group_keys(self, where: str, params: list) -> list[dict[str, Any]]:
-        """轻量分组索引：只取 id/status/variant_group(不碰大 JSON 字段)，按 variant_group 归并成组。
-        返回 [{rep_id, status, count}]，代表=组内最新(id 最大)，按代表 id DESC 排列。
-        靠 variant_group 索引列，整表只读三列、不解析 JSON——比拉全行快得多。"""
-        with self.lock:
-            rows = self.conn.execute(
-                f"SELECT id, status, variant_group FROM drafts {where} ORDER BY id DESC", params
-            ).fetchall()
-        groups: list[dict[str, Any]] = []
-        seen: dict[str, int] = {}
-        for r in rows:
-            vg = str(r["variant_group"] or "").strip() if "variant_group" in r.keys() else ""
-            key = f"vg::{vg}" if vg else f"id::{r['id']}"
-            if key in seen:
-                groups[seen[key]]["count"] += 1
-            else:
-                seen[key] = len(groups)
-                groups.append({"rep_id": r["id"], "status": r["status"], "count": 1})
-        return groups
+        return _in_scope(lambda: _draft_repo().list_drafts(user_id))
 
     def count_by_status(self, user_id: int | None = None, store_client_id: str | None = None,
                         group: bool = False) -> dict[str, int]:
@@ -680,29 +562,8 @@ class Store:
         store_client_id 非 None 时按当前店过滤（草稿绑定店后，列表/计数都是店级）。
         group=True：按变体组计数（一个组算一条，组的状态=代表/最新成员的状态），与分组列表对齐。"""
         user_id = _uid(user_id)
-        where, params = ("WHERE user_id = ?", [int(user_id)])
-        if store_client_id is not None:
-            where += " AND store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        counts = {"all": 0, "invalid": 0, "ready": 0, "failed": 0, "published": 0}
-        if group:
-            groups = self._group_keys(where, params)   # 轻量(三列)分组，组状态=代表状态
-            for g in groups:
-                if g["status"] in counts:
-                    counts[g["status"]] += 1
-            counts["all"] = len(groups)
-            return counts
-        with self.lock:
-            counts["all"] = self.conn.execute(
-                f"SELECT COUNT(*) c FROM drafts {where}", params
-            ).fetchone()["c"]
-            rows = self.conn.execute(
-                f"SELECT status, COUNT(*) c FROM drafts {where} GROUP BY status", params
-            ).fetchall()
-        for r in rows:
-            if r["status"] in counts:
-                counts[r["status"]] += r["c"]
-        return counts
+        return _in_scope(lambda: _draft_repo().count_by_status(
+            user_id, store_client_id=store_client_id, group=group))
 
     def list_drafts_page(
         self, *, status: str = "all", page: int = 1, page_size: int = 20,
@@ -712,89 +573,31 @@ class Store:
         group=True：同一 variant_group 只出代表行(最新成员)+group_count，再对「组」分页；status 按组代表状态过滤
         （与 count_by_status(group=True) 同一口径，保证 Tab 数字 = 列表行数、不跨页重复）。"""
         user_id = _uid(user_id)
-        status = (status or "all").strip()
-        page = max(1, int(page))
-        page_size = max(1, min(int(page_size), 200))   # 上限 200，防一次拉爆
-        base_where, base_params = ("WHERE user_id = ?", [int(user_id)])
-        if store_client_id is not None:
-            base_where += " AND store_client_id = ?"
-            base_params.append(str(store_client_id or ""))
-        if group:
-            groups = self._group_keys(base_where, base_params)   # 轻量分组(不解析 JSON)
-            if status not in ("", "all"):
-                groups = [g for g in groups if g["status"] == status]
-            total = len(groups)
-            offset = (page - 1) * page_size
-            page_groups = groups[offset:offset + page_size]
-            if not page_groups:
-                return [], total
-            ids = [g["rep_id"] for g in page_groups]
-            with self.lock:   # 只对「当页代表」那 ~20 行做整行解析，避免全表 _row_to_draft
-                placeholders = ",".join("?" for _ in ids)
-                rows = self.conn.execute(
-                    f"SELECT * FROM drafts WHERE id IN ({placeholders})", ids
-                ).fetchall()
-            by_id = {r["id"]: r for r in rows}
-            out = []
-            for g in page_groups:
-                r = by_id.get(g["rep_id"])
-                if r is None:
-                    continue
-                d = self._row_to_draft(r)
-                d["group_count"] = g["count"]
-                out.append(d)
-            return out, total
-        where, params = base_where, list(base_params)
-        if status not in ("", "all"):
-            where += " AND status = ?"
-            params.append(status)
-        offset = (page - 1) * page_size
-        with self.lock:
-            total = self.conn.execute(
-                f"SELECT COUNT(*) c FROM drafts {where}", params
-            ).fetchone()["c"]
-            rows = self.conn.execute(
-                f"SELECT * FROM drafts {where} ORDER BY id DESC LIMIT ? OFFSET ?",
-                [*params, page_size, offset],
-            ).fetchall()
-        return [self._row_to_draft(r) for r in rows], total
+        return _in_scope(lambda: _draft_repo().list_drafts_page(
+            status=status, page=page, page_size=page_size,
+            user_id=user_id, store_client_id=store_client_id, group=group))
 
     def get_draft(self, draft_id: int, user_id: int | None = None) -> dict[str, Any] | None:
         user_id = _uid(user_id)
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM drafts WHERE id = ? AND user_id = ?", (draft_id, int(user_id))
-            ).fetchone()
-        return self._row_to_draft(row) if row else None
+        return _in_scope(lambda: _draft_repo().get_draft(draft_id, user_id))
 
     def find_by_source_url(
         self, source_url: str, user_id: int | None = None, store_client_id: str | None = None
     ) -> dict[str, Any] | None:
         """按 (user, source_url) 查；store_client_id 非 None 时再按店过滤（草稿绑定店后去重要按店）。"""
         user_id = _uid(user_id)
-        sql = "SELECT * FROM drafts WHERE source_url = ? AND user_id = ?"
-        params: list[Any] = [source_url, int(user_id)]
-        if store_client_id is not None:
-            sql += " AND store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        sql += " ORDER BY id DESC LIMIT 1"
-        with self.lock:
-            row = self.conn.execute(sql, params).fetchone()
-        return self._row_to_draft(row) if row else None
+        return _in_scope(lambda: _draft_repo().find_by_source_url(
+            source_url, user_id, store_client_id))
 
     def find_by_offer_id(self, offer_id: str, user_id: int | None = None) -> dict[str, Any] | None:
         user_id = _uid(user_id)
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT * FROM drafts WHERE offer_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-                (str(offer_id), int(user_id)),
-            ).fetchone()
-        return self._row_to_draft(row) if row else None
+        return _in_scope(lambda: _draft_repo().find_by_offer_id(str(offer_id), user_id))
 
     def update_draft(self, draft_id: int, patch: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
-        with self.lock:
-            current = self.get_draft(draft_id, user_id)
+        def _do() -> dict[str, Any]:
+            repo = _draft_repo()
+            current = repo.get_draft(draft_id, user_id)
             if current is None:
                 raise KeyError(f"draft {draft_id} not found")
             updated = {**current, **patch, "updated_at": utc_now_iso()}
@@ -804,86 +607,18 @@ class Store:
                 if extra not in errors:
                     errors.append(extra)
             status = patch.get("status") or ("ready" if not errors else "invalid")
-            self.conn.execute(
-                """
-                UPDATE drafts
-                SET source_platform=?, source_title=?, purchase_url=?, purchase_note=?,
-                    ozon_title=?, description=?, category_id=?, type_id=?,
-                    brand_id=?, brand_name=?, price=?, old_price=?,
-                    stock=?, weight_g=?, length_mm=?, width_mm=?, height_mm=?,
-                    cost_cny=?, video_url=?, local_images_json=?,
-                    source=?, ozon_product_id=?, offer_id=?, supplier=?, warehouse_id=?, source_raw_json=?, variant_group=?,
-                    images_json=?, attributes_json=?, status=?,
-                    validation_errors_json=?, publish_response_json=?, pricing_json=?, updated_at=?
-                WHERE id=?
-                """,
-                (
-                    updated.get("source_platform", "1688"),
-                    updated["source_title"],
-                    updated.get("purchase_url", ""),
-                    updated.get("purchase_note", ""),
-                    updated["ozon_title"],
-                    updated["description"],
-                    updated["category_id"],
-                    str(updated.get("type_id") or ""),
-                    _to_int_or_none(updated.get("brand_id")),
-                    str(updated.get("brand_name") or ""),
-                    updated["price"],
-                    updated["old_price"],
-                    int(updated["stock"]),
-                    _to_int_or_none(updated.get("weight_g")),
-                    _to_int_or_none(updated.get("length_mm")),
-                    _to_int_or_none(updated.get("width_mm")),
-                    _to_int_or_none(updated.get("height_mm")),
-                    _to_float_or_none(updated.get("cost_cny")),
-                    str(updated.get("video_url") or ""),
-                    dumps_json(updated.get("local_images") or []),
-                    str(updated.get("source") or ""),
-                    _to_int_or_none(updated.get("ozon_product_id")),
-                    str(updated.get("offer_id") or ""),
-                    str(updated.get("supplier") or ""),
-                    _to_int_or_none(updated.get("warehouse_id")),
-                    dumps_json(updated.get("source_raw") or {}),
-                    str((updated.get("source_raw") or {}).get("variant_group") or "").strip(),
-                    dumps_json([]),
-                    dumps_json(updated["attributes"]),
-                    status,
-                    dumps_json(errors),
-                    dumps_json(updated.get("publish_response")) if updated.get("publish_response") is not None else None,
-                    dumps_json(updated.get("pricing")) if updated.get("pricing") is not None else None,
-                    updated["updated_at"],
-                    draft_id,
-                ),
-            )
-            if "images" in patch:
-                self._sync_draft_images(
-                    draft_id, updated["images"],
-                    (updated.get("source_raw") or {}).get("image_types"))
-            self.conn.commit()
-            draft = self.get_draft(draft_id, user_id)
-            if draft is None:
-                raise KeyError(f"draft {draft_id} not found after update")
-            return draft
+            return repo.update_draft(
+                draft_id, updated, user_id=user_id,
+                errors=errors, status=status, sync_images=("images" in patch))
+        return _in_scope(_do)
 
     def set_ai_proposal(self, draft_id: int, proposal: dict | None) -> None:
         """写/清空草稿的 AI 待确认草案列；不触碰其它字段、不重算 status。"""
-        with self.lock:
-            self.conn.execute(
-                "UPDATE drafts SET ai_proposal_json=? WHERE id=?",
-                (dumps_json(proposal) if proposal is not None else None, int(draft_id)),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _draft_repo().set_ai_proposal(draft_id, proposal))
 
     def delete_draft(self, draft_id: int, user_id: int | None = None) -> None:
         user_id = _uid(user_id)
-        with self.lock:
-            self.conn.execute(
-                "DELETE FROM drafts WHERE id = ? AND user_id = ?", (draft_id, int(user_id))
-            )
-            self.conn.execute(
-                "DELETE FROM draft_images WHERE draft_id = ?", (draft_id,)
-            )
-            self.conn.commit()
+        _in_scope(lambda: _draft_repo().delete_draft(draft_id, user_id))
 
     # ---------- 仓库（功能4）----------
     def upsert_warehouses(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
@@ -941,80 +676,13 @@ class Store:
 
     def list_drafts_by_variant_group(self, group: str) -> list[dict[str, Any]]:
         """返回同组草稿（按 id 升序）。走 variant_group 索引列，只取同组那几行，不扫全表。"""
-        group = str(group or "").strip()
-        if not group:
-            return []
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM drafts WHERE variant_group = ? ORDER BY id ASC", (group,)
-            ).fetchall()
-        return [self._row_to_draft(r) for r in rows]
+        return _in_scope(lambda: _draft_repo().list_drafts_by_variant_group(group))
 
-    def _row_to_draft(self, row: sqlite3.Row) -> dict[str, Any]:
-        source_platform = row["source_platform"]
-        purchase_url = row["purchase_url"] or (row["source_url"] if source_platform == "1688" else "")
-        # 图片全部从 draft_images 一对多表读；images_json 列已停用
-        dimg_rows = self._load_draft_images(row["id"])
-        images = [r["url"] for r in dimg_rows]
-        image_types = {r["url"]: r["type"] for r in dimg_rows if r["type"]}
-        sr = loads_json(row["source_raw_json"], {}) if "source_raw_json" in row.keys() else {}
-        if image_types:
-            sr["image_types"] = image_types
-        elif "image_types" not in sr:
-            sr["image_types"] = {}
-        return {
-            "id": row["id"],
-            "user_id": row["user_id"] if "user_id" in row.keys() else 1,
-            "store_client_id": row["store_client_id"] if "store_client_id" in row.keys() else "",
-            "source_platform": source_platform,
-            "source_url": row["source_url"],
-            "source_offer_id": row["source_offer_id"],
-            "source": row["source"] if "source" in row.keys() else "",
-            "ozon_product_id": row["ozon_product_id"] if "ozon_product_id" in row.keys() else None,
-            "offer_id": row["offer_id"] if "offer_id" in row.keys() else "",
-            "supplier": row["supplier"] if "supplier" in row.keys() else "",
-            "warehouse_id": row["warehouse_id"] if "warehouse_id" in row.keys() else None,
-            "source_raw": sr,
-            "source_title": row["source_title"],
-            "purchase_url": purchase_url,
-            "purchase_note": row["purchase_note"],
-            "ozon_title": row["ozon_title"],
-            "description": row["description"],
-            "category_id": row["category_id"],
-            "type_id": row["type_id"],
-            "brand_id": row["brand_id"],
-            "brand_name": row["brand_name"],
-            "price": row["price"],
-            "old_price": row["old_price"],
-            "stock": row["stock"],
-            "weight_g": row["weight_g"],
-            "length_mm": row["length_mm"],
-            "width_mm": row["width_mm"],
-            "height_mm": row["height_mm"],
-            "images": images,
-            "attributes": loads_json(row["attributes_json"], {}),
-            "cost_cny": row["cost_cny"] if "cost_cny" in row.keys() else None,
-            "video_url": (row["video_url"] if "video_url" in row.keys() else None) or "",
-            "local_images": loads_json(row["local_images_json"], []) if "local_images_json" in row.keys() else [],
-            "status": row["status"],
-            "validation_errors": loads_json(row["validation_errors_json"], []),
-            "publish_response": loads_json(row["publish_response_json"], None),
-            "pricing": loads_json(row["pricing_json"], None) if "pricing_json" in row.keys() else None,
-            "ai_proposal": loads_json(row["ai_proposal_json"], None) if "ai_proposal_json" in row.keys() else None,
-            "media_status": (row["media_status"] if "media_status" in row.keys() else None) or "done",
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+    def _unique_offer_id(self, base: str, exclude_id: int | None = None) -> str:
+        """保证货号唯一：撞库就加 -2/-3。转调 DraftRepo（app_service.regenerate_offer_id 仍用）。"""
+        return _in_scope(lambda: _draft_repo()._unique_offer_id(base, exclude_id=exclude_id))
 
     # ---------- draft_images 一对多表 ----------
-
-    def _load_draft_images(self, draft_id: int) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT url, type, source FROM draft_images WHERE draft_id=? ORDER BY position",
-                (int(draft_id),),
-            ).fetchall()
-        return [dict(r) for r in rows]
 
     def add_draft_image(self, draft_id: int, url: str, *, type: str = "",
                         source: str = "generated") -> int:
@@ -1026,30 +694,6 @@ class Store:
                 draft_id, url, type=type, source=source
             )
         )
-
-    def _sync_draft_images(self, draft_id: int, images: list[str],
-                           image_types: dict[str, str] | None = None) -> None:
-        """把 images 数组同步到 draft_images 表行（在同一事务/锁内，调用方已持锁）。
-        保留旧行已有的 type/source（按 url 匹配），新图用 image_types 或兜底。"""
-        now = utc_now_iso()
-        old_rows = self.conn.execute(
-            "SELECT url, type, source FROM draft_images WHERE draft_id=?", (int(draft_id),)
-        ).fetchall()
-        old_map: dict[str, tuple[str, str]] = {}
-        for r in old_rows:
-            old_map[str(r["url"])] = (str(r["type"] or ""), str(r["source"] or ""))
-        types = dict(image_types or {})
-        self.conn.execute("DELETE FROM draft_images WHERE draft_id=?", (int(draft_id),))
-        for i, url in enumerate(images):
-            url = str(url)
-            prev = old_map.get(url)
-            typ = types.get(url) or (prev[0] if prev else "") or "其他"
-            src = prev[1] if prev else "collected"
-            self.conn.execute(
-                "INSERT INTO draft_images (draft_id, position, url, type, source, created_at)"
-                " VALUES (?,?,?,?,?,?)",
-                (int(draft_id), i, url, typ, src, now),
-            )
 
     # ---------- 出图任务（gen_jobs / gen_job_images）----------
 
