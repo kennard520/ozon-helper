@@ -21,6 +21,8 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
+from ozon_common.dal.types import ISODateTime
+
 metadata = MetaData()
 
 # 多用户 settings:(user_id, key) 复合主键;user_id=0 为系统级全局。
@@ -38,7 +40,7 @@ users = Table(
     Column("password_hash", Text, nullable=False),
     Column("role", Text, nullable=False, server_default="user"),
     Column("status", Text, nullable=False, server_default="active"),
-    Column("created_at", Text, nullable=False),
+    Column("created_at", ISODateTime, nullable=False),
     # _ensure_column 追加
     Column("max_stores", Integer, nullable=False, server_default="1"),
 )
@@ -49,7 +51,7 @@ accounts = Table(
     Column("balance", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
     Column("total_recharge", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
     Column("total_consume", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
-    Column("updated_at", Text),
+    Column("updated_at", ISODateTime),
 )
 
 account_txns = Table(
@@ -61,7 +63,7 @@ account_txns = Table(
     Column("balance_after", Numeric(18, 4, asdecimal=True)),
     Column("biz_no", Text),
     Column("remark", Text),
-    Column("created_at", Text, nullable=False),
+    Column("created_at", ISODateTime, nullable=False),
     Index("idx_txn_user", "user_id"),
 )
 
@@ -89,8 +91,8 @@ drafts = Table(
     Column("status", Text, nullable=False),
     Column("validation_errors_json", Text, nullable=False),
     Column("publish_response_json", Text),
-    Column("created_at", Text, nullable=False),
-    Column("updated_at", Text, nullable=False),
+    Column("created_at", ISODateTime, nullable=False),
+    Column("updated_at", ISODateTime, nullable=False),
     # _ensure_column 追加列
     Column("weight_g", Integer),
     Column("length_mm", Integer),
@@ -129,21 +131,21 @@ commission_map = Table(
     Column("parent_en", Text),
     Column("sub_en", Text),
     Column("rfbs_json", Text),
-    Column("updated_at", Text),
+    Column("updated_at", ISODateTime),
 )
 
 catalog_cache = Table(
     "catalog_cache", metadata,
     Column("language", Text, primary_key=True),
     Column("leaves_json", Text, nullable=False),
-    Column("fetched_at", Text, nullable=False),
+    Column("fetched_at", ISODateTime, nullable=False),
 )
 
 catalog_tree_cache = Table(
     "catalog_tree_cache", metadata,
     Column("language", Text, primary_key=True),
     Column("tree_json", Text, nullable=False),
-    Column("fetched_at", Text, nullable=False),
+    Column("fetched_at", ISODateTime, nullable=False),
 )
 
 category_attr_values_cache = Table(
@@ -154,7 +156,7 @@ category_attr_values_cache = Table(
     Column("language", Text, primary_key=True, nullable=False, server_default="RU"),
     Column("values_json", Text, nullable=False),
     Column("oversized", Integer, nullable=False, server_default="0"),
-    Column("fetched_at", Text, nullable=False),
+    Column("fetched_at", ISODateTime, nullable=False),
 )
 
 attribute_values_cache = Table(
@@ -166,7 +168,7 @@ attribute_values_cache = Table(
     Column("dictionary_value_id", Integer, primary_key=True),
     Column("value", Text),
     Column("info", Text),
-    Column("fetched_at", Text),
+    Column("fetched_at", ISODateTime),
     Index(
         "idx_av_cache",
         "description_category_id", "type_id", "attribute_id", "language", "value",
@@ -179,7 +181,7 @@ category_attr_cache = Table(
     Column("type_id", Integer, primary_key=True),
     Column("language", Text, primary_key=True, nullable=False, server_default="ZH_HANS"),
     Column("attrs_json", Text, nullable=False),
-    Column("fetched_at", Text, nullable=False),
+    Column("fetched_at", ISODateTime, nullable=False),
 )
 
 warehouses = Table(
@@ -189,7 +191,7 @@ warehouses = Table(
     Column("is_rfbs", Integer, nullable=False, server_default="0"),
     Column("status", Text, nullable=False, server_default=""),
     Column("is_default", Integer, nullable=False, server_default="0"),
-    Column("fetched_at", Text),
+    Column("fetched_at", ISODateTime),
     # _ensure_column 追加
     Column("store_client_id", Text, nullable=False, server_default=""),
 )
@@ -211,9 +213,9 @@ delivery_methods = Table(
     Column("dropoff_address", Text),
     Column("dropoff_lat", Float),
     Column("dropoff_lng", Float),
-    Column("created_at", Text),
-    Column("updated_at", Text),
-    Column("fetched_at", Text),
+    Column("created_at", ISODateTime),
+    Column("updated_at", ISODateTime),
+    Column("fetched_at", ISODateTime),
     Column("store_client_id", Text, nullable=False, server_default=""),
     Column("raw_json", Text),
     Index("idx_dm_store_wh", "store_client_id", "warehouse_id"),
@@ -228,7 +230,7 @@ postings = Table(
     Column("products_json", Text, nullable=False, server_default="[]"),
     Column("warehouse_id", Integer),
     Column("raw_json", Text),
-    Column("synced_at", Text),
+    Column("synced_at", ISODateTime),
     # _ensure_column 追加
     Column("store_client_id", Text, nullable=False, server_default=""),
 )
@@ -244,7 +246,7 @@ procurement = Table(
     Column("purchase_url", Text, nullable=False, server_default=""),
     Column("cost_cny", Numeric(18, 4, asdecimal=True)),
     Column("note", Text, nullable=False, server_default=""),
-    Column("updated_at", Text),
+    Column("updated_at", ISODateTime),
     # _ensure_column 追加
     Column("store_client_id", Text, nullable=False, server_default=""),
     UniqueConstraint("posting_number", "offer_id"),
@@ -255,7 +257,7 @@ offer_snapshots = Table(
     Column("id", Integer, primary_key=True),
     Column("product_id", Text, nullable=False),
     Column("sku", Text),
-    Column("captured_at", Text, nullable=False),
+    Column("captured_at", ISODateTime, nullable=False),
     Column("follow_count", Integer),
     Column("price_min", Numeric(18, 4, asdecimal=True)),
     Column("price_max", Numeric(18, 4, asdecimal=True)),
@@ -273,7 +275,7 @@ draft_images = Table(
     Column("url", Text, nullable=False),
     Column("type", Text, nullable=False, server_default=""),
     Column("source", Text, nullable=False, server_default="collected"),
-    Column("created_at", Text, nullable=False),
+    Column("created_at", ISODateTime, nullable=False),
     Index("idx_dimg_draft", "draft_id", "position"),
 )
 
@@ -288,8 +290,8 @@ gen_jobs = Table(
     Column("succeeded", Integer, nullable=False, server_default="0"),
     Column("failed", Integer, nullable=False, server_default="0"),
     Column("error", Text),
-    Column("created_at", Text, nullable=False),
-    Column("updated_at", Text, nullable=False),
+    Column("created_at", ISODateTime, nullable=False),
+    Column("updated_at", ISODateTime, nullable=False),
     Index("idx_gen_jobs_draft", "user_id", "draft_id"),
 )
 
@@ -302,6 +304,6 @@ gen_job_images = Table(
     Column("status", Text, nullable=False, server_default="pending"),
     Column("url", Text),
     Column("error", Text),
-    Column("updated_at", Text, nullable=False),
+    Column("updated_at", ISODateTime, nullable=False),
     Index("idx_gen_job_images_job", "job_id"),
 )
