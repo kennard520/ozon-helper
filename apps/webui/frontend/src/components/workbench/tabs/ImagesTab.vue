@@ -55,7 +55,7 @@ async function onFile(e) {
       </div>
       <div v-if="g.galleryItems.value.length" class="images-tab__grid">
         <ImageCard v-for="(it, i) in g.galleryItems.value" :key="it.id"
-          :url="it.url" :local-url="g.localUrl(it.url)" :type="it.type" :source="it.source" :badge="String(i + 1)">
+          :url="it.url" :local-url="g.localUrlOf(it)" :type="it.type" :source="it.source" :badge="String(i + 1)">
           <template #actions>
             <button class="ic-btn" :disabled="i === 0" title="上移" @click="g.moveUp(it.id)">↑</button>
             <button class="ic-btn" :disabled="i === g.galleryItems.value.length - 1" title="下移" @click="g.moveDown(it.id)">↓</button>
@@ -75,7 +75,7 @@ async function onFile(e) {
       </div>
       <div v-if="g.materialItems.value.length" class="images-tab__grid">
         <ImageCard v-for="m in g.materialItems.value" :key="m.id"
-          :url="m.url" :local-url="g.localUrl(m.url)" :type="m.type" :source="m.source"
+          :url="m.url" :local-url="g.localUrlOf(m)" :type="m.type" :source="m.source"
           :selected="selMaterials.includes(m.id)" @click="toggleMat(m.id)">
           <template #actions>
             <button class="ic-btn" title="加入图集" @click.stop="addOne(m.id)">加入图集</button>
@@ -97,7 +97,7 @@ async function onFile(e) {
       </div>
       <div v-if="borrowMats.length" class="images-tab__grid">
         <ImageCard v-for="m in borrowMats" :key="m.id"
-          :url="m.url" :local-url="m.url" :type="m.type" :source="m.source"
+          :url="m.url" :local-url="g.localUrlOf(m)" :type="m.type" :source="m.source"
           :selected="borrowSel.includes(m.url)" @click="toggleBorrow(m.url)" />
       </div>
       <div v-else-if="borrowId != null" class="images-tab__empty">该变体没有素材。</div>

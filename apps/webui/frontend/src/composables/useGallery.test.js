@@ -91,4 +91,10 @@ describe('useGallery', () => {
     expect(api.getDraft).toHaveBeenCalledWith(8)
     expect(mats.map(m => m.id)).toEqual([81])
   })
+
+  it('localUrlOf 优先 item.local_url，回退图集 zip', () => {
+    const g = useGallery(mkDraft(), { onChange: vi.fn() })
+    expect(g.localUrlOf({ url: 'http://m/3.jpg', local_url: '/media/3.jpg' })).toBe('/media/3.jpg')
+    expect(g.localUrlOf({ url: 'http://g/1.jpg', local_url: '' })).toBe('/media/1.jpg')
+  })
 })

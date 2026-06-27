@@ -23,6 +23,7 @@ export function useGallery(draftRef, { onChange } = {}) {
     return out
   })
   function localUrl(url) { return localMap.value[url] || url }
+  function localUrlOf(item) { return (item && item.local_url) || localUrl(item && item.url) }
 
   function did() { const d = draftRef.value || {}; return d.id }
 
@@ -67,7 +68,7 @@ export function useGallery(draftRef, { onChange } = {}) {
   }
 
   return {
-    galleryItems, materialItems, localUrl,
+    galleryItems, materialItems, localUrl, localUrlOf,
     addToGallery, removeFromGallery, reorder, removeImage,
     moveUp, moveDown, copyFrom, upload, fetchSiblingMaterials,
   }
