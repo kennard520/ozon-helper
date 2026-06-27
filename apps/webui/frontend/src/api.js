@@ -126,4 +126,8 @@ export const api = {
   adminDeleteUser: (id) => req('DELETE', `/api/admin/users/${id}`),
   wallet: () => req('GET', '/api/wallet'),
   walletRecharge: (amount, remark = '') => req('POST', '/api/wallet/recharge', { amount, remark }),
+  // 数据分析
+  analyticsDashboard: (p) => req('POST', '/api/analytics/dashboard', p),
+  analyticsTraffic: (p) => req('POST', '/api/analytics/traffic', p),
+  analyticsKeywords: (p) => req('POST', '/api/analytics/keywords', p),
 }

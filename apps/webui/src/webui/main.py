@@ -25,6 +25,7 @@ from webui.routers import (  # noqa: E402
     ai_image as ai_image_router,
     ai_text as ai_text_router,
     ai_video as ai_video_router,
+    analytics as analytics_router,
     auth as auth_router,
     category as category_router,
     drafts as drafts_router,
@@ -47,6 +48,7 @@ app.include_router(gallery_router.router)
 app.include_router(ext_router.router)
 app.include_router(pricing_router.router)
 app.include_router(warehouse_router.router)
+app.include_router(analytics_router.router)
 
 
 # 纯 ASGI 中间件：从 Authorization Bearer 解出 user_id 存进 ContextVar，本请求内 store 全部按此用户隔离。

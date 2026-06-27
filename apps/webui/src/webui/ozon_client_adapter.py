@@ -269,6 +269,239 @@ def fbs_label_pdf(settings: dict, posting_numbers: list[str]) -> bytes:
     return build_client(settings).get_package_label_pdf(posting_numbers)
 
 
+# ---------- 功能⑥：Analytics 数据拉取 ----------
+
+# /v1/analytics/data 漏斗指标（dimension=sku）
+_ANALYTICS_METRICS = [
+    "hits_view", "session_view", "hits_tocart",
+    "ordered_units", "revenue",
+]
+
+# /v1/analytics/data 降级指标（Premium 不可用时）
+_ANALYTICS_METRICS_DEGRADED = ["ordered_units", "revenue"]
+
+# /v1/analytics/data 流量趋势指标（dimension=[sku, day]）
+_TRAFFIC_METRICS = [
+    "hits_view", "session_view", "hits_tocart", "ordered_units",
+]
+
+
+def fetch_analytics_sku(client: "OzonSellerClient", date_from: str, date_to: str) -> dict:
+    """拉 per-SKU 漏斗数据（dimension=[sku]）。
+    返回 {rows: [{sku, exposure, sessions, cart, ordered_units, revenue}], degraded: bool}。
+    403 → 降级到 ordered_units/revenue（degraded=True）；429 → 等 62s 重试。
+    """
+    import time  # noqa: PLC0415
+
+    def _do_request(metrics: list[str]) -> tuple[int, dict]:
+        body = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "dimension": ["sku"],
+            "metrics": metrics,
+            "sort": [{"key": metrics[0], "order": "DESC"}],
+            "limit": 1000,
+            "offset": 0,
+        }
+        # 429 重试（分析接口每账号每分钟限 1 次）
+        for attempt in range(4):
+            try:
+                r = client.request("/v1/analytics/data", body)
+                return 200, r
+            except Exception as exc:  # noqa: BLE001
+                code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+                if code == 429 and attempt < 3:
+                    time.sleep(62)
+                    continue
+                if code == 403:
+                    return 403, {}
+                if code:
+                    return code, {}
+                raise
+        return 429, {}
+
+    status, data = _do_request(_ANALYTICS_METRICS)
+    degraded = False
+    if status == 403:
+        degraded = True
+        status, data = _do_request(_ANALYTICS_METRICS_DEGRADED)
+        if status != 200:
+            return {"rows": [], "degraded": degraded}
+
+    metrics_used = _ANALYTICS_METRICS_DEGRADED if degraded else _ANALYTICS_METRICS
+    rows = []
+    for r in (data.get("result") or {}).get("data") or []:
+        dims = r.get("dimensions") or [{}]
+        sku = str(dims[0].get("id") or "")
+        if not sku:
+            continue
+        vals = r.get("metrics") or []
+        m = dict(zip(metrics_used, vals))
+        rows.append({
+            "sku": sku,
+            "exposure": int(m.get("hits_view") or 0),
+            "sessions": int(m.get("session_view") or 0),
+            "cart": int(m.get("hits_tocart") or 0),
+            "ordered_units": int(m.get("ordered_units") or 0),
+            "revenue": float(m.get("revenue") or 0.0),
+        })
+    return {"rows": rows, "degraded": degraded}
+
+
+def fetch_analytics_traffic(client: "OzonSellerClient", date_from: str, date_to: str) -> dict:
+    """拉 per-SKU per-day 流量趋势（dimension=[sku, day]）。
+    返回 {rows: [{sku, day, hits_view, session_view, hits_tocart, ordered_units}]}。
+    """
+    import time  # noqa: PLC0415
+
+    body = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "dimension": ["sku", "day"],
+        "metrics": _TRAFFIC_METRICS,
+        "limit": 1000,
+        "offset": 0,
+        "sort": [{"key": "hits_view", "order": "DESC"}],
+    }
+    for attempt in range(4):
+        try:
+            data = client.request("/v1/analytics/data", body)
+            break
+        except Exception as exc:  # noqa: BLE001
+            code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+            if code == 429 and attempt < 3:
+                time.sleep(62)
+                continue
+            if code == 403:
+                return {"rows": []}
+            if code:
+                return {"rows": []}
+            raise
+    else:
+        return {"rows": []}
+
+    rows = []
+    for r in (data.get("result") or {}).get("data") or []:
+        dims = r.get("dimensions") or [{}, {}]
+        sku = str(dims[0].get("id") or "") if len(dims) > 0 else ""
+        day = str(dims[1].get("id") or "") if len(dims) > 1 else ""
+        if not sku:
+            continue
+        vals = r.get("metrics") or []
+        m = dict(zip(_TRAFFIC_METRICS, vals))
+        rows.append({
+            "sku": sku,
+            "day": day,
+            "hits_view": int(m.get("hits_view") or 0),
+            "session_view": int(m.get("session_view") or 0),
+            "hits_tocart": int(m.get("hits_tocart") or 0),
+            "ordered_units": int(m.get("ordered_units") or 0),
+        })
+    return {"rows": rows}
+
+
+def fetch_product_queries(client: "OzonSellerClient", skus: list[str], date_from: str, date_to: str) -> dict:
+    """拉 per-SKU 搜索词（/v1/analytics/product-queries/details，page 翻页）。
+    返回 {by_sku: {sku: [{query, searches, ctr, position, orders, gmv}]}}。
+    """
+    import time  # noqa: PLC0415
+
+    by_sku: dict[str, list[dict]] = {}
+    page = 0
+    while True:
+        body = {
+            "date_from": f"{date_from}T00:00:00Z",
+            "date_to": f"{date_to}T23:59:59Z",
+            "skus": skus,
+            "page": page,
+            "page_size": 100,
+            "limit_by_sku": 15,
+            "sort_by": "BY_SEARCHES",
+            "sort_dir": "DESC",
+        }
+        for attempt in range(6):
+            try:
+                r = client.request("/v1/analytics/product-queries/details", body)
+                break
+            except Exception as exc:  # noqa: BLE001
+                code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+                if code == 429 and attempt < 5:
+                    time.sleep(2 + attempt * 2)
+                    continue
+                if code == 403:
+                    return {"by_sku": {}}
+                return {"by_sku": {}}
+        else:
+            break
+
+        for q in (r.get("queries") or []):
+            sku_key = str(q.get("sku") or "")
+            by_sku.setdefault(sku_key, []).append({
+                "query": q.get("query") or "",
+                "searches": int(q.get("unique_search_users") or 0),
+                "ctr": float(q.get("view_conversion") or 0.0),
+                "position": float(q.get("position") or 0.0),
+                "orders": int(q.get("order_count") or 0),
+                "gmv": float(q.get("gmv") or 0.0),
+            })
+        page_count = int(r.get("page_count") or 1)
+        page += 1
+        if page >= page_count:
+            break
+
+    return {"by_sku": by_sku}
+
+
+def fetch_prices(client: "OzonSellerClient", offer_ids: list[str]) -> dict[str, dict]:
+    """/v5 活动价：{offer_id: {marketing_seller_price, price, old_price}}（cursor 翻页）。"""
+    out: dict[str, dict] = {}
+    for i in range(0, len(offer_ids), 1000):
+        batch = offer_ids[i:i + 1000]
+        cursor = ""
+        while True:
+            try:
+                d = client.request(
+                    "/v5/product/info/prices",
+                    {"filter": {"offer_id": batch, "visibility": "ALL"}, "limit": 1000, "cursor": cursor},
+                )
+            except Exception:  # noqa: BLE001
+                break
+            for it in (d.get("items") or []):
+                pr = it.get("price") or {}
+                out[str(it.get("offer_id") or "")] = {
+                    "marketing_seller_price": pr.get("marketing_seller_price"),
+                    "price": pr.get("price"),
+                    "old_price": pr.get("old_price"),
+                }
+            cursor = d.get("cursor") or ""
+            if not cursor:
+                break
+    return out
+
+
+def fetch_stocks(client: "OzonSellerClient", offer_ids: list[str]) -> dict[str, int]:
+    """/v4 库存：{offer_id: present 求和}（cursor 翻页，best-effort）。"""
+    out: dict[str, int] = {}
+    for i in range(0, len(offer_ids), 1000):
+        batch = offer_ids[i:i + 1000]
+        cursor = ""
+        while True:
+            try:
+                d = client.request(
+                    "/v4/product/info/stocks",
+                    {"filter": {"offer_id": batch, "visibility": "ALL"}, "limit": 1000, "cursor": cursor},
+                )
+            except Exception:  # noqa: BLE001
+                break
+            for it in (d.get("items") or []):
+                present = sum(int(s.get("present") or 0) for s in (it.get("stocks") or []))
+                out[str(it.get("offer_id") or "")] = present
+            cursor = d.get("cursor") or ""
+            if not cursor:
+                break
+    return out
+
+
 def ozon_to_draft(info: dict, attrs: dict | None) -> dict:
     """合并 info/list + v4 attributes → 草稿 dict（source=ozon，已发布态）。纯函数、无 IO。"""
     attrs = attrs or {}
