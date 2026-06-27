@@ -177,6 +177,50 @@ def _img_type_from_label(label: object) -> str:
     return "其他"
 
 
+_ATTR_EXCL = {9048, 23171, 85}
+
+
+def step_flags(draft: dict) -> dict:
+    """从草稿字段派生 7 步完成标志(等价前端 DraftDetail.wfDone，移到源头算)。
+
+    7 步: understand / category / copy / attrs / images / rich / publish
+    """
+    d = draft or {}
+    sr = d.get("source_raw") or {}
+    if isinstance(sr, str):
+        from webui.drafts import loads_json  # noqa: PLC0415
+
+        sr = loads_json(sr, {}) or {}
+
+    und = sr.get("understanding")
+    attrs = d.get("attributes") if isinstance(d.get("attributes"), list) else []
+
+    def _attr_done(a):
+        try:
+            return (
+                a is not None
+                and a.get("id") is not None
+                and int(a["id"]) not in _ATTR_EXCL
+                and isinstance(a.get("values"), list)
+                and len(a["values"]) > 0
+            )
+        except (TypeError, ValueError):
+            return False
+
+    # rich_content_json 是前端 richContentJson computed 实际读的键(DraftDetail.vue:1998)
+    rich = bool(sr.get("rich_content_json"))
+
+    return {
+        "understand": isinstance(und, dict) and bool(und),
+        "category": bool(d.get("category_id") and d.get("type_id")),
+        "copy": bool(d.get("ozon_title") and d.get("description")),
+        "attrs": any(_attr_done(a) for a in attrs),
+        "images": bool(d.get("images")) or bool(sr.get("image_types")),
+        "rich": rich,
+        "publish": bool(d.get("ozon_product_id")) or d.get("status") == "published",
+    }
+
+
 class App:
     def __init__(self) -> None:
         self.store = Store()
@@ -3522,11 +3566,14 @@ class App:
             if isinstance(dsr, str):
                 dsr = loads_json(dsr, {})
             dsr = dsr or {}
+            flags = step_flags(d)
             out.append({"id": d.get("id"),
                         "spec": str(dsr.get("spec_attrs") or dsr.get("variant_label") or "").strip(),
                         "price": d.get("price"), "status": d.get("status"),
                         "image": (list(d.get("images") or [])[:1] or [""])[0],
-                        "current": d.get("id") == draft_id})
+                        "current": d.get("id") == draft_id,
+                        "steps": flags,
+                        "done": sum(1 for v in flags.values() if v)})
         return {"ok": True, "group": group, "variants": out, "count": len(out)}
 
     def publish_variant_group(
