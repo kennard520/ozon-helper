@@ -297,6 +297,7 @@ draft_images = Table(
     Column("type", String(32), nullable=False, server_default=""),
     Column("source", String(32), nullable=False, server_default="collected"),
     Column("in_gallery", Integer, nullable=False, server_default="1"),
+    Column("local_url", String(1024), nullable=False, server_default=""),
     Column("created_at", ISODateTime, nullable=False),
     Index("idx_dimg_draft", "draft_id", "position"),
 )

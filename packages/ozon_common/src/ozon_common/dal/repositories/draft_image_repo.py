@@ -39,6 +39,7 @@ class DraftImageRepo(BaseRepo):
         type: str = "",
         source: str = "generated",
         in_gallery: int | None = None,
+        local_url: str = "",
     ) -> int:
         """插入一条 draft_image 记录,position 自动取当前最大值 +1,返回新行 id。
 
@@ -65,6 +66,7 @@ class DraftImageRepo(BaseRepo):
                 type=str(type or ""),
                 source=str(source),
                 in_gallery=int(in_gallery),
+                local_url=str(local_url or ""),
                 created_at=utc_now_iso(),
             )
         )
@@ -106,7 +108,7 @@ class DraftImageRepo(BaseRepo):
         """把 src 的指定 url 复制到每个目标变体的图集(in_gallery=1),按 url 去重。返回 {tid: added}。"""
         urls = [str(u).strip() for u in image_urls if str(u).strip()]
         src_rows = {str(r.url): r for r in self.s.execute(
-            select(DI.c.url, DI.c.type, DI.c.source).where(
+            select(DI.c.url, DI.c.type, DI.c.source, DI.c.local_url).where(
                 DI.c.draft_id == int(src_draft_id), DI.c.url.in_(urls))).all()}
         out = {}
         for tid in [int(t) for t in target_draft_ids]:
@@ -117,7 +119,8 @@ class DraftImageRepo(BaseRepo):
                 sr = src_rows.get(u)
                 if sr is None or u in have:
                     continue  # 只复制确实属于源草稿的图(防注入任意 url),且去重
-                self.add_draft_image(tid, u, type=sr.type, source=sr.source, in_gallery=1)
+                self.add_draft_image(tid, u, type=sr.type, source=sr.source, in_gallery=1,
+                                     local_url=sr.local_url or "")
                 added += 1
             out[tid] = added
         return out

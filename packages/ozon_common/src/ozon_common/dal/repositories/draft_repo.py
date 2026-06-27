@@ -144,6 +144,7 @@ class DraftRepo(BaseRepo):
             draft["images"],
             (draft.get("source_raw") or {}).get("image_types"),
             gallery=False,
+            local_images=draft.get("local_images"),
         )
         return self.find_by_source_url(draft["source_url"], user_id) or draft
 
@@ -217,6 +218,7 @@ class DraftRepo(BaseRepo):
                 draft_id,
                 updated["images"],
                 (updated.get("source_raw") or {}).get("image_types"),
+                local_images=updated.get("local_images"),
             )
         draft = self.get_draft(draft_id, user_id)
         if draft is None:
@@ -456,26 +458,28 @@ class DraftRepo(BaseRepo):
         return groups
 
     def _load_draft_images(self, draft_id: int) -> list[dict[str, Any]]:
-        """加载单个 draft 的全部图(含 id/in_gallery),按 position 排序。"""
+        """加载单个 draft 的全部图(含 id/in_gallery/local_url),按 position 排序。"""
         rows = self.s.execute(
-            select(DI.c.id, DI.c.url, DI.c.type, DI.c.source, DI.c.in_gallery, DI.c.position)
+            select(DI.c.id, DI.c.url, DI.c.type, DI.c.source, DI.c.in_gallery, DI.c.position,
+                   DI.c.local_url)
             .where(DI.c.draft_id == int(draft_id))
             .order_by(DI.c.position)
         ).all()
         return [
             {"id": int(r.id), "url": r.url, "type": r.type, "source": r.source,
-             "in_gallery": int(r.in_gallery), "position": int(r.position)}
+             "in_gallery": int(r.in_gallery), "position": int(r.position),
+             "local_url": r.local_url or ""}
             for r in rows
         ]
 
     def _load_draft_images_batch(self, draft_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
-        """一次查多个 draft 的全部图(含 id/in_gallery),按 draft_id 分组。空 ids → {}。"""
+        """一次查多个 draft 的全部图(含 id/in_gallery/local_url),按 draft_id 分组。空 ids → {}。"""
         ids = [int(i) for i in draft_ids]
         if not ids:
             return {}
         rows = self.s.execute(
             select(DI.c.draft_id, DI.c.id, DI.c.url, DI.c.type, DI.c.source,
-                   DI.c.in_gallery, DI.c.position)
+                   DI.c.in_gallery, DI.c.position, DI.c.local_url)
             .where(DI.c.draft_id.in_(ids))
             .order_by(DI.c.draft_id, DI.c.position)
         ).all()
@@ -483,7 +487,8 @@ class DraftRepo(BaseRepo):
         for r in rows:
             out.setdefault(int(r.draft_id), []).append(
                 {"id": int(r.id), "url": r.url, "type": r.type, "source": r.source,
-                 "in_gallery": int(r.in_gallery), "position": int(r.position)}
+                 "in_gallery": int(r.in_gallery), "position": int(r.position),
+                 "local_url": r.local_url or ""}
             )
         return out
 
@@ -494,10 +499,11 @@ class DraftRepo(BaseRepo):
         image_types: dict[str, str] | None = None,
         *,
         gallery: bool = True,
+        local_images: list[str] | None = None,
     ) -> None:
         """gallery=True:images 当成"目标图集顺序"同步——已有行 UPDATE in_gallery/position,
         新 url INSERT(in_gallery=1),原图集中不在 images 的行降级 in_gallery=0(留素材)。**不 DELETE 全表**。
-        gallery=False:初始采集——全部 INSERT 为素材(in_gallery=0)。"""
+        gallery=False:初始采集——全部 INSERT 为素材(in_gallery=0)，local_images[i] 随行存 local_url。"""
         now = utc_now_iso()
         types = dict(image_types or {})
         rows = self.s.execute(
@@ -517,6 +523,7 @@ class DraftRepo(BaseRepo):
                 ).scalar()
                 or 0
             )
+            locals_ = list(local_images) if local_images else []
             for i, url in enumerate(target):
                 if url in by_url:
                     continue
@@ -528,6 +535,7 @@ class DraftRepo(BaseRepo):
                         type=types.get(url) or "其他",
                         source="collected",
                         in_gallery=0,
+                        local_url=locals_[i] if i < len(locals_) else "",
                         created_at=now,
                     )
                 )
@@ -605,7 +613,7 @@ class DraftRepo(BaseRepo):
             "materials": [
                 {"id": r["id"], "url": r["url"], "type": r["type"],
                  "source": r["source"], "in_gallery": r["in_gallery"],
-                 "position": r["position"]}
+                 "position": r["position"], "local_url": r.get("local_url", "")}
                 for r in all_imgs
             ],
             "attributes": loads_json(m["attributes_json"], {}),
