@@ -8,7 +8,7 @@ import { useWorkbenchStore } from '../../stores/workbench.js'
 function setup() {
   setActivePinia(createPinia())
   const wb = useWorkbenchStore()
-  wb.variants = [{ id: 1, spec: '雾灰·350ml', price: 1190, status: 'ready', image: 'a.jpg' },
+  wb.variants = [{ id: 1, spec: '雾灰·350ml', price: 1190, status: 'ready', image: 'a.jpg', done: 3 },
                  { id: 2, spec: '雾灰·500ml', price: 1290, status: 'ready', image: 'b.jpg' }]
   wb.selectedVariantIds = new Set([1, 2]); wb.currentVariantId = 1
   const w = mount(VariantCardsPane, { global: { plugins: [ElementPlus] } })
@@ -31,5 +31,9 @@ describe('VariantCardsPane', () => {
     const btn = w.findAll('button').find(b => b.text().includes('清空'))
     await btn.trigger('click')
     expect(wb.selectedVariantIds.size).toBe(0)
+  })
+  it('卡上显示 N/7 进度', () => {
+    const { w } = setup()
+    expect(w.text()).toContain('3/7')
   })
 })

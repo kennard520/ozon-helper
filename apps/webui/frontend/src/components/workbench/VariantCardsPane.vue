@@ -53,6 +53,11 @@
             <span class="vcard__price">{{ v.price != null ? v.price + ' ₽' : '—' }}</span>
             <SBadge :variant="statusVariant(v.status)">{{ statusLabel(v.status) }}</SBadge>
           </div>
+          <!-- N/7 进度 -->
+          <div class="vcard__prog">
+            <div class="vcard__prog-bar"><div class="vcard__prog-fill" :style="{ width: ((v.done || 0) / 7 * 100) + '%' }"></div></div>
+            <span class="vcard__prog-txt">{{ v.done || 0 }}/7</span>
+          </div>
         </div>
 
         <!-- × 删除 -->
@@ -263,4 +268,10 @@ async function onDelete(v) {
 }
 .vcard:hover .vcard__del { opacity: 1; }
 .vcard__del:hover { background: var(--c-danger-50, #fef2f2); color: var(--c-danger, #ef4444); }
+
+/* 进度条 */
+.vcard__prog{display:flex;align-items:center;gap:6px;margin-top:6px}
+.vcard__prog-bar{flex:1;height:4px;border-radius:2px;background:var(--c-border);overflow:hidden}
+.vcard__prog-fill{height:100%;background:var(--c-primary);transition:width .2s}
+.vcard__prog-txt{font-size:var(--fs-xs);color:var(--c-text-3)}
 </style>
