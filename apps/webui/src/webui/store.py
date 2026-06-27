@@ -3,15 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sqlite3
 import sys
-import threading
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
-from ozon_common import db
 
 log = logging.getLogger("ozon.app")
 from webui.drafts import dumps_json, loads_json, utc_now_iso, validate_draft
@@ -164,24 +160,20 @@ def _to_float_or_none(value: Any) -> float | None:
 
 class Store:
     def __init__(self, path: Path | str | None = None) -> None:
-        self.lock = threading.RLock()
+        from ozon_common.dal.engine import mysql_url_from_env  # noqa: PLC0415
         # 部署到服务器(容器设了 OZON_MYSQL_*) 走 MySQL；否则本地 SQLite（行为不变）。
-        if db.mysql_enabled():
+        # Store 不再持有裸连接：建表/回填/请求级 session 统一走 dal engine（见 init()）。
+        self._is_mysql = bool(mysql_url_from_env())
+        if self._is_mysql:
             self.path = None
-            self._is_mysql = True
-            self.conn = db.make_mysql_conn()
         else:
             # 调用时读模块级 DEFAULT_DB（而非定义时绑定默认参数），
             # 这样测试 `store.DEFAULT_DB = 临时库` 能真正生效、不污染主库。
             self.path = Path(path) if path is not None else Path(DEFAULT_DB)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._is_mysql = False
-            self.conn = sqlite3.connect(self.path, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
         self.init()
 
     def close(self) -> None:
-        self.conn.close()
         # 释放请求级 session 用的 engine 连接池（否则 Windows 下 SQLite 文件被占，临时库删不掉）。
         eng = getattr(self, "_session_engine", None)
         if eng is not None:

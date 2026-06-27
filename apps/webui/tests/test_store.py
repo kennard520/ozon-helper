@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 from webui.drafts import create_draft_from_url
 from webui.store import Store
 
@@ -55,7 +57,8 @@ class StoreTest(unittest.TestCase):
     def test_new_product_columns_exist_and_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "test.db")
-            cols = {r["name"] for r in store.conn.execute("PRAGMA table_info(drafts)")}
+            with store._session_engine.begin() as c:
+                cols = {r[1] for r in c.execute(text("PRAGMA table_info(drafts)"))}
             self.assertIn("source", cols)
             self.assertIn("ozon_product_id", cols)
             self.assertIn("offer_id", cols)
@@ -63,10 +66,11 @@ class StoreTest(unittest.TestCase):
             draft = store.insert_draft(
                 create_draft_from_url("https://detail.1688.com/offer/123456789012.html")
             )
-            row = store.conn.execute(
-                "SELECT source, ozon_product_id, offer_id FROM drafts WHERE id=?",
-                (draft["id"],),
-            ).fetchone()
+            with store._session_engine.begin() as c:
+                row = c.execute(
+                    text("SELECT source, ozon_product_id, offer_id FROM drafts WHERE id=:id"),
+                    {"id": draft["id"]},
+                ).mappings().fetchone()
             self.assertEqual(row["source"], "")
             self.assertIsNone(row["ozon_product_id"])
             # 货号必填：未提供时自动补随机货号（不再是空）

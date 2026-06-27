@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 
 class FulfillmentApiTest(unittest.TestCase):
     def _client(self, tmp):
@@ -25,15 +27,15 @@ class FulfillmentApiTest(unittest.TestCase):
             client = self._client(tmp)
             try:
                 # 预插一条 offer_id 匹配的草稿，带 supplier/cost/采购链接
-                main_mod.APP.store.conn.execute(
-                    "INSERT INTO drafts (source_platform, source_url, source_offer_id, source_title, "
-                    "ozon_title, description, category_id, price, old_price, stock, images_json, "
-                    "attributes_json, status, validation_errors_json, created_at, updated_at, "
-                    "offer_id, purchase_url, purchase_note, supplier, cost_cny) "
-                    "VALUES ('1688','u1','o1','t','t','d','1','10','10',1,'[]','{}','draft','[]',"
-                    "'now','now','SKU-1','https://detail.1688.com/offer/1.html','厂家A','厂家A',12.5)"
-                )
-                main_mod.APP.store.conn.commit()
+                with main_mod.APP.store._session_engine.begin() as c:
+                    c.execute(text(
+                        "INSERT INTO drafts (source_platform, source_url, source_offer_id, source_title, "
+                        "ozon_title, description, category_id, price, old_price, stock, images_json, "
+                        "attributes_json, status, validation_errors_json, created_at, updated_at, "
+                        "offer_id, purchase_url, purchase_note, supplier, cost_cny) "
+                        "VALUES ('1688','u1','o1','t','t','d','1','10','10',1,'[]','{}','draft','[]',"
+                        "'now','now','SKU-1','https://detail.1688.com/offer/1.html','厂家A','厂家A',12.5)"
+                    ))
 
                 def fake_pull(settings, status, days):  # noqa: ANN001
                     return [

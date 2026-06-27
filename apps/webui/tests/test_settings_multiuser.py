@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 from webui.store import Store
 
 
@@ -43,9 +45,10 @@ class SettingsMultiUserTest(unittest.TestCase):
                 s.save_settings({"oss_bucket": "b1"}, user_id=1)
                 s.save_settings({"oss_bucket": "b2"}, user_id=2)  # 全局键 → 覆盖同一行
                 self.assertEqual(s.get_settings(1)["oss_bucket"], "b2")  # 最后写的赢
-                rows = s.conn.execute(
-                    "SELECT COUNT(*) FROM settings WHERE key='oss_bucket'"
-                ).fetchone()[0]
+                with s._session_engine.begin() as c:
+                    rows = c.execute(
+                        text("SELECT COUNT(*) FROM settings WHERE key='oss_bucket'")
+                    ).fetchone()[0]
                 self.assertEqual(rows, 1)  # 全局键只有一行(user_id=0)
             finally:
                 s.close()

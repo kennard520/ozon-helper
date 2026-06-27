@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 from webui.drafts import create_draft_from_url, dumps_json, loads_json
 from webui.store import DEFAULT_DB, Store, utc_now_iso
 
@@ -94,43 +96,48 @@ class DraftImagesTest(unittest.TestCase):
         draft["images"] = ["a.jpg", "b.jpg"]
         d = self.store.insert_draft(draft)
 
-        row = self.store.conn.execute(
-            "SELECT images_json FROM drafts WHERE id=?", (d["id"],)
-        ).fetchone()
+        with self.store._session_engine.begin() as c:
+            row = c.execute(
+                text("SELECT images_json FROM drafts WHERE id=:id"), {"id": d["id"]}
+            ).mappings().fetchone()
         self.assertEqual(loads_json(row["images_json"], None), [])
         # 但 get_draft 从 draft_images 表读，数据完整
         self.assertEqual(d["images"], ["a.jpg", "b.jpg"])
 
     def test_backfill_migration(self):
         """回填：images_json 非空且无 draft_images 行的草稿 → 回填到表。"""
-        with self.store.lock:
-            cur = self.store.conn.execute(
-                """INSERT INTO drafts (
+        with self.store._session_engine.begin() as c:
+            cur = c.execute(
+                text("""INSERT INTO drafts (
                     user_id, store_client_id, source_platform, source_url, source_title,
                     purchase_url, purchase_note, ozon_title, description, category_id,
                     type_id, brand_id, brand_name, price, old_price, stock,
                     images_json, attributes_json, source_raw_json,
                     status, validation_errors_json, created_at, updated_at)
                 VALUES (1, '', '1688', 'test://bf', 't', '', '', 't', 't', '1',
-                    '', NULL, '', '100', '90', 10, ?, '{}', ?,
-                    'ready', '[]', ?, ?)""",
-                (dumps_json(["bf_a.jpg", "bf_b.jpg"]),
-                 dumps_json({"image_types": {"bf_a.jpg": "白底", "bf_b.jpg": "场景"}}),
-                 utc_now_iso(), utc_now_iso()),
+                    '', NULL, '', '100', '90', 10, :images, '{}', :raw,
+                    'ready', '[]', :created, :updated)"""),
+                {
+                    "images": dumps_json(["bf_a.jpg", "bf_b.jpg"]),
+                    "raw": dumps_json({"image_types": {"bf_a.jpg": "白底", "bf_b.jpg": "场景"}}),
+                    "created": utc_now_iso(),
+                    "updated": utc_now_iso(),
+                },
             )
-            self.store.conn.commit()
+            draft_id = cur.lastrowid
 
         # 回填前表空
-        rows_before = self.store.conn.execute(
-            "SELECT COUNT(*) c FROM draft_images WHERE draft_id=?", (cur.lastrowid,)
-        ).fetchone()["c"]
+        with self.store._session_engine.begin() as c:
+            rows_before = c.execute(
+                text("SELECT COUNT(*) c FROM draft_images WHERE draft_id=:id"), {"id": draft_id}
+            ).mappings().fetchone()["c"]
         self.assertEqual(rows_before, 0)
 
         from webui.db_backfills import _backfill_draft_images
         with self.store._session_engine.begin() as sa_conn:
             _backfill_draft_images(sa_conn)
 
-        rows = self._draft_images_rows(cur.lastrowid)
+        rows = self._draft_images_rows(draft_id)
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["url"], "bf_a.jpg")
         self.assertEqual(rows[0]["type"], "白底")
@@ -140,19 +147,20 @@ class DraftImagesTest(unittest.TestCase):
         # 自限：再跑不重复
         with self.store._session_engine.begin() as sa_conn:
             _backfill_draft_images(sa_conn)
-        rows2 = self._draft_images_rows(cur.lastrowid)
+        rows2 = self._draft_images_rows(draft_id)
         self.assertEqual(len(rows2), 2)
 
     # ---------- helpers ----------
 
     def _draft_images_rows(self, draft_id: int) -> list[dict]:
-        return [
-            dict(r) for r in
-            self.store.conn.execute(
-                "SELECT * FROM draft_images WHERE draft_id=? ORDER BY position",
-                (draft_id,),
-            ).fetchall()
-        ]
+        with self.store._session_engine.begin() as c:
+            return [
+                dict(r) for r in
+                c.execute(
+                    text("SELECT * FROM draft_images WHERE draft_id=:id ORDER BY position"),
+                    {"id": draft_id},
+                ).mappings().fetchall()
+            ]
 
 
 if __name__ == "__main__":

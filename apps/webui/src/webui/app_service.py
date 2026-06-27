@@ -664,8 +664,7 @@ class App:
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
         base = _offer_id_base(draft.get("source_platform"), draft.get("source_raw"))
-        with self.store.lock:
-            new = self.store._unique_offer_id(base, exclude_id=draft_id)
+        new = self.store._unique_offer_id(base, exclude_id=draft_id)
         updated = self.store.update_draft(draft_id, {"offer_id": new})
         return {"ok": True, "offer_id": new, "draft": updated}
 

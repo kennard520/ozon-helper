@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 import webui.store as store_mod
 from webui.ai_card import build_proposal_draft
 from webui.store import Store
@@ -37,7 +39,8 @@ class TestAiProposalColumn(unittest.TestCase):
     def test_column_exists_and_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "t.db")
-            cols = {r["name"] for r in store.conn.execute("PRAGMA table_info(drafts)")}
+            with store._session_engine.begin() as c:
+                cols = {r[1] for r in c.execute(text("PRAGMA table_info(drafts)"))}
             self.assertIn("ai_proposal_json", cols)
             d = store.insert_draft(_draft())
             self.assertIsNone(store.get_draft(d["id"])["ai_proposal"])
@@ -52,8 +55,11 @@ class TestAiProposalColumn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "t.db")
             d = store.insert_draft(_draft())
-            store.conn.execute("UPDATE drafts SET ai_proposal_json=? WHERE id=?", ("{bad json", d["id"]))
-            store.conn.commit()
+            with store._session_engine.begin() as c:
+                c.execute(
+                    text("UPDATE drafts SET ai_proposal_json=:v WHERE id=:id"),
+                    {"v": "{bad json", "id": d["id"]},
+                )
             self.assertIsNone(store.get_draft(d["id"])["ai_proposal"])
             store.close()
 

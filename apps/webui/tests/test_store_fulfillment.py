@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 from webui.store import Store
 
 
@@ -28,15 +30,15 @@ class FulfillmentStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "t.db")
             # 先有一个商品，带供应商/采购链接
-            store.conn.execute(
-                "INSERT INTO drafts (source_platform, source_url, source_offer_id, source_title, "
-                "ozon_title, description, category_id, price, old_price, stock, images_json, "
-                "attributes_json, status, validation_errors_json, created_at, updated_at, "
-                "offer_id, purchase_url, purchase_note, supplier) "
-                "VALUES ('1688','u1','o1','t','t','d','1','10','10',1,'[]','{}','draft','[]',"
-                "'now','now','SKU-1','https://detail.1688.com/offer/1.html','厂家A','厂家A')"
-            )
-            store.conn.commit()
+            with store._session_engine.begin() as c:
+                c.execute(text(
+                    "INSERT INTO drafts (source_platform, source_url, source_offer_id, source_title, "
+                    "ozon_title, description, category_id, price, old_price, stock, images_json, "
+                    "attributes_json, status, validation_errors_json, created_at, updated_at, "
+                    "offer_id, purchase_url, purchase_note, supplier) "
+                    "VALUES ('1688','u1','o1','t','t','d','1','10','10',1,'[]','{}','draft','[]',"
+                    "'now','now','SKU-1','https://detail.1688.com/offer/1.html','厂家A','厂家A')"
+                ))
             store.upsert_postings([
                 {"posting_number": "P-1", "ozon_order_id": "O-1", "status": "awaiting_packaging",
                  "ship_by": "2026-06-01T00:00:00Z", "warehouse_id": 111,
