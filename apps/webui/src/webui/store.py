@@ -67,6 +67,12 @@ def _wallet_repo():
     return WalletRepo()
 
 
+def _warehouse_repo():
+    """延迟构造 WarehouseRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.warehouse_repo import WarehouseRepo  # noqa: PLC0415
+    return WarehouseRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -875,99 +881,22 @@ class Store:
 
     # ---------- 仓库（功能4）----------
     def upsert_warehouses(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
-        now = utc_now_iso()
-        scid = str(store_client_id or "")
-        with self.lock:
-            for w in items or []:
-                wid = _to_int_or_none(w.get("warehouse_id"))
-                if wid is None:
-                    continue
-                self.conn.execute(
-                    "INSERT INTO warehouses(warehouse_id, name, is_rfbs, status, fetched_at, store_client_id) "
-                    "VALUES(?,?,?,?,?,?) ON CONFLICT(warehouse_id) DO UPDATE SET "
-                    "name=excluded.name, is_rfbs=excluded.is_rfbs, status=excluded.status, "
-                    "fetched_at=excluded.fetched_at, store_client_id=excluded.store_client_id",
-                    (wid, str(w.get("name") or ""), 1 if w.get("is_rfbs") else 0,
-                     str(w.get("status") or ""), now, scid),
-                )
-            self.conn.commit()
+        _in_scope(lambda: _warehouse_repo().upsert_warehouses(items, store_client_id))
 
     def list_warehouses(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
-        sql = ("SELECT warehouse_id, name, is_rfbs, status, is_default, fetched_at, store_client_id "
-               "FROM warehouses")
-        params: list[Any] = []
-        if store_client_id is not None:
-            sql += " WHERE store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        sql += " ORDER BY warehouse_id"
-        with self.lock:
-            rows = self.conn.execute(sql, params).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["is_rfbs"] = bool(d["is_rfbs"])
-            d["is_default"] = bool(d["is_default"])
-            out.append(d)
-        return out
+        return _in_scope(lambda: _warehouse_repo().list_warehouses(store_client_id))
 
     def set_default_warehouse(self, warehouse_id: int, store_client_id: str = "") -> None:
         """每店一个默认仓：只在该店范围内清旧默认、设新默认。"""
-        scid = str(store_client_id or "")
-        with self.lock:
-            self.conn.execute("UPDATE warehouses SET is_default=0 WHERE store_client_id=?", (scid,))
-            self.conn.execute(
-                "UPDATE warehouses SET is_default=1 WHERE warehouse_id=? AND store_client_id=?",
-                (int(warehouse_id), scid),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _warehouse_repo().set_default_warehouse(warehouse_id, store_client_id))
 
     # ---------- 配送方式（功能4 附属，挂在仓库下）----------
     def replace_delivery_methods(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
         """按店全量替换配送方式：先清本店旧行，再插新行。Ozon 上被删/停用的本地随之消失。"""
-        now = utc_now_iso()
-        scid = str(store_client_id or "")
-        with self.lock:
-            self.conn.execute("DELETE FROM delivery_methods WHERE store_client_id=?", (scid,))
-            for d in items or []:
-                did = _to_int_or_none(d.get("delivery_method_id"))
-                if did is None:
-                    continue
-                self.conn.execute(
-                    "INSERT INTO delivery_methods(delivery_method_id, warehouse_id, name, status, "
-                    "provider_id, template_id, tpl_integration_type, is_express, cutoff, sla_cut_in, "
-                    "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
-                    "created_at, updated_at, fetched_at, store_client_id, raw_json) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (did, _to_int_or_none(d.get("warehouse_id")), str(d.get("name") or ""),
-                     str(d.get("status") or ""), _to_int_or_none(d.get("provider_id")),
-                     _to_int_or_none(d.get("template_id")), str(d.get("tpl_integration_type") or ""),
-                     1 if d.get("is_express") else 0, str(d.get("cutoff") or ""),
-                     _to_int_or_none(d.get("sla_cut_in")), str(d.get("dropoff_name") or ""),
-                     str(d.get("dropoff_code") or ""), str(d.get("dropoff_address") or ""),
-                     d.get("dropoff_lat"), d.get("dropoff_lng"), str(d.get("created_at") or ""),
-                     str(d.get("updated_at") or ""), now, scid, dumps_json(d.get("raw") or {})),
-                )
-            self.conn.commit()
+        _in_scope(lambda: _warehouse_repo().replace_delivery_methods(items, store_client_id))
 
     def list_delivery_methods(self, store_client_id: str | None = None) -> list[dict[str, Any]]:
-        sql = ("SELECT delivery_method_id, warehouse_id, name, status, provider_id, template_id, "
-               "tpl_integration_type, is_express, cutoff, sla_cut_in, "
-               "dropoff_name, dropoff_code, dropoff_address, dropoff_lat, dropoff_lng, "
-               "created_at, updated_at, fetched_at, store_client_id "
-               "FROM delivery_methods")
-        params: list[Any] = []
-        if store_client_id is not None:
-            sql += " WHERE store_client_id = ?"
-            params.append(str(store_client_id or ""))
-        sql += " ORDER BY warehouse_id, delivery_method_id"
-        with self.lock:
-            rows = self.conn.execute(sql, params).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["is_express"] = bool(d.get("is_express"))
-            out.append(d)
-        return out
+        return _in_scope(lambda: _warehouse_repo().list_delivery_methods(store_client_id))
 
     # ---------- 订单（功能5）----------
     def upsert_postings(self, items: list[dict[str, Any]], store_client_id: str = "") -> None:
