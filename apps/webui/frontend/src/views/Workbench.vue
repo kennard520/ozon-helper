@@ -1,15 +1,41 @@
 <script setup>
-import { watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useWorkbenchStore } from '../stores/workbench.js'
+import DraftListPane from '../components/workbench/DraftListPane.vue'
 
 const store = useAppStore()
 const wb = useWorkbenchStore()
 watch(() => store.selectedId, (id) => wb.loadForDraft(id), { immediate: true })
+onMounted(() => store.loadDrafts())
+
+const warehouses = ref([])
+async function onDelete() {}
+async function onBatchUpdate() {}
+async function onBatchPublish() {}
 </script>
 <template>
   <div class="wb-grid">
-    <aside class="wb-left"><!-- Task3: DraftListPane --></aside>
+    <aside class="wb-left">
+      <DraftListPane
+        :drafts="store.filteredDrafts"
+        :counts="store.counts"
+        :filter="store.filter"
+        :selected-id="store.selectedId"
+        :warehouses="warehouses"
+        :total="store.total"
+        :page="store.page"
+        :page-size="store.pageSize"
+        @refresh="store.loadDrafts()"
+        @update:filter="store.setFilter"
+        @select="(id) => store.selectedId = id"
+        @page-change="store.setPage"
+        @size-change="store.setPageSize"
+        @delete="onDelete"
+        @batch-update="onBatchUpdate"
+        @batch-publish="onBatchPublish"
+      />
+    </aside>
     <main class="wb-center">
       <div v-if="!store.selectedDraft" class="wb-empty">
         <div class="wb-empty__i">📦</div>
