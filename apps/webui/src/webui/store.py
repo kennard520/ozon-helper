@@ -202,7 +202,7 @@ class Store:
         # 注意：这里不 dispose eng——它要留给 sessionmaker 用；存到 self 以便 close() 释放。
         self._session_engine = eng
         bind_engine(eng)
-        run_backfills(self.conn)          # 数据回填，用 Store 自己的连接
+        run_backfills(eng)               # 数据回填，用 SQLAlchemy engine
 
     # ---------- 类目/属性值 本地缓存 ----------
     def save_catalog_leaves(self, language: str, leaves: list[dict[str, Any]]) -> None:
