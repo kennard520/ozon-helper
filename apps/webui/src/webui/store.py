@@ -43,6 +43,12 @@ def _gen_job_repo():
     return GenJobRepo()
 
 
+def _catalog_cache_repo():
+    """延迟构造 CatalogCacheRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.catalog_cache_repo import CatalogCacheRepo  # noqa: PLC0415
+    return CatalogCacheRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -164,100 +170,33 @@ class Store:
 
     # ---------- 类目/属性值 本地缓存 ----------
     def save_catalog_leaves(self, language: str, leaves: list[dict[str, Any]]) -> None:
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO catalog_cache(language, leaves_json, fetched_at) VALUES(?,?,?) "
-                "ON CONFLICT(language) DO UPDATE SET leaves_json=excluded.leaves_json, fetched_at=excluded.fetched_at",
-                (language, dumps_json(leaves), utc_now_iso()),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _catalog_cache_repo().save_catalog_leaves(language, leaves))
 
     def load_catalog_leaves(self, language: str) -> list[dict[str, Any]] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT leaves_json FROM catalog_cache WHERE language=?", (language,)
-            ).fetchone()
-        return loads_json(row["leaves_json"], None) if row else None
+        return _in_scope(lambda: _catalog_cache_repo().load_catalog_leaves(language))
 
     def save_catalog_tree(self, language: str, tree: Any) -> None:
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO catalog_tree_cache(language, tree_json, fetched_at) VALUES(?,?,?) "
-                "ON CONFLICT(language) DO UPDATE SET tree_json=excluded.tree_json, fetched_at=excluded.fetched_at",
-                (language, dumps_json(tree), utc_now_iso()),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _catalog_cache_repo().save_catalog_tree(language, tree))
 
     def load_catalog_tree(self, language: str) -> Any | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT tree_json FROM catalog_tree_cache WHERE language=?", (language,)
-            ).fetchone()
-        return loads_json(row["tree_json"], None) if row else None
+        return _in_scope(lambda: _catalog_cache_repo().load_catalog_tree(language))
 
     def save_category_attrs(self, cat: int, type_id: int, attrs: list[dict[str, Any]], language: str = "ZH_HANS") -> None:
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO category_attr_cache(description_category_id, type_id, language, attrs_json, fetched_at) "
-                "VALUES(?,?,?,?,?) ON CONFLICT(description_category_id, type_id, language) "
-                "DO UPDATE SET attrs_json=excluded.attrs_json, fetched_at=excluded.fetched_at",
-                (int(cat), int(type_id), str(language or "ZH_HANS"), dumps_json(attrs), utc_now_iso()),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _catalog_cache_repo().save_category_attrs(cat, type_id, attrs, language))
 
     def load_category_attrs(
         self, cat: int, type_id: int, language: str = "ZH_HANS", *, max_age_days: int = 30
     ) -> list[dict[str, Any]] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT attrs_json, fetched_at FROM category_attr_cache "
-                "WHERE description_category_id=? AND type_id=? AND language=?",
-                (int(cat), int(type_id), str(language or "ZH_HANS")),
-            ).fetchone()
-        if not row:
-            return None
-        # TTL：超过 max_age_days 视为过期，返回 None 触发重新拉取（属性表会随类目调整变化）
-        fetched = _parse_iso(row["fetched_at"])
-        if fetched is not None:
-            age = datetime.now(timezone.utc) - fetched
-            if age > timedelta(days=max_age_days):
-                return None
-        attrs = loads_json(row["attrs_json"], None)
-        # 空列表不算有效缓存：可能是当时 API 抽风返回空，别让它永久屏蔽必填校验
-        if not attrs:
-            return None
-        return attrs
+        return _in_scope(lambda: _catalog_cache_repo().load_category_attrs(cat, type_id, language, max_age_days=max_age_days))
 
     def save_attr_values(self, cat: int, type_id: int, attr_id: int,
                          values: list[dict[str, Any]], oversized: bool,
                          language: str = "RU") -> None:
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO category_attr_values_cache"
-                "(description_category_id, type_id, attribute_id, language, values_json, oversized, fetched_at) "
-                "VALUES(?,?,?,?,?,?,?) "
-                "ON CONFLICT(description_category_id, type_id, attribute_id, language) "
-                "DO UPDATE SET values_json=excluded.values_json, oversized=excluded.oversized, "
-                "fetched_at=excluded.fetched_at",
-                (int(cat), int(type_id), int(attr_id), str(language or "RU"),
-                 dumps_json(values), 1 if oversized else 0, utc_now_iso()),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _catalog_cache_repo().save_attr_values(cat, type_id, attr_id, values, oversized, language))
 
     def load_attr_values(self, cat: int, type_id: int, attr_id: int,
                          language: str = "RU") -> tuple[list[dict[str, Any]], bool] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT values_json, oversized FROM category_attr_values_cache "
-                "WHERE description_category_id=? AND type_id=? AND attribute_id=? AND language=?",
-                (int(cat), int(type_id), int(attr_id), str(language or "RU")),
-            ).fetchone()
-        if not row:
-            return None
-        vals = loads_json(row["values_json"], None)
-        if vals is None:
-            return None
-        return (vals, bool(row["oversized"]))
+        return _in_scope(lambda: _catalog_cache_repo().load_attr_values(cat, type_id, attr_id, language))
 
     # ---------- 佣金类目映射（按 Ozon 类目记住对应的 realFBS 佣金类目）----------
     def save_commission_map(
@@ -331,38 +270,12 @@ class Store:
     def save_attribute_values(
         self, cat: int, type_id: int, attr: int, values: list[dict[str, Any]], language: str = "ZH_HANS"
     ) -> int:
-        now = utc_now_iso()
-        n = 0
-        lang = str(language or "ZH_HANS")
-        with self.lock:
-            for v in values or []:
-                vid = v.get("id") or v.get("dictionary_value_id")
-                if not vid:
-                    continue
-                self.conn.execute(
-                    "INSERT INTO attribute_values_cache"
-                    "(description_category_id,type_id,attribute_id,language,dictionary_value_id,value,info,fetched_at) "
-                    "VALUES(?,?,?,?,?,?,?,?) "
-                    "ON CONFLICT(description_category_id,type_id,attribute_id,language,dictionary_value_id) "
-                    "DO UPDATE SET value=excluded.value, info=excluded.info, fetched_at=excluded.fetched_at",
-                    (int(cat), int(type_id), int(attr), lang, int(vid),
-                     str(v.get("value") or ""), str(v.get("info") or ""), now),
-                )
-                n += 1
-            self.conn.commit()
-        return n
+        return _in_scope(lambda: _catalog_cache_repo().save_attribute_values(cat, type_id, attr, values, language))
 
     def find_attribute_values(
         self, cat: int, type_id: int, attr: int, query: str, language: str = "ZH_HANS", *, limit: int = 30
     ) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.conn.execute(
-                "SELECT dictionary_value_id AS id, value, info FROM attribute_values_cache "
-                "WHERE description_category_id=? AND type_id=? AND attribute_id=? AND language=? "
-                "AND value LIKE ? COLLATE NOCASE LIMIT ?",
-                (int(cat), int(type_id), int(attr), str(language or "ZH_HANS"), f"%{query}%", int(limit)),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return _in_scope(lambda: _catalog_cache_repo().find_attribute_values(cat, type_id, attr, query, language, limit=limit))
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
