@@ -522,6 +522,12 @@ class Store:
         from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
         _in_scope(lambda: DraftImageRepo().reorder_gallery(draft_id, image_ids))
 
+    def copy_images(self, src_draft_id: int, image_urls: list[str],
+                    target_draft_ids: list[int]) -> dict[int, int]:
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        return _in_scope(lambda: DraftImageRepo().copy_images(
+            src_draft_id, image_urls, target_draft_ids))
+
     # ---------- 出图任务（gen_jobs / gen_job_images）----------
 
     def create_gen_job(self, draft_id: int, target: int, user_id: int | None = None) -> dict[str, Any]:

@@ -102,6 +102,27 @@ class DraftImageRepo(BaseRepo):
             self.s.execute(update(DI).where(DI.c.id == iid, DI.c.draft_id == int(draft_id),
                            DI.c.in_gallery == 1).values(position=pos))
 
+    def copy_images(self, src_draft_id, image_urls, target_draft_ids):
+        """把 src 的指定 url 复制到每个目标变体的图集(in_gallery=1),按 url 去重。返回 {tid: added}。"""
+        urls = [str(u).strip() for u in image_urls if str(u).strip()]
+        src_rows = {str(r.url): r for r in self.s.execute(
+            select(DI.c.url, DI.c.type, DI.c.source).where(
+                DI.c.draft_id == int(src_draft_id), DI.c.url.in_(urls))).all()}
+        out = {}
+        for tid in [int(t) for t in target_draft_ids]:
+            have = {str(r.url) for r in self.s.execute(
+                select(DI.c.url).where(DI.c.draft_id == tid)).all()}
+            added = 0
+            for u in urls:
+                if u in have:
+                    continue
+                sr = src_rows.get(u)
+                self.add_draft_image(tid, u, type=(sr.type if sr else ""),
+                                     source=(sr.source if sr else "generated"), in_gallery=1)
+                added += 1
+            out[tid] = added
+        return out
+
     # ------------------------------------------------------------------
     # drafts 读(含拼装 draft_images)
     # ------------------------------------------------------------------

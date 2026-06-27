@@ -897,11 +897,12 @@ def submit_gen_images_batch(draft_id: int, body: dict) -> dict:
 
 @app.post("/api/drafts/{draft_id}/copy-images-to")
 def copy_images_to_target(draft_id: int, body: dict) -> dict:
+    b = body or {}
+    targets = b.get("target_draft_ids")
+    if not targets and b.get("target_draft_id"):
+        targets = [b["target_draft_id"]]
     try:
-        return APP.copy_images_to_draft(
-            draft_id,
-            (body or {}).get("image_urls") or [],
-            int((body or {}).get("target_draft_id") or 0))
+        return APP.copy_images_to_draft(draft_id, b.get("image_urls") or [], targets or [])
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
