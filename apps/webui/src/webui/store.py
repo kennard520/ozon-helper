@@ -49,6 +49,12 @@ def _catalog_cache_repo():
     return CatalogCacheRepo()
 
 
+def _commission_repo():
+    """延迟构造 CommissionRepo（避免模块级导入 dal）。"""
+    from ozon_common.dal.repositories.commission_repo import CommissionRepo  # noqa: PLC0415
+    return CommissionRepo()
+
+
 def _random_offer_id() -> str:
     """随机货号(OZ+10位)。延迟导入 listing_build，避免循环依赖。"""
     from webui.listing_build import random_offer_id  # noqa: PLC0415
@@ -202,70 +208,26 @@ class Store:
     def save_commission_map(
         self, cat: int, type_id: int, parent_en: str, sub_en: str, rfbs: list[float]
     ) -> None:
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO commission_map(description_category_id, type_id, parent_en, sub_en, rfbs_json, updated_at) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(description_category_id, type_id) "
-                "DO UPDATE SET parent_en=excluded.parent_en, sub_en=excluded.sub_en, "
-                "rfbs_json=excluded.rfbs_json, updated_at=excluded.updated_at",
-                (int(cat), int(type_id), str(parent_en or ""), str(sub_en or ""),
-                 dumps_json(rfbs or []), utc_now_iso()),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _commission_repo().save_commission_map(cat, type_id, parent_en, sub_en, rfbs))
 
     def load_commission_map(self, cat: int, type_id: int) -> dict[str, Any] | None:
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT parent_en, sub_en, rfbs_json FROM commission_map "
-                "WHERE description_category_id=? AND type_id=?",
-                (int(cat), int(type_id)),
-            ).fetchone()
-        if not row:
-            return None
-        return {"parent_en": row["parent_en"], "sub_en": row["sub_en"],
-                "rfbs": loads_json(row["rfbs_json"], [])}
+        return _in_scope(lambda: _commission_repo().load_commission_map(cat, type_id))
 
     def get_realfbs_routes(self) -> list[dict[str, Any]] | None:
         """realFBS 运费路线（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT value FROM settings WHERE user_id=0 AND key=?",
-                ("realfbs_routes_json",),
-            ).fetchone()
-        if not row:
-            return None
-        return loads_json(row["value"], None)
+        return _in_scope(lambda: _commission_repo().get_realfbs_routes())
 
     def set_realfbs_routes(self, routes: list[dict[str, Any]]) -> None:
         """整表覆盖 realFBS 运费路线（CSV 导入用）。存为全局 settings kv 的一个 JSON。"""
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
-                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
-                ("realfbs_routes_json", dumps_json(routes or [])),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _commission_repo().set_realfbs_routes(routes))
 
     def get_commission_categories(self) -> list[dict[str, Any]] | None:
         """realFBS 佣金类目表（全局，user_id=0）。无记录返回 None（由上层灌种子）。"""
-        with self.lock:
-            row = self.conn.execute(
-                "SELECT value FROM settings WHERE user_id=0 AND key=?",
-                ("commission_categories_json",),
-            ).fetchone()
-        if not row:
-            return None
-        return loads_json(row["value"], None)
+        return _in_scope(lambda: _commission_repo().get_commission_categories())
 
     def set_commission_categories(self, cats: list[dict[str, Any]]) -> None:
         """整表覆盖佣金类目（Excel 导入用）。存为全局 settings kv 的一个 JSON。"""
-        with self.lock:
-            self.conn.execute(
-                "INSERT INTO settings(user_id, key, value) VALUES(0, ?, ?) "
-                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
-                ("commission_categories_json", dumps_json(cats or [])),
-            )
-            self.conn.commit()
+        _in_scope(lambda: _commission_repo().set_commission_categories(cats))
 
     def save_attribute_values(
         self, cat: int, type_id: int, attr: int, values: list[dict[str, Any]], language: str = "ZH_HANS"
