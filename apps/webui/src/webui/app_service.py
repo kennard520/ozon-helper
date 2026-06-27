@@ -3818,3 +3818,19 @@ class App:
         updated = self.store.update_draft(target_draft_id, {"images": existing})
         return {"ok": True, "added": len(existing) - len(tgt.get("images") or []),
                 "draft": updated}
+
+    def gallery_add(self, draft_id, image_ids):
+        self.store.gallery_add(int(draft_id), [int(i) for i in (image_ids or [])])
+        return self.store.get_draft(int(draft_id))
+
+    def gallery_remove(self, draft_id, image_ids):
+        self.store.gallery_remove(int(draft_id), [int(i) for i in (image_ids or [])])
+        return self.store.get_draft(int(draft_id))
+
+    def gallery_reorder(self, draft_id, image_ids):
+        self.store.gallery_reorder(int(draft_id), [int(i) for i in (image_ids or [])])
+        return self.store.get_draft(int(draft_id))
+
+    def gallery_delete(self, draft_id, image_id):
+        self.store.gallery_delete(int(draft_id), int(image_id))
+        return self.store.get_draft(int(draft_id))

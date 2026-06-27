@@ -506,6 +506,22 @@ class Store:
             )
         )
 
+    def gallery_add(self, draft_id: int, image_ids: list[int]) -> None:
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        _in_scope(lambda: DraftImageRepo().add_to_gallery(draft_id, image_ids))
+
+    def gallery_remove(self, draft_id: int, image_ids: list[int]) -> None:
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        _in_scope(lambda: DraftImageRepo().remove_from_gallery(draft_id, image_ids))
+
+    def gallery_delete(self, draft_id: int, image_id: int) -> None:
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        _in_scope(lambda: DraftImageRepo().delete_image(draft_id, image_id))
+
+    def gallery_reorder(self, draft_id: int, image_ids: list[int]) -> None:
+        from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
+        _in_scope(lambda: DraftImageRepo().reorder_gallery(draft_id, image_ids))
+
     # ---------- 出图任务（gen_jobs / gen_job_images）----------
 
     def create_gen_job(self, draft_id: int, target: int, user_id: int | None = None) -> dict[str, Any]:

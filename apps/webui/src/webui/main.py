@@ -908,6 +908,26 @@ def copy_images_to_target(draft_id: int, body: dict) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/api/drafts/{draft_id}/gallery/add")
+def gallery_add(draft_id: int, body: dict) -> dict:
+    return APP.gallery_add(draft_id, (body or {}).get("image_ids") or [])
+
+
+@app.post("/api/drafts/{draft_id}/gallery/remove")
+def gallery_remove(draft_id: int, body: dict) -> dict:
+    return APP.gallery_remove(draft_id, (body or {}).get("image_ids") or [])
+
+
+@app.post("/api/drafts/{draft_id}/gallery/reorder")
+def gallery_reorder(draft_id: int, body: dict) -> dict:
+    return APP.gallery_reorder(draft_id, (body or {}).get("image_ids") or [])
+
+
+@app.delete("/api/drafts/{draft_id}/images/{image_id}")
+def delete_draft_image(draft_id: int, image_id: int) -> dict:
+    return APP.gallery_delete(draft_id, image_id)
+
+
 @app.post("/api/gen-jobs/batch-latest")
 def batch_latest_gen_jobs(body: dict) -> dict:
     return APP.batch_latest_gen_jobs((body or {}).get("draft_ids") or [])
