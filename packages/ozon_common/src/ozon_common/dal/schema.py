@@ -115,6 +115,10 @@ drafts = Table(
     Column("store_client_id", Text, nullable=False, server_default=""),
     UniqueConstraint("user_id", "store_client_id", "source_url"),
     Index("idx_drafts_variant_group", "variant_group"),
+    Index("idx_drafts_offer_id", "offer_id"),
+    Index("idx_drafts_user_status", "user_id", "status"),
+    Index("idx_drafts_ozon_pid", "ozon_product_id"),
+    Index("idx_drafts_media_status", "media_status"),
 )
 
 commission_map = Table(
