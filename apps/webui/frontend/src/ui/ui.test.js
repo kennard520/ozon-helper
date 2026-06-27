@@ -41,3 +41,44 @@ describe('SSectionHeader', () => {
     expect(w.text()).toContain('加')
   })
 })
+
+import SCard from './SCard.vue'
+import SStatCard from './SStatCard.vue'
+import SAlert from './SAlert.vue'
+import SAvatar from './SAvatar.vue'
+import STabs from './STabs.vue'
+
+describe('SCard', () => {
+  it('默认 slot + header slot', () => {
+    const w = mount(SCard, { slots: { default: '内容', header: '标题' } })
+    expect(w.text()).toContain('内容'); expect(w.text()).toContain('标题')
+  })
+})
+describe('SStatCard', () => {
+  it('label + value', () => {
+    const w = mount(SStatCard, { props: { label: '已连接', value: '2 / 3' } })
+    expect(w.text()).toContain('已连接'); expect(w.text()).toContain('2 / 3')
+  })
+})
+describe('SAlert', () => {
+  it('variant + 标题 + 操作 slot', () => {
+    const w = mount(SAlert, { props: { variant: 'danger', title: '凭证失效' }, slots: { actions: '<b>重新授权</b>' } })
+    expect(w.text()).toContain('凭证失效'); expect(w.text()).toContain('重新授权')
+    expect(w.classes().join(' ')).toContain('s-alert--danger')
+  })
+})
+describe('SAvatar', () => {
+  it('显示首字母', () => {
+    const w = mount(SAvatar, { props: { name: 'RU-Store' } })
+    expect(w.text()).toContain('R')
+  })
+})
+describe('STabs', () => {
+  it('渲染 items + change 事件', async () => {
+    const items = [{ key: 'a', label: '全部' }, { key: 'b', label: '待发布' }]
+    const w = mount(STabs, { props: { items, activeKey: 'a' } })
+    expect(w.text()).toContain('待发布')
+    await w.findAll('.s-tabs__item')[1].trigger('click')
+    expect(w.emitted('change')[0]).toEqual(['b'])
+  })
+})
