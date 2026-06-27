@@ -39,8 +39,22 @@ repo 方法均按 `image_id`，用 `draft_id + id` 双条件防越权。
 ### 删除语义（已定）
 图片同时在素材与图集时，用户在素材库删除 → 整行删（图集里也消失）。「移出图集」只清 `in_gallery=0`，图仍留素材库。
 
-## 4. 前端图片 tab（ImagesTab，F1d-3 — 待建）
-规划：图集区（Ozon 类型槽位）+ 素材库区（「来自变体」下拉 = 跨变体借图）+ 应用到图集 + AI 出图。详细交互在 F1d-3 落地时补。
+## 4. 前端图片 tab（ImagesTab）
+
+### F1d-3a 两池管理 —— ✅ 已完成（2026-06-27）
+工作台 DetailTabs「图片」tab，三段（`components/workbench/tabs/ImagesTab.vue`）：
+- **图集（发布顺序）**：有序 ImageCard，每张 ↑↓ 调序(galleryReorder)、移出图集(galleryRemove)、删除(deleteImage 二次确认)；顶部「上传图片」(uploadMedia→patchDraft images 进图集)。
+- **素材库**：in_gallery=0 的图，每张「加入图集」(galleryAdd)、删除；多选 +「批量加入图集」。
+- **来自变体（借图）**：同组兄弟下拉(`wb.variants` 去当前，spec 标签)→ 拉该兄弟 materials → 选图「借到图集」(copyImagesTo 源=兄弟/目标=[当前])。
+
+**架构**：`composables/useGallery.js`（单一真相=后端 draft；派生 `galleryItems`(in_gallery 真按 position)/`materialItems`(假)；mutation 调 api 成功后 `onChange()`→DetailTabs `fm.load` 重拉）+ `components/workbench/ImageCard.vue`（纯展示:localUrl 优先/类型来源徽章/选中/actions 插槽）。`localUrl` 走 `draft.images`↔`draft.local_images` zip（图集本地代理防 1688 防盗链），素材回退原 url。
+**api.js 新增**：`galleryAdd/galleryRemove/galleryReorder(id,image_ids)` + `deleteImage(id,image_id)` + `copyImagesTo(id,image_urls,target_draft_ids)`。
+
+### F1d-3b AI 出图 —— 📋 待建
+design-image-plan（AI 设计图集槽位）→ image-plan（拉计划+槽状态）→ generate-plan-slot（按槽生成进候选区）→ apply-candidates/discard-candidates（应用/丢弃候选）。候选区 + 槽位 UI 待建。
+
+### ⚠️ 已知风险（验收实证）
+素材（in_gallery=0 采集图）若是 1688 防盗链原链、且 `local_images` 只并行图集 → 素材区可能显示不出。若发生，小后端补丁：getDraft 给每个 material 加 `local_url`。
 
 ## 5. 遗留 Minor（可跟进，非阻塞）
 - `list_pending_media_drafts` 返回字段名 `images` 实含全部图（语义模糊，插件用）。
