@@ -13,10 +13,10 @@
 ## 通用搬迁规程（每个领域 Task 都照此做）
 
 **搬 router（Phase A）**：
-1. 在 `webui/routers/<domain>.py` 建 `from fastapi import APIRouter, ...`（按需）+ `from webui.app_instance import APP` + 该域所需 models/依赖 import；`router = APIRouter()`。
-2. 把 `main.py` 里该域的 `@app.xxx(...)` 端点函数**整体剪切**过去，装饰器 `@app.` → `@router.`。保持路径/参数/函数体**一字不改**。
-3. `main.py` 顶部 `from webui.routers import <domain> as <domain>_router` + 末尾 `app.include_router(<domain>_router.router)`。
-4. 跑回归门 + `python -c "import webui.main"` 冒烟。
+1. 在 `webui/routers/<domain>.py` 建 `from fastapi import APIRouter, ...`（按需）+ **`from webui import app_instance`**（⚠️**不要** `from webui.app_instance import APP`——import 时会把 APP 绑死成 None/旧实例，测试 reload 后路由指旧实例）+ 该域所需 models/依赖 import；`router = APIRouter()`。
+2. 把 `main.py` 里该域的 `@app.xxx(...)` 端点函数**整体剪切**过去，装饰器 `@app.` → `@router.`。函数体里 `APP.xxx()` → **`app_instance.APP.xxx()`**（活属性，调用时查）。其余路径/参数/逻辑**一字不改**。
+3. `main.py` 顶部 `from webui.routers import <domain> as <domain>_router` + 末尾（在 `_ai_mod.APP = APP` **之后**）`app.include_router(<domain>_router.router)`。
+4. 跑回归门 + `python -m uv run python -c "import webui.main"` 冒烟。**特别盯 reload 类测试**（test_copy_images_multi/test_gallery_endpoints 等 reload main 后打端点）——它们验证活属性是否生效。
 
 **搬 mixin（Phase B）**：
 1. 在 `webui/services/_<domain>.py` 建 `class <Domain>Mixin:`，把 `App` 里该域方法**整体剪切**进来（含私有 `_xxx`）。方法体一字不改。

@@ -1,7 +1,9 @@
 """全局 App 单例持有者（供 routers 引用，避免 routers ↔ main 循环 import）。
 
-main.py 在构造自己的 APP = App() 后会把它写入本模块，
-routers 通过 `from webui.app_instance import APP` 拿到的是 main 的那个实例。
+main.py 在构造自己的 APP = App() 后会把它写入本模块。
+⚠️ routers 必须 `from webui import app_instance` 然后在 handler 里用 `app_instance.APP.xxx()`
+（活模块属性，调用时查），**不要** `from webui.app_instance import APP`——那会在 import 时
+把名字绑死成当时的值（None 或旧实例），测试 reload(main) 换了新 APP 后路由仍指旧实例。
 """
 from __future__ import annotations
 
