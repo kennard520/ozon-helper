@@ -2,28 +2,28 @@
 
 ## Project Structure & Module Organization
 
-This repository contains an Ozon listing helper split into three parts. `ozon-listing-webui/` is the FastAPI + Vue application: backend code lives in `backend/`, frontend code in `frontend/src/`, deployment notes in `deploy/`, scripts in `scripts/`, and Python tests in `tests/`. `ozon-seller-helper-ext/` is the Chromium MV3 extension, with shared parsing and bridge logic in `common/`, content scripts in `content/`, popup UI in `popup/`, and Vitest tests in `tests/`. `ozon_api/` is a lightweight Python Ozon Seller API client with its own `tests/`. `docs/`, `outputs/`, and local data files are supporting artifacts; avoid committing generated output or private data.
+This is a **uv workspace monorepo**. `apps/webui/` is the FastAPI + Vue application: backend code in `src/webui/` (`main.py` = assembly + `routers/`; `app_service.py` = thin `App` facade composing `services/` domain mixins), frontend in `frontend/src/`, deploy notes in `deploy/`, Python tests in `tests/`. `apps/image_worker/` is the AI image-generation worker. `packages/ozon_common/` holds the data layer (SQLAlchemy Core + Repository/UoW + Alembic) and shared infra; `packages/ozon_api/` is the Ozon Seller API client. `ozon-seller-helper-ext/` is the Chromium MV3 extension (`common/` parsing, `content/`, `popup/`, Vitest `tests/`). `docs/` holds specs/plans and product docs; avoid committing generated output or private data.
 
 ## Build, Test, and Development Commands
 
-Run backend setup and API locally from `ozon-listing-webui/`:
+`uv` may not be on PATH — use `python -m uv`. From the repo root:
 
 ```bash
-python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt
-python run_api.py
+python -m uv sync                                              # install workspace
+python -m uv run --package ozon-webui ozon-webui              # run backend (auto port / 8585)
+python -m uv run python -m pytest apps/webui/tests packages --ignore-glob='*_live.py' -q   # backend tests (714)
 ```
 
-Run the Vue app from `ozon-listing-webui/frontend/`:
+Run the Vue app from `apps/webui/frontend/`:
 
 ```bash
 npm install
-npm run dev
-npm run build
-npm run test
+npm run dev      # vite dev (proxy /api, /media to backend)
+npm run build    # produces dist/ (served by FastAPI)
+npm run test     # vitest
 ```
 
-Run extension tests from `ozon-seller-helper-ext/` with `npm test` or `npm run test:watch`. Run Python tests with `python -m unittest discover -s tests` inside `ozon-listing-webui/` or `ozon_api/`.
+Run extension tests from `ozon-seller-helper-ext/` with `npm test`. Deploy (Docker + MySQL) per `apps/webui/deploy/DEPLOY.md` — **run Alembic migrations on existing MySQL before deploying** (`create_all` adds tables, not columns).
 
 ## Coding Style & Naming Conventions
 

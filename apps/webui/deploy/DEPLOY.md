@@ -1,69 +1,74 @@
-# 部署到服务器（Linux）
+# 部署到服务器（Docker + MySQL）
 
-后端纯 Python，**不需要浏览器/Playwright/cloakbrowser**（采集走插件、媒体走 OSS、定价走静态表）。
+> 现状:**uv workspace monorepo**(`apps/{webui,image_worker}` + `packages/{ozon_common,ozon_api}`),后端 Docker 跑、数据 MySQL。后端纯 Python(采集走插件、媒体走 OSS、定价走静态表),不需要浏览器/Playwright。
+
+## ⚠️ 部署前必读:数据库迁移
+本仓库的 DAL 用 SQLAlchemy + Alembic(`migrations/versions/`)。**`metadata.create_all` 只建缺失的「表」,不会给已存在的表加「列」**。所以升级已有 MySQL 库时,**必须先跑 Alembic 迁移**,否则新代码 SELECT 新列会崩。
+- 关键迁移:`0006_in_gallery`(draft_images.in_gallery)、`0007_draft_image_local_url`(draft_images.local_url)。
+- 上线当前代码前在生产 MySQL 跑:`python -m uv run --package ozon-webui alembic upgrade head`(或容器内 `alembic upgrade head`),并按 `docs/dal-m4-mysql-verification-checklist.md` 核对。
+- 全新库:`create_all` 已含全部列,首启自动建表,无需迁移。
 
 ## 0. 前提
-- 一台 Linux 服务器（Ubuntu 22.04+，1C2G 够用）。
-- 一个域名，A 记录指向服务器 IP（HTTPS + 浏览器插件基本必须域名）。
-- 代码里需要 **两个目录一起部署**：`tools/ozon-listing-webui` 和它的同级 `tools/ozon_api`（被 analytics 用）。
+- Linux 服务器(Ubuntu 22.04+,1C2G 够用)+ Docker。
+- 一个 MySQL(可同机 Docker 容器,挂 `ozonnet` 网络)。
+- 一个域名,A 记录指向服务器(HTTPS + 插件基本必须)。
 
-## 1. 装系统依赖
+## 1. MySQL(若还没有)
 ```bash
-sudo apt update
-sudo apt install -y python3-venv python3-pip git debian-keyring debian-archive-keyring apt-transport-https curl
-# 装 Caddy（自动 HTTPS）
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy.gpg
-echo "deb [signed-by=/usr/share/keyrings/caddy.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" | sudo tee /etc/apt/sources.list.d/caddy.list
-sudo apt update && sudo apt install -y caddy
+docker network create ozonnet  # 若无
+docker run -d --name mysql --restart always --network ozonnet \
+  -e MYSQL_ROOT_PASSWORD=<root密码> -e MYSQL_DATABASE=ozon \
+  -e MYSQL_USER=ozon -e MYSQL_PASSWORD=<ozon密码> \
+  -v /opt/mysql-data:/var/lib/mysql mysql:8
 ```
+> ⚠️ 安全:**MySQL 3306 不要对公网开放**(只挂 docker 内网 ozonnet)。生产 DB 密码勿明文写进入库的文档。
 
-## 2. 拉代码 + Python 环境
+## 2. 构建镜像 + 起后端(redeploy 配方:tarball → build → swap)
+本机(或 CI)打包源码 → 传服务器 → docker build → 换容器:
 ```bash
-sudo mkdir -p /opt && cd /opt
-git clone <你的仓库地址> kuajing            # 确保含 tools/ozon-listing-webui 与 tools/ozon_api
-cd /opt/kuajing/tools/ozon-listing-webui
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-## 3. 前端构建（dist 不入库）
-本地构建后把 `frontend/dist` 传上去，或服务器装 Node 现构建：
-```bash
-# 服务器现构建（需 Node 18+）
-cd frontend && npm ci && npm run build && cd ..
-# 或：本地 npm run build 后 scp frontend/dist 到服务器同路径
-```
-
-## 4. 起后端（systemd 守护）
-```bash
-sudo cp deploy/ozon-webui.service /etc/systemd/system/
-# 按实际路径改 WorkingDirectory / PYTHONPATH（默认 /opt/kuajing）
-sudo systemctl daemon-reload
-sudo systemctl enable --now ozon-webui
-sudo systemctl status ozon-webui          # 看是否 running
+# 本机:打包当前 HEAD
+git archive --format=tar.gz -o /tmp/ozon.tgz HEAD
+# 传到服务器后:
+mkdir -p /opt/ozon && tar xzf ozon.tgz -C /opt/ozon && cd /opt/ozon
+docker build -t ozon-webui:latest .        # 根 Dockerfile(uv workspace 构建)
+# 先跑迁移(见上「部署前必读」),再换容器:
+docker rm -f ozon-webui 2>/dev/null || true
+docker run -d --name ozon-webui --restart always --network ozonnet -p 8585:8585 \
+  -e OZON_MYSQL_HOST=mysql -e OZON_MYSQL_PORT=3306 \
+  -e OZON_MYSQL_USER=ozon -e OZON_MYSQL_PASSWORD=<ozon密码> -e OZON_MYSQL_DB=ozon \
+  -e OSS_ENDPOINT=... -e OSS_BUCKET=... -e OSS_ACCESS_KEY_ID=... -e OSS_ACCESS_KEY_SECRET=... -e OSS_PUBLIC_BASE=... \
+  ozon-webui:latest
+docker logs -f ozon-webui                   # 看启动
 curl -s http://127.0.0.1:8585/api/ext/ping  # 自检
 ```
+> 镜像 `CMD` = `uv run --package ozon-webui ozon-webui`(= `webui/server.py:main`,自动选端口/默认 8585)。前端 `apps/webui/frontend/dist` 已在镜像内(构建产物),由 FastAPI 托管。env 变量名见 `apps/image_worker/.env.template`(webui 复用同名 OZON_MYSQL_*/OSS_*)。
 
-## 5. HTTPS 反代
+## 3. 图生图 worker(可选,第二容器)
 ```bash
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # 把域名改成你的
+docker run -d --name ozon-worker --restart always --network ozonnet \
+  --env-file /opt/ozon/.env \
+  ozon-webui:latest uv run --package ozon-image-worker ozon-worker
+```
+> 需 RABBITMQ_* + GPTPLUS5_* + OZON_MYSQL_*(见 `.env.template`)。
+
+## 4. HTTPS 反代(Caddy)
+```bash
+sudo cp apps/webui/deploy/Caddyfile /etc/caddy/Caddyfile   # 域名改成你的,反代到 127.0.0.1:8585
 sudo systemctl reload caddy
-# 浏览器打开 https://app.你的域名.com → 登录(默认 admin/admin，登录后改密)
+# 浏览器 https://app.你的域名.com → 登录(首次默认 admin/admin,登录后改密)
 ```
 
-## 6. 初始化数据 / 配置
-- 首次启动自动建 `data/products.db`（admin/admin + jwt_secret）。**这库含密钥+草稿，务必持久化+定时备份。**
-- OSS 是全局键：在「设置」里配（或直接写 DB `user_id=0`）。
-- 在「设置→Ozon 店铺」加店、填 Client-Id/Api-Key。
+## 5. 初始化数据 / 配置
+- 首启自动建表 + admin/admin + jwt_secret(全新库)。
+- OSS:env 注入 或「设置」里配(全局键 user_id=0)。
+- 「设置→Ozon 店铺」加店、填 Client-Id/Api-Key(多店存 settings.ozon_stores)。
 
-## 7. 备份（必做）
+## 6. 备份(必做)
 ```bash
-# 每天备份 DB
-echo '0 3 * * * cp /opt/kuajing/tools/ozon-listing-webui/data/products.db /opt/backup/products-$(date +\%F).db' | crontab -
+# 每天 dump MySQL
+echo '0 3 * * * docker exec mysql mysqldump -uozon -p<ozon密码> ozon | gzip > /opt/backup/ozon-$(date +\%F).sql.gz' | crontab -
 ```
 
-## ⚠️ 还差一步：插件要能连到服务器
-插件目前只连 `127.0.0.1`（采集核心流程）。后端搬到服务器后，**插件需要支持配置后端地址**才能从浏览器采集到远程后端。这块是单独的插件改动（`bridge.js`/`background.js`/`popup` 加“后端地址”配置），部署后端本身不依赖它——WebUI 打开即可用，但插件采集要等这步。
-
-## ⚠️ 收别人用之前（SaaS）
-- 后端现在**明文存** Ozon Api-Key、且仓库/订单等表尚未按 user_id 强隔离。**自己用 OK，收陌生用户前**必须做密钥加密 + 全表租户隔离（见 spec）。
+## ⚠️ 收别人用之前(SaaS)
+- 后端**明文存** Ozon Api-Key、部分表尚未按 user_id 强隔离。**自用 OK,收陌生用户前**必须做密钥加密 + 全表租户隔离(见 spec)。
+- 插件目前连 `127.0.0.1`,远程采集需插件支持配置后端地址(单独插件改动)。

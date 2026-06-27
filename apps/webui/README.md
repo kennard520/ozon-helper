@@ -1,65 +1,41 @@
 # Ozon 上品助手 WebUI
 
-本地运行的 Ozon 一键上品 MVP。
+Ozon 一键上品工具(FastAPI + Vue3)。粘 1688 链接 → 生成草稿 → 工作台补齐标题/类目/属性/图片/价 → AI 文案与出图 → 发布到 Ozon Seller API。本包是 monorepo 的 `apps/webui`。
 
-第一版支持：
+## 架构
+- **后端 FastAPI**:`src/webui/`。`main.py`=装配层(建 app + 12 个 `routers/` + 中间件 + SPA 挂载);`app_service.py`=薄 facade `class App`(组合 `services/` 下 13 个领域 mixin);`app_instance.py`=APP 单例。详见 [docs/product/backend-architecture.md](../../docs/product/backend-architecture.md)。
+- **数据层**:`packages/ozon_common`(SQLAlchemy Core + Repository/UoW + Alembic),本地 SQLite、服务器 MySQL(`OZON_MYSQL_*` env 自动切)。
+- **前端 Vue3 + Vite + Element Plus**:`frontend/`,构建到 `frontend/dist/`(不入库)由 FastAPI 托管。设计系统见 `frontend/src/styles/tokens.css` + `frontend/src/ui/`。
 
-- 粘贴 1688 商品链接，一行一个。
-- 生成本地 Ozon 商品草稿。
-- 在 WebUI 中补齐标题、描述、类目、价格、库存、图片、属性。
-- 保存 Ozon `Client-Id` / `Api-Key` 到本地 SQLite。
-- 发布草稿到 Ozon Seller API `POST /v3/product/import`。
+## 运行(本地,仓库根目录)
+> uv 不在 PATH 时用 `python -m uv`。
 
-## 架构（P0b 起）
-
-- **后端 FastAPI**：`backend/`（`main.py` 路由 / `app_service.py` App / `models.py`）+ 顶层领域模块（`store.py` / `drafts.py` / `collector*.py` / `ozon_client_adapter.py` / `media.py` / `catalog.py`）。
-- **前端 Vue3 + Vite + Element Plus**：`frontend/`，构建到 `frontend/dist/` 由 FastAPI 托管。
-- 旧原生 JS 前端（`static/`）与旧入口（`server.py`）已于 P0b 下线。
-
-## 运行
-
-**首次 / 改完前端后必须先构建**（`frontend/dist/` 是构建产物，不入库）：
-
-```powershell
-cd tools\ozon-listing-webui\frontend
-npm install        # 首次
-npm run build      # 产出 frontend/dist/
+```bash
+# 后端(默认 SQLite apps/webui/src/webui/data/products.db;自动选端口/默认 8585)
+python -m uv run --package ozon-webui ozon-webui
+# 或显式 uvicorn:
+python -m uv run uvicorn webui.main:app --port 8585 --app-dir apps/webui/src
 ```
 
-启动后端（托管 dist）：
-
-```powershell
-$env:PYTHONPATH = "tools/ozon-listing-webui"
-python tools/ozon-listing-webui/run_api.py        # 默认 8787 → http://127.0.0.1:8787
-python tools/ozon-listing-webui/run_api.py 8790   # 换端口
+```bash
+# 前端(首次/改完前端必构建——dist 是产物不入库)
+cd apps/webui/frontend
+npm install          # 首次
+npm run build        # 产出 dist/(后端托管)
+npm run dev          # 开发热更新(vite proxy /api、/media 到后端)
 ```
-
-前端开发热更新（dev server 代理 `/api`、`/media` 到后端 8787）：
-
-```powershell
-cd tools\ozon-listing-webui\frontend
-npm run dev
-```
-
-## 本地数据
-
-- SQLite：`tools/ozon-listing-webui/data/products.db`
-- 1688 profile 预留目录：`.auth/1688_profile`
 
 ## 测试
-
-后端：
-
-```powershell
-$env:PYTHONPATH = "tools/ozon-listing-webui"
-python -m unittest discover -s tools\ozon-listing-webui\tests
-python -m compileall -q tools\ozon-listing-webui\backend
+```bash
+# 后端(仓库根)
+python -m uv run python -m pytest apps/webui/tests --ignore-glob='*_live.py' -q
+# 全套(含 packages):
+python -m uv run python -m pytest apps/webui/tests packages --ignore-glob='*_live.py' -q
+# 前端
+cd apps/webui/frontend && npm run test
 ```
 
-前端：
-
-```powershell
-cd tools\ozon-listing-webui\frontend
-npm run test
-```
-
+## 本地数据 / 配置
+- SQLite:`apps/webui/src/webui/data/products.db`(含 jwt_secret + 草稿,**敏感**)。
+- Ozon 凭证:「设置→Ozon 店铺」填 Client-Id/Api-Key(多店存 `settings.ozon_stores`)。
+- 部署(Docker + MySQL):见 [deploy/DEPLOY.md](deploy/DEPLOY.md)。
