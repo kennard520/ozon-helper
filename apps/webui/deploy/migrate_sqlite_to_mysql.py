@@ -10,8 +10,8 @@
 from __future__ import annotations
 
 import os
-import sys
 import sqlite3
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()

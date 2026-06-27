@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Column,
     Float,
+    ForeignKey,
     Index,
     Integer,
     MetaData,
@@ -47,7 +48,11 @@ users = Table(
 
 accounts = Table(
     "accounts", metadata,
-    Column("user_id", Integer, primary_key=True),
+    Column(
+        "user_id", Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Column("balance", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
     Column("total_recharge", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
     Column("total_consume", Numeric(18, 4, asdecimal=True), nullable=False, server_default="0"),
@@ -57,7 +62,11 @@ accounts = Table(
 account_txns = Table(
     "account_txns", metadata,
     Column("id", Integer, primary_key=True),
-    Column("user_id", Integer, nullable=False),
+    Column(
+        "user_id", Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("txn_type", Text, nullable=False),
     Column("amount", Numeric(18, 4, asdecimal=True), nullable=False),
     Column("balance_after", Numeric(18, 4, asdecimal=True)),
@@ -238,7 +247,11 @@ postings = Table(
 procurement = Table(
     "procurement", metadata,
     Column("id", Integer, primary_key=True),
-    Column("posting_number", Text, nullable=False),
+    Column(
+        "posting_number", Text,
+        ForeignKey("postings.posting_number", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("offer_id", Text, nullable=False),
     Column("qty", Integer, nullable=False, server_default="1"),
     Column("purchase_state", Text, nullable=False, server_default="待采购"),
@@ -270,7 +283,11 @@ offer_snapshots = Table(
 draft_images = Table(
     "draft_images", metadata,
     Column("id", Integer, primary_key=True),
-    Column("draft_id", Integer, nullable=False),
+    Column(
+        "draft_id", Integer,
+        ForeignKey("drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("position", Integer, nullable=False, server_default="0"),
     Column("url", Text, nullable=False),
     Column("type", Text, nullable=False, server_default=""),
@@ -282,7 +299,11 @@ draft_images = Table(
 gen_jobs = Table(
     "gen_jobs", metadata,
     Column("id", Integer, primary_key=True),
-    Column("draft_id", Integer, nullable=False),
+    Column(
+        "draft_id", Integer,
+        ForeignKey("drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("user_id", Integer, nullable=False, server_default="1"),
     Column("status", Text, nullable=False, server_default="queued"),
     Column("target", Integer, nullable=False, server_default="10"),
@@ -298,7 +319,11 @@ gen_jobs = Table(
 gen_job_images = Table(
     "gen_job_images", metadata,
     Column("id", Integer, primary_key=True),
-    Column("job_id", Integer, nullable=False),
+    Column(
+        "job_id", Integer,
+        ForeignKey("gen_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("slot_id", Text, nullable=False, server_default=""),
     Column("label", Text, nullable=False, server_default=""),
     Column("status", Text, nullable=False, server_default="pending"),

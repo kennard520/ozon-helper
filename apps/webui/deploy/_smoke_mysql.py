@@ -5,6 +5,7 @@
 全过打印 SMOKE_OK，否则 AssertionError。
 """
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path

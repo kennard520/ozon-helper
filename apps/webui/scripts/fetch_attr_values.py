@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """拉指定属性的字典候选值。落 JSON。"""
-import json, os, sqlite3, sys, time, urllib.error, urllib.request
+import json
+import os
+import sqlite3
+import sys
+import time
+import urllib.error
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "data", "products.db")

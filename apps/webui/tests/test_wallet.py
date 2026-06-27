@@ -8,7 +8,12 @@ from webui.store import Store
 
 class WalletStoreTest(unittest.TestCase):
     def _store(self, tmp):
-        return Store(Path(tmp) / "w.db")
+        s = Store(Path(tmp) / "w.db")
+        # accounts.user_id / account_txns.user_id 现有 FK -> users.id(M4d),
+        # 先建好被测试引用的用户行(钱包测试只用 user_id 1/2)。
+        for _ in range(2):
+            s.create_user(f"u{_}", "x")
+        return s
 
     def test_recharge_and_balance(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

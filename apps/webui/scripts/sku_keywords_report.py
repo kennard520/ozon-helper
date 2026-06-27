@@ -31,7 +31,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
 
-from ozon_api import OzonSellerClient, OzonApiError  # noqa: E402
+from ozon_api import OzonApiError, OzonSellerClient  # noqa: E402
 
 DB = ROOT / "data" / "products.db"
 

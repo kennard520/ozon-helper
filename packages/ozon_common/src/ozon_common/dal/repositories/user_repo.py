@@ -20,8 +20,6 @@ from sqlalchemy import delete, func, insert, select, update
 
 from ozon_common.dal.repositories.base import BaseRepo
 from ozon_common.dal.schema import (
-    account_txns,
-    accounts,
     delivery_methods,
     drafts,
     offer_snapshots,
@@ -159,10 +157,13 @@ class UserRepo(BaseRepo):
                 )
 
         # 3. 删 user_id 关联数据
-        for tbl in (drafts, accounts, account_txns, settings):
+        #    accounts / account_txns 由 FK ON DELETE CASCADE(M4d,user_id 维度)
+        #    随用户行级联删除,无需手写;此处只处理无 FK 的 settings,
+        #    以及随 drafts 级联清空 draft_images/gen_jobs/gen_job_images 的 drafts。
+        for tbl in (drafts, settings):
             self.s.execute(delete(tbl).where(tbl.c.user_id == uid))
 
-        # 4. 删用户行本身
+        # 4. 删用户行本身(accounts/account_txns 经 FK CASCADE 一并删除)
         self.s.execute(delete(T).where(T.c.id == uid))
 
     # ------------------------------------------------------------------ #

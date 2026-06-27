@@ -7,15 +7,25 @@ import tempfile
 from decimal import Decimal
 from pathlib import Path
 
+from sqlalchemy import insert
+
 from ozon_common.dal import session as S
 from ozon_common.dal.engine import build_engine
 from ozon_common.dal.repositories.wallet_repo import WalletRepo
-from ozon_common.dal.schema import metadata
+from ozon_common.dal.schema import metadata, users
 
 
 def _bind(tmp):
     eng = build_engine(f"sqlite:///{Path(tmp) / 'm.db'}")
     metadata.create_all(eng)
+    # accounts.user_id FK -> users.id(M4d):备好 user_id=1。
+    with eng.begin() as conn:
+        conn.execute(
+            insert(users).values(
+                id=1, username="u1", password_hash="x",
+                created_at="2026-01-01 00:00:00.000000",
+            )
+        )
     S.bind_engine(eng)
     return eng
 

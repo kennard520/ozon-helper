@@ -1,16 +1,28 @@
 import tempfile
 from pathlib import Path
 
+from sqlalchemy import insert
+
 from ozon_common.dal import session as S
 from ozon_common.dal.engine import build_engine
 from ozon_common.dal.repositories.wallet_repo import WalletRepo
-from ozon_common.dal.schema import account_txns, metadata
+from ozon_common.dal.schema import account_txns, metadata, users
 
 
 def _bind(tmp):
     """构建 SQLite engine 并初始化 schema,返回 engine 供 dispose。"""
     eng = build_engine(f"sqlite:///{Path(tmp) / 'w.db'}")
     metadata.create_all(eng)
+    # accounts.user_id / account_txns.user_id 现有 FK -> users.id(M4d),
+    # 先备好被测试引用的用户行。
+    now = "2026-01-01 00:00:00.000000"
+    with eng.begin() as conn:
+        for uid in (1, 2, 5, 7, 9):
+            conn.execute(
+                insert(users).values(
+                    id=uid, username=f"u{uid}", password_hash="x", created_at=now
+                )
+            )
     S.bind_engine(eng)
     return eng
 

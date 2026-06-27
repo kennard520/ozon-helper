@@ -27,7 +27,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parents[1]          # ozon-listing-webui
 sys.path.insert(0, str(ROOT.parent))                # tools/ （for ozon_api）
 
-from ozon_api import OzonSellerClient, OzonApiError  # noqa: E402
+from ozon_api import OzonApiError, OzonSellerClient  # noqa: E402
 
 DB = ROOT / "data" / "products.db"
 METRICS = ["hits_view", "session_view", "hits_tocart", "conv_tocart", "ordered_units"]

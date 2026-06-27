@@ -6,16 +6,31 @@
 import tempfile
 from pathlib import Path
 
+from sqlalchemy import insert
+
 from ozon_common.dal import session as S
 from ozon_common.dal.engine import build_engine
 from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo
 from ozon_common.dal.repositories.gen_job_repo import GenJobRepo
-from ozon_common.dal.schema import metadata
+from ozon_common.dal.schema import drafts, metadata
 
 
 def _bind(tmp: str):
     eng = build_engine(f"sqlite:///{Path(tmp) / 'w.db'}")
     metadata.create_all(eng)
+    # gen_jobs.draft_id / draft_images.draft_id 现有 FK(M4d),先备父草稿行。
+    now = "2026-01-01 00:00:00.000000"
+    with eng.begin() as conn:
+        for did in (1, 2):
+            conn.execute(
+                insert(drafts).values(
+                    id=did, user_id=1, source_url=f"https://x/{did}",
+                    source_title="t", ozon_title="t", description="d",
+                    category_id="1", price="1", old_price="1", stock=1,
+                    images_json="[]", attributes_json="{}", status="ready",
+                    validation_errors_json="[]", created_at=now, updated_at=now,
+                )
+            )
     S.bind_engine(eng)
     return eng
 

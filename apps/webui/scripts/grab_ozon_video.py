@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """一次性：抓 Ozon 商品页 widgetStates，从图廊里找视频 URL。"""
-import json, re, sys, time
+import json
+import re
+import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
 
-from backend.collector import launch_persistent_context, PROFILE, _expand_page, _JSONLD  # noqa: E402
+from backend.collector import _JSONLD, PROFILE, _expand_page, launch_persistent_context  # noqa: E402
 
 URL = sys.argv[1] if len(sys.argv) > 1 else ""
 OUT = str(ROOT / "_ozon_states.json")

@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """拉某类目+type 的属性清单（id/name/是否必填/是否字典）。落 JSON。"""
-import json, os, sqlite3, sys, time, urllib.error, urllib.request
+import json
+import os
+import sqlite3
+import sys
+import time
+import urllib.error
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "data", "products.db")

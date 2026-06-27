@@ -259,10 +259,11 @@ class DraftRepo(BaseRepo):
         self._sync_draft_images(draft_id, new_imgs)
 
     def delete_draft(self, draft_id: int, user_id: int) -> None:
+        # 只删 drafts 行本身;draft_images / gen_jobs / gen_job_images 由
+        # FK ON DELETE CASCADE(M4d)随父级联删除,无需手写删子表。
         self.s.execute(
             delete(D).where(D.c.id == int(draft_id), D.c.user_id == int(user_id))
         )
-        self.s.execute(delete(DI).where(DI.c.draft_id == int(draft_id)))
 
     # ------------------------------------------------------------------
     # 读取
