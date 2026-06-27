@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref, nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 vi.mock('../api.js', () => ({ api: {
-  getDraft: vi.fn().mockResolvedValue({ id: 7, ozon_title: '杯', price: 38, stock: 5,
-    category_id: '1', type_id: '2', source_raw: {}, attributes: [] }),
+  getDraft: vi.fn().mockResolvedValue({ draft: { id: 7, ozon_title: '杯', price: 38, stock: 5,
+    category_id: '1', type_id: '2', source_raw: {}, attributes: [] } }),
   patchDraft: vi.fn().mockResolvedValue({ draft: { id: 7, ozon_title: '新杯' } }),
 } }))
 import { api } from '../api.js'

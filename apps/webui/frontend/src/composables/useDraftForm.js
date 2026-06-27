@@ -46,7 +46,8 @@ export function useDraftForm(draftIdRef) {
     const id = draftIdRef.value
     if (id == null) { draft.value = null; return }
     loading.value = true
-    try { const d = await api.getDraft(id); draft.value = d; initFromDraft(d) }
+    // GET /api/drafts/{id} 返回 {draft: {...}};兼容裸草稿对象
+    try { const r = await api.getDraft(id); const d = (r && r.draft) ? r.draft : r; draft.value = d; initFromDraft(d) }
     finally { loading.value = false }
   }
 
