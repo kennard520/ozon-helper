@@ -10,11 +10,13 @@
 是复合操作。这些方法整体跑在 _in_scope 提供的单个 session 内（结束统一 commit），
 余额改与流水写都在同一方法体（都用 self.s）→ 天然同一事务，原子。
 
-金额仍用 Float（不改 Numeric，那是 M4）；金额算法/精度行为完全照搬 Store 现实现。
+金额用 Numeric(18,4)（M4b）；Python 层统一收发 Decimal 做精确算术，入参用
+Decimal(str(amount)) 中转避免 float 直转 Decimal 引误差。
 deduct 用条件 UPDATE（balance>=amount）防并发超扣，行为照搬。
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import insert, select, update
@@ -27,14 +29,14 @@ from ozon_common.jsonio import utc_now_iso
 
 class WalletRepo(BaseRepo):
     # ------------------------------------------------------------------ #
-    # 内部：写流水（与 Store._add_txn 等价，金额强转 float 照搬）            #
+    # 内部：写流水（与 Store._add_txn 等价，金额用 Decimal 精确入库）        #
     # ------------------------------------------------------------------ #
     def _add_txn(
         self,
         user_id: int,
         txn_type: str,
-        amount: float,
-        balance_after: float,
+        amount: Decimal,
+        balance_after: Decimal | None,
         biz_no: str | None,
         remark: str | None,
     ) -> None:
@@ -42,8 +44,10 @@ class WalletRepo(BaseRepo):
             insert(TX).values(
                 user_id=user_id,
                 txn_type=txn_type,
-                amount=float(amount),
-                balance_after=float(balance_after),
+                amount=Decimal(str(amount)),
+                balance_after=(
+                    None if balance_after is None else Decimal(str(balance_after))
+                ),
                 biz_no=biz_no,
                 remark=remark,
                 created_at=utc_now_iso(),
@@ -61,16 +65,16 @@ class WalletRepo(BaseRepo):
             self.s.execute(
                 insert(AC).values(
                     user_id=uid,
-                    balance=0,
-                    total_recharge=0,
-                    total_consume=0,
+                    balance=Decimal("0"),
+                    total_recharge=Decimal("0"),
+                    total_consume=Decimal("0"),
                     updated_at=utc_now_iso(),
                 )
             )
             row = self.s.execute(select(AC).where(AC.c.user_id == uid)).first()
         return dict(row._mapping)
 
-    def _balance(self, user_id: int) -> float:
+    def _balance(self, user_id: int) -> Decimal:
         return self.s.execute(
             select(AC.c.balance).where(AC.c.user_id == int(user_id))
         ).scalar()
@@ -84,18 +88,19 @@ class WalletRepo(BaseRepo):
         user_id: int,
     ) -> dict[str, Any]:
         uid = int(user_id)
+        amt = Decimal(str(amount))
         self.get_account(uid)
         self.s.execute(
             update(AC)
             .where(AC.c.user_id == uid)
             .values(
-                balance=AC.c.balance + float(amount),
-                total_recharge=AC.c.total_recharge + float(amount),
+                balance=AC.c.balance + amt,
+                total_recharge=AC.c.total_recharge + amt,
                 updated_at=utc_now_iso(),
             )
         )
         bal = self._balance(uid)
-        self._add_txn(uid, "recharge", amount, bal, biz_no, remark)
+        self._add_txn(uid, "recharge", amt, bal, biz_no, remark)
         return self.get_account(uid)
 
     def deduct(
@@ -109,20 +114,21 @@ class WalletRepo(BaseRepo):
         """原子扣款：仅 balance>=amount 才扣（条件 UPDATE 防并发超扣）。
         成功 True，余额不足 False。"""
         uid = int(user_id)
+        amt = Decimal(str(amount))
         self.get_account(uid)
         cur = self.s.execute(
             update(AC)
-            .where(AC.c.user_id == uid, AC.c.balance >= float(amount))
+            .where(AC.c.user_id == uid, AC.c.balance >= amt)
             .values(
-                balance=AC.c.balance - float(amount),
-                total_consume=AC.c.total_consume + float(amount),
+                balance=AC.c.balance - amt,
+                total_consume=AC.c.total_consume + amt,
                 updated_at=utc_now_iso(),
             )
         )
         if cur.rowcount != 1:
             return False
         bal = self._balance(uid)
-        self._add_txn(uid, "consume", amount, bal, biz_no, remark)
+        self._add_txn(uid, "consume", amt, bal, biz_no, remark)
         return True
 
     def refund(
@@ -134,17 +140,18 @@ class WalletRepo(BaseRepo):
         user_id: int,
     ) -> dict[str, Any]:
         uid = int(user_id)
+        amt = Decimal(str(amount))
         self.get_account(uid)
         self.s.execute(
             update(AC)
             .where(AC.c.user_id == uid)
             .values(
-                balance=AC.c.balance + float(amount),
+                balance=AC.c.balance + amt,
                 updated_at=utc_now_iso(),
             )
         )
         bal = self._balance(uid)
-        self._add_txn(uid, "refund", amount, bal, biz_no, remark)
+        self._add_txn(uid, "refund", amt, bal, biz_no, remark)
         return self.get_account(uid)
 
     def list_txns(self, user_id: int, limit: int = 200) -> list[dict[str, Any]]:

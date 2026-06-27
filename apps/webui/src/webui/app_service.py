@@ -59,6 +59,20 @@ from webui.ozon_client_adapter import (  # noqa: E402
 from webui.settings_migrate import migrate_ai, normalize_stores  # noqa: E402
 from webui.store import Store  # noqa: E402
 
+# 钱包出口处 Decimal→float 的字段（DAL 内部保持 Decimal 精确，仅 API 边界转 number）
+_ACCOUNT_MONEY_KEYS = ("balance", "total_recharge", "total_consume")
+_TXN_MONEY_KEYS = ("amount", "balance_after")
+
+
+def _money_to_float(row: dict, keys: tuple[str, ...]) -> dict:
+    """把 dict 中指定钱字段的 Decimal 转 float（None 保留），返回新 dict。"""
+    out = dict(row)
+    for k in keys:
+        v = out.get(k)
+        if v is not None:
+            out[k] = float(v)
+    return out
+
 
 def _to_int(value: object) -> int:
     try:
@@ -273,8 +287,15 @@ class App:
 
     # ---------- 钱包 ----------
     def wallet_state(self) -> dict:
-        """当前用户钱包：账户 + 最近流水。"""
-        return {"account": self.store.get_account(), "txns": self.store.list_txns()}
+        """当前用户钱包：账户 + 最近流水。
+
+        钱列在 DAL 是 Decimal（精确算术），但 FastAPI JSON 编码会把 Decimal 渲染成字符串，
+        前端期望 number → 出口处把钱字段 float() 化，保证 /api/wallet 返回 JSON number。
+        """
+        return {
+            "account": _money_to_float(self.store.get_account(), _ACCOUNT_MONEY_KEYS),
+            "txns": [_money_to_float(t, _TXN_MONEY_KEYS) for t in self.store.list_txns()],
+        }
 
     def wallet_recharge(self, amount: float, remark: str = "") -> dict:
         try:
@@ -284,7 +305,7 @@ class App:
         if amount <= 0:
             raise ValueError("金额必须大于 0")
         account = self.store.recharge(amount, remark=remark or "充值")
-        return {"account": account}
+        return {"account": _money_to_float(account, _ACCOUNT_MONEY_KEYS)}
 
     def presign_media(self, items: list) -> dict:
         """给插件签一批媒体的预签名 OSS 上传地址（服务级共享桶，内容哈希去重）。"""
@@ -3026,7 +3047,12 @@ class App:
         return self.store.add_offer_snapshot(snap)
 
     def ext_snapshots(self, product_id: str) -> dict:
-        return {"product_id": str(product_id), "snapshots": self.store.list_offer_snapshots(str(product_id))}
+        # price_min/max 列已是 Numeric→Decimal；API 出口 float 化保证 JSON number（前端/插件期望 number）
+        snaps = [
+            _money_to_float(s, ("price_min", "price_max"))
+            for s in self.store.list_offer_snapshots(str(product_id))
+        ]
+        return {"product_id": str(product_id), "snapshots": snaps}
 
     def apply_ai_proposal(self, draft_id: int) -> dict:
         """把草稿的 AI 待确认草案合并进正式字段，清空草案。

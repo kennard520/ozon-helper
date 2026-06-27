@@ -205,7 +205,8 @@ def test_type_coercion():
                 latest = OfferSnapshotRepo().latest_offer_snapshot("P005")
 
             assert latest["follow_count"] == 7
-            assert latest["price_min"] == 9.99
+            # price_min 列已是 Numeric(18,4)→读回 Decimal('9.9900')；用 float 比较语义不变
+            assert float(latest["price_min"]) == 9.99
             assert latest["price_max"] is None
         finally:
             eng.dispose()
