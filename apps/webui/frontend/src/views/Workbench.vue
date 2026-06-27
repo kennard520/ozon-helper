@@ -5,6 +5,7 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import { useDraftBatchOps } from '../composables/useDraftBatchOps.js'
 import DraftListPane from '../components/workbench/DraftListPane.vue'
 import VariantCardsPane from '../components/workbench/VariantCardsPane.vue'
+import PipelinePanel from '../components/workbench/PipelinePanel.vue'
 
 const store = useAppStore()
 const wb = useWorkbenchStore()
@@ -52,7 +53,7 @@ onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
             <span v-for="(e, i) in (publishResult.errors || [])" :key="i" class="err">▲ {{ typeof e === 'string' ? e : JSON.stringify(e) }}</span>
           </div>
         </div>
-        <div class="wb-center-placeholder">中栏(AI 工作台 + 详情)将在 F1c/F1d 实现</div>
+        <PipelinePanel @publish-group="ops.doBatchPublish([...wb.selectedVariantIds])" />
       </div>
     </main>
     <aside class="wb-right">
