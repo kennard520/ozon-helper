@@ -9,10 +9,12 @@ import VideoTab from './tabs/VideoTab.vue'
 import RichTextTab from './tabs/RichTextTab.vue'
 import AttributesTab from './tabs/AttributesTab.vue'
 import ImagesTab from './tabs/ImagesTab.vue'
+import ProposalPanel from './ProposalPanel.vue'
 
 const wb = useWorkbenchStore()
 const fm = useDraftForm(computed(() => wb.currentVariantId))
 const active = ref('info')
+function onProposalApplied() { fm.load(); wb.reload() }
 const TABS = [
   { key: 'info', label: '商品信息' }, { key: 'attrs', label: '特征' },
   { key: 'images', label: '图片' }, { key: 'video', label: '视频' },
@@ -21,6 +23,7 @@ const TABS = [
 </script>
 <template>
   <div v-if="wb.currentVariantId != null" class="dt">
+    <ProposalPanel :draft="fm.draft.value" @applied="onProposalApplied" />
     <STabs :items="TABS" :active-key="active" @change="(k) => active = k" />
     <div class="dt__body">
       <InfoTab v-if="active === 'info'" :form="fm.form" :draft="fm.draft.value" @save="fm.save" />
