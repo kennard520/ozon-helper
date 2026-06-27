@@ -194,7 +194,9 @@ class ExtBridgeTest(unittest.TestCase):
                 self.assertEqual(d["source_platform"], "ozon")
                 self.assertEqual(d["ozon_title"], "ReNu Advanced раствор для контактных линз 360 мл")
                 self.assertEqual(d["price"], "528")
-                self.assertEqual(len(d["images"]), 2)
+                # 语义变更:采集图→素材(in_gallery=0),图集(images)为空;materials 有 2 张
+                self.assertEqual(len(d["images"]), 0)
+                self.assertEqual(len(d["materials"]), 2)
                 self.assertEqual(d["weight_g"], 2800)
                 self.assertEqual(d["length_mm"], 240)
                 self.assertEqual(d["description"], "Описание")

@@ -143,6 +143,7 @@ class DraftRepo(BaseRepo):
             new_id,
             draft["images"],
             (draft.get("source_raw") or {}).get("image_types"),
+            gallery=False,
         )
         return self.find_by_source_url(draft["source_url"], user_id) or draft
 
@@ -486,35 +487,68 @@ class DraftRepo(BaseRepo):
         draft_id: int,
         images: list[str],
         image_types: dict[str, str] | None = None,
+        *,
+        gallery: bool = True,
     ) -> None:
-        """把 images 数组同步到 draft_images 表行。
-        保留旧行已有的 type/source(按 url 匹配),新图用 image_types 或兜底。"""
+        """gallery=True:images 当成"目标图集顺序"同步——已有行 UPDATE in_gallery/position,
+        新 url INSERT(in_gallery=1),原图集中不在 images 的行降级 in_gallery=0(留素材)。**不 DELETE 全表**。
+        gallery=False:初始采集——全部 INSERT 为素材(in_gallery=0)。"""
         now = utc_now_iso()
-        old_rows = self.s.execute(
-            select(DI.c.url, DI.c.type, DI.c.source).where(
+        types = dict(image_types or {})
+        rows = self.s.execute(
+            select(DI.c.id, DI.c.url, DI.c.type, DI.c.in_gallery).where(
                 DI.c.draft_id == int(draft_id)
             )
         ).all()
-        old_map: dict[str, tuple[str, str]] = {}
-        for r in old_rows:
-            old_map[str(r.url)] = (str(r.type or ""), str(r.source or ""))
-        types = dict(image_types or {})
-        self.s.execute(delete(DI).where(DI.c.draft_id == int(draft_id)))
-        for i, url in enumerate(images):
-            url = str(url)
-            prev = old_map.get(url)
-            typ = types.get(url) or (prev[0] if prev else "") or "其他"
-            src = prev[1] if prev else "collected"
-            self.s.execute(
-                insert(DI).values(
-                    draft_id=int(draft_id),
-                    position=i,
-                    url=url,
-                    type=typ,
-                    source=src,
-                    created_at=now,
-                )
+        by_url = {str(r.url): r for r in rows}
+        target = [str(u) for u in images]
+        target_set = set(target)
+        if not gallery:
+            base = (
+                self.s.execute(
+                    select(func.coalesce(func.max(DI.c.position), -1) + 1).where(
+                        DI.c.draft_id == int(draft_id)
+                    )
+                ).scalar()
+                or 0
             )
+            for i, url in enumerate(target):
+                if url in by_url:
+                    continue
+                self.s.execute(
+                    insert(DI).values(
+                        draft_id=int(draft_id),
+                        position=int(base) + i,
+                        url=url,
+                        type=types.get(url) or "其他",
+                        source="collected",
+                        in_gallery=0,
+                        created_at=now,
+                    )
+                )
+            return
+        # gallery=True:图集感知同步
+        for url, r in by_url.items():
+            if r.in_gallery == 1 and url not in target_set:
+                self.s.execute(update(DI).where(DI.c.id == r.id).values(in_gallery=0))
+        for i, url in enumerate(target):
+            r = by_url.get(url)
+            if r is not None:
+                self.s.execute(
+                    update(DI).where(DI.c.id == r.id).values(in_gallery=1, position=i)
+                )
+            else:
+                self.s.execute(
+                    insert(DI).values(
+                        draft_id=int(draft_id),
+                        position=i,
+                        url=url,
+                        type=types.get(url) or "其他",
+                        source="generated",
+                        in_gallery=1,
+                        created_at=now,
+                    )
+                )
 
     def _row_to_draft(self, row, images: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         m = row._mapping

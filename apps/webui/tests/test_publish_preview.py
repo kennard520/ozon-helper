@@ -61,7 +61,12 @@ def _draft(app, **extra) -> dict:
         }
     )
     d.update(extra)
-    return app.store.insert_draft(d)
+    saved = app.store.insert_draft(d)
+    # 语义变更:采集图→素材(in_gallery=0),发布/预览需要图集图;
+    # 用 add_draft_image 把素材图注入图集(source="generated" 自动 in_gallery=1)
+    for url in ["https://cbu01.alicdn.com/img/a.jpg", "https://cbu01.alicdn.com/img/b.jpg"]:
+        app.store.add_draft_image(saved["id"], url, type="白底主图", source="generated")
+    return app.store.get_draft(saved["id"])
 
 
 class PublishPreviewOkTest(unittest.TestCase):

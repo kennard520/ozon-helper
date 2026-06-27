@@ -41,27 +41,36 @@ class DraftImagesTest(unittest.TestCase):
         self.assertEqual(rows[1]["url"], "http://a.com/2.jpg")
         self.assertEqual(rows[1]["type"], "场景")
 
-        # get_draft 拼装一致
+        # 语义变更:采集图→素材(in_gallery=0),图集为空;从 materials 验证
         got = self.store.get_draft(d["id"])
-        self.assertEqual(got["images"], ["http://a.com/1.jpg", "http://a.com/2.jpg"])
-        self.assertEqual(got["source_raw"]["image_types"],
-                         {"http://a.com/1.jpg": "白底", "http://a.com/2.jpg": "场景"})
+        self.assertEqual(got["images"], [])
+        material_urls = {m["url"] for m in got["materials"]}
+        self.assertEqual(material_urls, {"http://a.com/1.jpg", "http://a.com/2.jpg"})
 
     def test_update_draft_reorders_images(self):
-        """update_draft 改 images（换序/新增/删除）→ 表同步。"""
+        """update_draft 改 images（换序/新增/删除）→ 图集同步;素材行保留不删。"""
         draft = create_draft_from_url("https://detail.1688.com/offer/876543210987.html")
         draft["images"] = ["a.jpg", "b.jpg", "c.jpg"]
         d = self.store.insert_draft(draft)
 
-        # 换序 + 新增 + 删除 c
+        # 换序 + 新增 d + c 留图集 + b 降级为素材(不在目标里)
+        # gallery=True 语义:目标 ["c.jpg","a.jpg","d.jpg"]
+        #   - a/c 已是素材,提升为图集
+        #   - b 已是素材,不在目标里,保持素材(in_gallery=0)
+        #   - d 新插入图集
         updated = self.store.update_draft(d["id"], {"images": ["c.jpg", "a.jpg", "d.jpg"]})
         self.assertEqual(updated["images"], ["c.jpg", "a.jpg", "d.jpg"])
 
         rows = self._draft_images_rows(d["id"])
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[0]["url"], "c.jpg")
-        self.assertEqual(rows[1]["url"], "a.jpg")
-        self.assertEqual(rows[2]["url"], "d.jpg")
+        # 语义变更:_sync gallery=True 不删行,素材行 b 保留 → 共 4 行
+        self.assertEqual(len(rows), 4)
+        # 图集行:c/a/d(按 position 排序)
+        gallery_rows = [r for r in rows if r["in_gallery"] == 1]
+        gallery_urls = [r["url"] for r in gallery_rows]
+        self.assertEqual(gallery_urls, ["c.jpg", "a.jpg", "d.jpg"])
+        # 素材行:b(降级)
+        material_rows = [r for r in rows if r["in_gallery"] == 0]
+        self.assertEqual([r["url"] for r in material_rows], ["b.jpg"])
 
     def test_update_draft_preserves_type_by_url(self):
         """改 images 时已有的 type 按 url 保留，新 URL 无类型=空字符串。"""
@@ -101,8 +110,10 @@ class DraftImagesTest(unittest.TestCase):
                 text("SELECT images_json FROM drafts WHERE id=:id"), {"id": d["id"]}
             ).mappings().fetchone()
         self.assertEqual(loads_json(row["images_json"], None), [])
-        # 但 get_draft 从 draft_images 表读，数据完整
-        self.assertEqual(d["images"], ["a.jpg", "b.jpg"])
+        # 语义变更:采集图→素材(in_gallery=0),图集为空;materials 有 2 张
+        self.assertEqual(d["images"], [])
+        material_urls = {m["url"] for m in d["materials"]}
+        self.assertEqual(material_urls, {"a.jpg", "b.jpg"})
 
     def test_backfill_migration(self):
         """回填：images_json 非空且无 draft_images 行的草稿 → 回填到表。"""

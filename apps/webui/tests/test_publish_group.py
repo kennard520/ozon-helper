@@ -204,6 +204,14 @@ class TestPublishVariantGroup(_DbBase):
         )
         r1 = app.store.insert_draft(d1)
         r2 = app.store.insert_draft(d2)
+        # 语义变更:采集图→素材(in_gallery=0),发布前需有图集图;
+        # 用 source="generated" add_draft_image 注入图集图,与实际 AI 出图流程一致
+        app.store.add_draft_image(r1["id"], "https://ir.ozone.ru/s3/img.jpg",
+                                  type="白底主图", source="generated")
+        app.store.add_draft_image(r2["id"], "https://ir.ozone.ru/s3/img.jpg",
+                                  type="白底主图", source="generated")
+        r1 = app.store.get_draft(r1["id"])
+        r2 = app.store.get_draft(r2["id"])
         return r1, r2
 
     def test_publish_two_variants_ok(self):
@@ -374,8 +382,13 @@ class TestPublishGroupRoute(_DbBase):
             "SKU-B", "Бежевый", "L", variant_group,
             "https://www.ozon.ru/product/rte-b-2/",
         )
-        app.store.insert_draft(d1)
-        app.store.insert_draft(d2)
+        r1 = app.store.insert_draft(d1)
+        r2 = app.store.insert_draft(d2)
+        # 语义变更:采集图→素材,发布前需有图集图
+        app.store.add_draft_image(r1["id"], "https://ir.ozone.ru/s3/img.jpg",
+                                  type="白底主图", source="generated")
+        app.store.add_draft_image(r2["id"], "https://ir.ozone.ru/s3/img.jpg",
+                                  type="白底主图", source="generated")
 
     def test_publish_group_route_ok(self):
         import webui.app_service as app_service

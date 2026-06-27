@@ -2088,7 +2088,10 @@ class App:
             "ok": True,
             "main": parsed["main"],
             "selling_points": parsed["selling_points"],
-            "source_images": draft.get("images") or [],
+            # 两池化后:采集图在 materials(in_gallery=0),用所有 materials URL 作参考图
+            "source_images": [m["url"] for m in (draft.get("materials") or [])
+                              if m.get("source") == "collected"]
+                             or (draft.get("images") or []),
             "local_images": draft.get("local_images") or [],
             "detail_images": detail_images,    # 源 URL，给 ChatGPT 当参考(复制全部用)
             "detail_local": detail_local,      # 本地副本，缩略图显示用(避防盗链)
@@ -2812,9 +2815,15 @@ class App:
         """草稿里是否还有未传到我们 OSS 的媒体（需后台上传 → media_status=pending）。
         插件同步流已把图直传 OSS（URL 在 oss_public_base 下）→ 不需要 → done；
         计划三异步流推原始 ir.ozone.ru 链接 → 需要 → pending。
-        没配 oss_public_base 时，有媒体即按 pending（兼容旧行为/媒体异步测试）。"""
+        没配 oss_public_base 时，有媒体即按 pending（兼容旧行为/媒体异步测试）。
+        两池化后采集图进 materials(in_gallery=0),需同时检查素材 URL。"""
         base = str((self.store.get_settings() or {}).get("oss_public_base") or "").rstrip("/")
+        # 图集 URL(images) + 素材 URL(materials) 都检查
         urls = list(draft.get("images") or [])
+        for m in draft.get("materials") or []:
+            mu = str(m.get("url") or "").strip()
+            if mu and mu not in urls:
+                urls.append(mu)
         v = str(draft.get("video_url") or "").strip()
         if v:
             urls.append(v)

@@ -35,7 +35,12 @@ class AiImageServiceTest(unittest.TestCase):
             svc, app = _make_app(tmp)
             orig_dl = svc._download_bytes
             try:
-                d = _new_draft(app, "https://x/1", images=["https://a/1.jpg"])
+                # 语义变更:采集图→素材,测试意图是"已有图集图时,AI 生图追加到末尾"
+                # 所以先用 generated 加一张图集图
+                d = _new_draft(app, "https://x/1")
+                app.store.add_draft_image(d["id"], "https://a/1.jpg",
+                                          type="白底主图", source="generated")
+                d = app.store.get_draft(d["id"])
                 seen = {}
                 def fake_gen(settings, prompt, *, size="1024x768", source_images=None):
                     seen.update(prompt=prompt, size=size, source_images=source_images)
@@ -45,7 +50,7 @@ class AiImageServiceTest(unittest.TestCase):
                 r = app.ai_generate_image(d["id"], mode="text2img", prompt="marketing shot")
                 self.assertTrue(r["ok"])
                 imgs = r["draft"]["images"]
-                self.assertEqual(imgs[0], "https://a/1.jpg")       # 原图保留
+                self.assertEqual(imgs[0], "https://a/1.jpg")       # 原图集图保留
                 self.assertTrue(imgs[1].startswith("/media/draft-%d/" % d["id"]))  # 追加到尾部
                 self.assertEqual(seen["prompt"], "marketing shot")
                 self.assertIsNone(seen["source_images"])
@@ -70,7 +75,12 @@ class AiImageServiceTest(unittest.TestCase):
             svc, app = _make_app(tmp)
             orig_dl = svc._download_bytes
             try:
-                d = _new_draft(app, "https://x/2", images=["https://a/1.jpg"])
+                # 语义变更:采集图→素材,测试意图是"as_main 插到首位,已有图集图后移"
+                # 先用 generated 加一张图集图
+                d = _new_draft(app, "https://x/2")
+                app.store.add_draft_image(d["id"], "https://a/1.jpg",
+                                          type="白底主图", source="generated")
+                d = app.store.get_draft(d["id"])
                 # 预置一张本地源图
                 (media_mod.MEDIA_ROOT / ("draft-%d" % d["id"])).mkdir(parents=True)
                 (media_mod.MEDIA_ROOT / ("draft-%d" % d["id"]) / "01.jpg").write_bytes(b"JPG")
@@ -204,7 +214,11 @@ class AiVideoServiceTest(unittest.TestCase):
                 av._stop.clear()
                 av._set(status="idle", draft_id=0, video_id="", progress=0, url="", last_error="")
                 app.store.save_settings({"agnes_api_key": "K"})
-                d = _new_draft(app, "https://x/4", images=["https://a/main.jpg"], ozon_title="Держатель")
+                # 语义变更:采集图→素材,视频生成需要图集图;先 add_draft_image 加图集图
+                d = _new_draft(app, "https://x/4", ozon_title="Держатель")
+                app.store.add_draft_image(d["id"], "https://a/main.jpg",
+                                          type="白底主图", source="generated")
+                d = app.store.get_draft(d["id"])
                 seen = {}
                 def fake_create(settings, prompt, *, image=None, **kw):
                     seen.update(prompt=prompt, image=image)
@@ -244,7 +258,10 @@ class AiVideoServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             svc, app = _make_app(tmp)
             try:
-                d = _new_draft(app, "https://x/5", images=["https://a/1.jpg"])
+                # 语义变更:采集图→素材,图集为空;用 generated 加图集图后才有主图可用
+                d = _new_draft(app, "https://x/5")
+                app.store.add_draft_image(d["id"], "https://a/1.jpg",
+                                          type="白底主图", source="generated")
                 with self.assertRaises(RuntimeError):   # 未配 Agnes key → 启动前报错
                     app.start_ai_video(d["id"])
                 app.store.save_settings({"agnes_api_key": "K"})
@@ -272,7 +289,12 @@ class ReviewFixesTest(unittest.TestCase):
             svc, app = _make_app(tmp)
             orig_dl = svc._download_bytes
             try:
-                d = _new_draft(app, "https://x/7", images=["https://a/1.jpg"])
+                # 语义变更:采集图→素材,测试意图是"并发生图时读最新 images 快照"
+                # 先用 generated 在图集里放一张图
+                d = _new_draft(app, "https://x/7")
+                app.store.add_draft_image(d["id"], "https://a/1.jpg",
+                                          type="白底主图", source="generated")
+                d = app.store.get_draft(d["id"])
                 def fake_gen(settings, prompt, *, size="1024x768", source_images=None):
                     # 模拟生成耗时窗口内的并发编辑：用户又加了一张图
                     cur = app.store.get_draft(d["id"])
@@ -303,8 +325,14 @@ class ReviewFixesTest(unittest.TestCase):
             svc, app = _make_app(tmp)
             orig_dl = svc._download_bytes
             try:
-                d = _new_draft(app, "https://x/8", images=["https://a/1.jpg", "https://a/2.jpg"],
-                               local_images=["/media/draft-x/01.jpg", "/media/draft-x/02.jpg"])
+                # 语义变更:采集图→素材,测试意图是"as_main 头插时 local_images 对齐"
+                # 先建草稿,再 update_draft 把图集图和 local_images 同时设上
+                d = _new_draft(app, "https://x/8")
+                app.store.update_draft(d["id"], {
+                    "images": ["https://a/1.jpg", "https://a/2.jpg"],
+                    "local_images": ["/media/draft-x/01.jpg", "/media/draft-x/02.jpg"],
+                })
+                d = app.store.get_draft(d["id"])
                 agnes_mod.generate_image = lambda *a, **kw: "https://cdn.agnes/g.png"
                 svc._download_bytes = lambda url, timeout=120: b"PNG"
                 r = app.ai_generate_image(d["id"], prompt="x", as_main=True)

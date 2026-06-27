@@ -125,18 +125,19 @@ def test_get_draft_images_and_source_raw():
             assert d["source_platform"] == "1688"
             assert d["category_id"] == "123"
             assert d["type_id"] == ""
-            # images 顺序
+            # 语义变更:DraftImageRepo._row_to_draft 只取图集(in_gallery=1)
+            # source="collected"(图1) → in_gallery=0 → 不在 images
+            # source="generated"(图2/3)  → in_gallery=1 → 在 images
             assert d["images"] == [
-                "http://x.com/1.jpg",
                 "http://x.com/2.jpg",
                 "http://x.com/3.jpg",
             ]
-            # source_raw 保留原有字段 + 注入 image_types
+            # source_raw 保留原有字段 + 注入 image_types(只图集图)
             assert d["source_raw"]["foo"] == "bar"
             it = d["source_raw"]["image_types"]
-            assert it["http://x.com/1.jpg"] == "白底"
             assert it["http://x.com/2.jpg"] == "卖点"
-            # type="" 的条目不进 image_types
+            # type="" 和 source="collected" 的条目不进 image_types
+            assert "http://x.com/1.jpg" not in it
             assert "http://x.com/3.jpg" not in it
             # images_json 空数组
             assert d["images_json"] == []

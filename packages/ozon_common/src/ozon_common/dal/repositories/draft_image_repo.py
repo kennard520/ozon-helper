@@ -38,13 +38,17 @@ class DraftImageRepo(BaseRepo):
         *,
         type: str = "",
         source: str = "generated",
+        in_gallery: int | None = None,
     ) -> int:
         """插入一条 draft_image 记录,position 自动取当前最大值 +1,返回新行 id。
 
         与 DataStore.add_draft_image 行为一致:
           - position = MAX(position)+1(空时从 0 开始)
           - created_at 用 utc_now_iso()
+          - in_gallery:默认按 source 推断(generated→1,其它→0)
         """
+        if in_gallery is None:
+            in_gallery = 1 if source == "generated" else 0
         nxt = (
             self.s.execute(
                 select(func.coalesce(func.max(DI.c.position), -1) + 1).where(
@@ -60,6 +64,7 @@ class DraftImageRepo(BaseRepo):
                 url=str(url),
                 type=str(type or ""),
                 source=str(source),
+                in_gallery=int(in_gallery),
                 created_at=utc_now_iso(),
             )
         )
@@ -89,10 +94,10 @@ class DraftImageRepo(BaseRepo):
         """
         m = row._mapping
 
-        # 查 draft_images,只需要 url 和 type
+        # 查 draft_images,只取图集(in_gallery=1),与 webui DraftRepo 保持一致
         dimg_rows = self.s.execute(
             select(DI.c.url, DI.c.type)
-            .where(DI.c.draft_id == int(m["id"]))
+            .where(DI.c.draft_id == int(m["id"]), DI.c.in_gallery == 1)
             .order_by(DI.c.position)
         ).all()
 

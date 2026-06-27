@@ -88,8 +88,10 @@ def test_list_drafts_page_batches_images():
                 drafts, total = DraftRepo().list_drafts_page(user_id=1, page=1, page_size=20)
             assert total == 3
             assert len(drafts) == 3
-            # 每个草稿都带 2 张图(装配正确)
-            assert all(len(d["images"]) == 2 for d in drafts)
+            # 语义变更:采集图→素材(in_gallery=0),图集(images)为空;
+            # 但 materials 每个草稿都有 2 张
+            assert all(len(d["images"]) == 0 for d in drafts)
+            assert all(len(d["materials"]) == 2 for d in drafts)
             # 关键:draft_images 只查 1 次(批量),不是 3 次(N+1)
             assert counter["n"] == 1, f"draft_images 查询了 {counter['n']} 次(应为 1,N+1 未消除)"
         finally:

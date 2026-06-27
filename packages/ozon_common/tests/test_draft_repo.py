@@ -96,14 +96,18 @@ def test_insert_and_get_roundtrip():
                 out = _insert(repo, p)
                 assert out["id"] >= 1
                 assert out["offer_id"]  # 已生成
-                assert out["images"] == ["http://x/a.jpg", "http://x/b.jpg"]
+                # 语义变更:采集图→素材(in_gallery=0),图集为空
+                assert out["images"] == []
+                material_urls = {m["url"] for m in out["materials"]}
+                assert material_urls == {"http://x/a.jpg", "http://x/b.jpg"}
 
                 d = repo.get_draft(out["id"], 1)
                 assert d is not None
                 assert d["ozon_title"] == "Test Product"
-                assert d["images"] == ["http://x/a.jpg", "http://x/b.jpg"]
-                # image_types 注入 source_raw
-                assert d["source_raw"]["image_types"]["http://x/a.jpg"] == "白底"
+                assert d["images"] == []
+                material_urls2 = {m["url"] for m in d["materials"]}
+                assert material_urls2 == {"http://x/a.jpg", "http://x/b.jpg"}
+                # image_types 仍在 source_raw 中(来自 source_raw_json 存储)
                 assert d["source_raw"]["variant_group"] == "g1"
                 assert d["status"] == "ready"
                 assert d["media_status"] == "done"

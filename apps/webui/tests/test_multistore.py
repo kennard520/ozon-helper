@@ -120,7 +120,11 @@ class TestPublishTargetsStore(_DbBase):
             "weight_g": 100, "length_mm": 10, "width_mm": 10, "height_mm": 10,
             "images": ["https://ir.ozone.ru/a.jpg"],
         })
-        return app.store.insert_draft(d)
+        saved = app.store.insert_draft(d)
+        # 语义变更:采集图→素材(in_gallery=0),发布需要图集图;add generated 图集图
+        app.store.add_draft_image(saved["id"], "https://ir.ozone.ru/a.jpg",
+                                  type="白底主图", source="generated")
+        return app.store.get_draft(saved["id"])
 
     def test_publish_uses_target_store_and_records_last(self):
         import webui.app_service as app_service
