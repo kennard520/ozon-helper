@@ -10,9 +10,16 @@ COPY pyproject.toml uv.lock ./
 COPY packages/ozon_common/pyproject.toml packages/ozon_common/
 COPY packages/ozon_api/pyproject.toml packages/ozon_api/
 COPY apps/webui/pyproject.toml apps/webui/
-RUN uv sync --package ozon-webui --no-dev --frozen --no-install-project
+COPY apps/image_worker/pyproject.toml apps/image_worker/
+# hatchling editable build 需要能找到 src 目录，提前 COPY src（供第一次 uv sync 使用）
+COPY packages/ozon_common/src packages/ozon_common/src
+COPY packages/ozon_api/src packages/ozon_api/src
+RUN uv sync --package ozon-webui --package ozon-image-worker --no-dev --frozen --no-install-project
 COPY packages packages
+COPY alembic.ini alembic.ini
+COPY migrations migrations
 COPY apps/webui apps/webui
-RUN uv sync --package ozon-webui --no-dev --frozen
+COPY apps/image_worker apps/image_worker
+RUN uv sync --package ozon-webui --package ozon-image-worker --no-dev --frozen
 EXPOSE 8585
 CMD ["uv", "run", "--package", "ozon-webui", "ozon-webui"]
