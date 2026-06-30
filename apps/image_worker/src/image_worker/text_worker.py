@@ -253,6 +253,35 @@ def _resolve_image(url: str) -> str:
     return u
 
 
+def _attr_has_value(attr: dict) -> bool:
+    values = attr.get("values") if isinstance(attr.get("values"), list) else []
+    for v in values:
+        if isinstance(v, dict) and (_to_int(v.get("dictionary_value_id")) > 0 or str(v.get("value") or "").strip()):
+            return True
+    return False
+
+
+def _dedupe_attrs(attrs: list[dict]) -> list[dict]:
+    order: list[int] = []
+    by_id: dict[int, dict] = {}
+    passthrough: list[dict] = []
+    for raw in attrs or []:
+        if not isinstance(raw, dict):
+            continue
+        aid = _to_int(raw.get("id"))
+        if not aid:
+            passthrough.append(raw)
+            continue
+        attr = {**raw, "id": aid}
+        if aid not in by_id:
+            order.append(aid)
+            by_id[aid] = attr
+            continue
+        if _attr_has_value(attr) or not _attr_has_value(by_id[aid]):
+            by_id[aid] = attr
+    return passthrough + [by_id[aid] for aid in order]
+
+
 def _run_understand(draft_id: int) -> dict:
     draft = _get_draft(draft_id)
     sr = dict(draft.get("source_raw") or {})
@@ -424,6 +453,7 @@ def _run_attrs(draft_id: int) -> dict:
     replace_ids = {_to_int(a.get("id")) for a in new_attrs if _to_int(a.get("id"))}
     merged = [a for a in existing if not (isinstance(a, dict) and _to_int(a.get("id")) in replace_ids and _to_int(a.get("id")) != _HASHTAGS_ATTR_ID)]
     merged.extend(new_attrs)
+    merged = _dedupe_attrs(merged)
     updated = _update_draft(draft_id, {"attributes": merged}, user_id)
     return {"ok": True, "draft": updated, "mapped_count": len(mapped), "mapped": mapped, "unmapped": unmapped}
 

@@ -409,6 +409,7 @@ def to_ozon_import_item(draft: dict[str, Any]) -> dict[str, Any]:
         ({**a, "values": _hashtag_values(a.get("values"))} if _to_int(a.get("id")) == HASHTAGS_ATTR_ID else a)
         for a in publish_attrs
     ]
+    publish_attrs = dedupe_publish_attributes(publish_attrs)
     item = {
         "offer_id": str(offer_id),
         "name": str(draft["ozon_title"]).strip(),
@@ -441,6 +442,36 @@ def to_ozon_import_item(draft: dict[str, Any]) -> dict[str, Any]:
             ],
         }]
     return item
+
+
+def _attribute_has_value(attr: dict[str, Any]) -> bool:
+    values = attr.get("values") if isinstance(attr.get("values"), list) else []
+    for v in values:
+        if not isinstance(v, dict):
+            continue
+        if _to_int(v.get("dictionary_value_id")) > 0 or str(v.get("value") or "").strip():
+            return True
+    return False
+
+
+def dedupe_publish_attributes(attrs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one publish attribute per id, preferring the latest non-empty value."""
+    order: list[int] = []
+    by_id: dict[int, dict[str, Any]] = {}
+    for raw in attrs or []:
+        if not isinstance(raw, dict):
+            continue
+        aid = _to_int(raw.get("id"))
+        if not aid:
+            continue
+        attr = {**raw, "id": aid}
+        if aid not in by_id:
+            order.append(aid)
+            by_id[aid] = attr
+            continue
+        if _attribute_has_value(attr) or not _attribute_has_value(by_id[aid]):
+            by_id[aid] = attr
+    return [by_id[aid] for aid in order if _attribute_has_value(by_id[aid])]
 
 
 def dumps_json(value: Any) -> str:

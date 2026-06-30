@@ -240,6 +240,33 @@ class DraftsTest(unittest.TestCase):
         self.assertNotIn(BRAND_ATTR_ID, published_ids)
         self.assertIn(9048, published_ids)
 
+    def test_to_ozon_import_item_dedupes_duplicate_attribute_ids(self) -> None:
+        draft = create_draft_from_url("https://detail.1688.com/offer/123456789012.html")
+        draft.update({
+            "id": 1,
+            "ozon_title": DimensionSoftCheckTest._BASE["ozon_title"],
+            "description": DimensionSoftCheckTest._BASE["description"],
+            "category_id": "17028922",
+            "type_id": "94307",
+            "price": "799",
+            "weight_g": 500,
+            "length_mm": 300,
+            "width_mm": 200,
+            "height_mm": 100,
+            "images": ["https://example.test/a.jpg"],
+            "attributes": [
+                {"id": 4191, "values": [{"value": "old intro"}]},
+                {"id": 4191, "values": [{"value": "new intro"}]},
+                {"id": 9048, "values": [{"value": "Model X"}]},
+            ],
+        })
+
+        item = to_ozon_import_item(draft)
+
+        intro_attrs = [a for a in item["attributes"] if a["id"] == 4191]
+        self.assertEqual(len(intro_attrs), 1)
+        self.assertEqual(intro_attrs[0]["values"][0]["value"], "new intro")
+
 
 class TestWbExtractOfferId(unittest.TestCase):
     def test_wb_catalog_url(self):

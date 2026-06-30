@@ -6,7 +6,7 @@ import html
 import re
 from typing import Any, Callable
 
-from webui.drafts import loads_json, to_ozon_import_item
+from webui.drafts import dedupe_publish_attributes, loads_json, to_ozon_import_item
 
 MODEL_NAME_ATTR_ID = 9048   # 型号名称（合并为一张商品卡片）
 COLOR_DICT_ATTR_ID = 10096  # 商品颜色（字典）
@@ -112,6 +112,7 @@ def build_group_items(
         aspect_ids = {a["id"] for a in aspect_attrs}
         attrs = [x for x in attrs if x.get("id") not in aspect_ids]
         attrs.extend(aspect_attrs)
+        attrs = dedupe_publish_attributes(attrs)
         item["attributes"] = attrs
         items.append(item)
     return items
