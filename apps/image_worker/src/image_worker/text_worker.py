@@ -40,6 +40,8 @@ _USER_ID = int(os.environ.get("TEXT_WORKER_USER_ID") or "1")
 _MODEL_NAME_ATTR_ID = 9048
 _BRAND_ATTR_ID = 85
 _HASHTAGS_ATTR_ID = 23171
+_TEXT_ATTR_OPTION_CAP = int(os.environ.get("TEXT_ATTR_OPTION_CAP") or "120")
+_TEXT_ATTR_MAX_ITEMS = int(os.environ.get("TEXT_ATTR_MAX_ITEMS") or "60")
 
 
 def _to_int(value: object) -> int:
@@ -356,6 +358,7 @@ def _run_copy(draft_id: int) -> dict:
 
 
 def _run_attrs(draft_id: int) -> dict:
+    started = time.monotonic()
     draft = _get_draft(draft_id)
     user_id = int(draft.get("user_id") or _USER_ID)
     settings = _settings(user_id)
@@ -366,13 +369,16 @@ def _run_attrs(draft_id: int) -> dict:
     profile = build_profile(raw, understanding=raw.get("understanding"))
     all_attrs = [a for a in _category_attrs(settings, cat, typ, language="ZH_HANS") if _to_int(a.get("id")) != _BRAND_ATTR_ID]
     required = [a for a in all_attrs if a.get("is_required")]
-    ordered = required + [a for a in all_attrs if not a.get("is_required")]
+    aspect = [a for a in all_attrs if a.get("is_aspect") and not a.get("is_required")]
+    ordered = required + aspect + [a for a in all_attrs if not a.get("is_required") and not a.get("is_aspect")]
     brief: list[dict] = []
     opt_index: dict[int, dict[int, str]] = {}
-    for a in ordered[:80]:
+    dict_fetches = 0
+    for a in ordered[:_TEXT_ATTR_MAX_ITEMS]:
         aid = _to_int(a.get("id"))
         if not aid or aid == _HASHTAGS_ATTR_ID:
             continue
+        important = bool(a.get("is_required") or a.get("is_aspect"))
         item = {
             "id": aid,
             "name": a.get("name"),
@@ -381,8 +387,12 @@ def _run_attrs(draft_id: int) -> dict:
             "hint": str(a.get("description") or "")[:100],
         }
         if a.get("dictionary_id"):
-            values, oversized = _ensure_attr_values(settings, cat, typ, aid, language="RU")
-            if values and not oversized and len(values) <= 150:
+            values: list[dict] = []
+            oversized = False
+            if important:
+                dict_fetches += 1
+                values, oversized = _ensure_attr_values(settings, cat, typ, aid, language="RU")
+            if values and not oversized and len(values) <= _TEXT_ATTR_OPTION_CAP:
                 opt_index[aid] = {_to_int(v.get("id")): str(v.get("value") or "") for v in values if _to_int(v.get("id"))}
                 item["kind"] = "select_many" if a.get("is_collection") else "select_one"
                 item["options"] = [{"id": vid, "value": val} for vid, val in opt_index[aid].items()]
@@ -394,11 +404,15 @@ def _run_attrs(draft_id: int) -> dict:
             typ_name = str(a.get("type") or "").lower()
             item["kind"] = "number" if typ_name in ("decimal", "integer", "float", "number") else ("boolean" if typ_name == "boolean" else "text_ru")
         brief.append(item)
+    log.info("[attrs draft=%s] prepared attrs=%s required=%s aspect=%s dict_fetches=%s in %.2fs",
+             draft_id, len(brief), len(required), len(aspect), dict_fetches, time.monotonic() - started)
     user = "Attribute list:\n" + json.dumps(brief, ensure_ascii=False) + "\n\nProduct:\n" + profile
     variant_spec = str(raw.get("spec_attrs") or raw.get("variant_label") or "").strip()
     if variant_spec:
         user += f"\n\nThis is ONE VARIANT. Its distinguishing spec (Chinese):「{variant_spec}」. Fill is_aspect attributes to match THIS variant."
+    ai_started = time.monotonic()
     card = _extract_json(_chat(settings, _SYS_ATTRS_PICK, user))
+    log.info("[attrs draft=%s] ai returned in %.2fs", draft_id, time.monotonic() - ai_started)
     meta = {_to_int(a.get("id")): a for a in all_attrs}
     new_attrs: list[dict] = []
     mapped: list[dict] = []
@@ -456,6 +470,8 @@ def _run_attrs(draft_id: int) -> dict:
     merged.extend(new_attrs)
     merged = _dedupe_attrs(merged)
     updated = _update_draft(draft_id, {"attributes": merged}, user_id)
+    log.info("[attrs draft=%s] done total=%.2fs mapped=%s unmapped=%s",
+             draft_id, time.monotonic() - started, len(mapped), len(unmapped))
     return {"ok": True, "draft": updated, "mapped_count": len(mapped), "mapped": mapped, "unmapped": unmapped}
 
 

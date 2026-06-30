@@ -63,6 +63,19 @@ def _build_slot_prompt(slot: dict) -> str:
 def _download_source(url: str) -> str:
     u = str(url or "")
     if u.startswith("/media/"):
+        media_root = os.environ.get("IMAGE_WORKER_MEDIA_ROOT") or "/app/ozon-listing-webui/data/images"
+        rel = u[len("/media/"):].lstrip("/")
+        local = os.path.abspath(os.path.join(media_root, rel))
+        root = os.path.abspath(media_root)
+        if local.startswith(root + os.sep) and os.path.exists(local):
+            fd, path = tempfile.mkstemp(suffix=os.path.splitext(local)[1] or ".png", prefix="ozsrc-")
+            try:
+                with open(local, "rb") as src:
+                    os.write(fd, src.read())
+            finally:
+                os.close(fd)
+            return path
+    if u.startswith("/media/"):
         u = f"http://8.152.196.119:8585{u}"
     fd, path = tempfile.mkstemp(suffix=".png", prefix="ozsrc-")
     try:
