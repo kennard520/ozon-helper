@@ -13,9 +13,31 @@ _OFFER_ID_RE = re.compile(r"(?:offer/|offerId=|offer_id=)(\d{8,})")
 RICH_CONTENT_ATTR_ID = 11254  # Ozon "Rich-контент JSON" 系统属性；值为 richAnnotationJson 字符串
 _URL_ID_RE = re.compile(r"(\d{8,})")
 BRAND_ATTR_ID = 85
+HASHTAGS_ATTR_ID = 23171   # #Хештеги 主题标签：发布时每个标签必须是 values 里一个独立值
 NO_BRAND = "Нет бренда"
 
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+
+
+def _hashtag_values(values: Any) -> list[dict[str, str]]:
+    """主题标签(23171/#Хештеги)是 Ozon 的**单值**属性(只能一个值)：所有标签放进**一个**值里，
+    空格分隔、每个 # 开头、标签内部不能有空格(多词用 _)、去重、最多 30 个。
+    把(可能被拆成多值 / 整串 / 下划线连写的)输入规整成单个值。"""
+    tags: list[str] = []
+    seen: set[str] = set()
+    for v in values or []:
+        s = str((v or {}).get("value") or "")
+        for part in s.replace("#", " #").split():   # 先按 # 切，再按空白切
+            t = part.lstrip("#").strip().strip("_")
+            if not t or ("#" + t) in seen:
+                continue
+            seen.add("#" + t)
+            tags.append("#" + t)
+            if len(tags) >= 30:
+                break
+        if len(tags) >= 30:
+            break
+    return [{"value": " ".join(tags)}] if tags else []
 HIGH_RISK_BRANDS = {
     "apple", "iphone", "ipad", "macbook", "airpods",
     "samsung", "xiaomi", "huawei",
@@ -151,6 +173,13 @@ def validate_draft(draft: dict[str, Any]) -> list[str]:
         errors.append("库存不能为负数")
     if not _as_list(draft.get("images")):
         errors.append("至少需要1张图片URL")
+    # 密度荒谬(明显单位错误)→拦发布，省去发到 Ozon 才被退的往返。尺寸列统一存「毫米」。
+    d = _pack_density_kg_m3(draft)
+    if d is not None and d < 8:
+        errors.append(
+            f"尺寸/重量密度仅 ~{d:.1f} kg/m³，几乎可断定尺寸/重量单位填错(尺寸列存「毫米」)，"
+            f"请核对长宽高(mm)与克重，否则 Ozon 必报 INCORRECT_DENSITY（Неверные габариты или вес）"
+        )
     return errors
 
 
@@ -173,6 +202,16 @@ def _forbidden_ru_ad_words_in(text: str) -> list[str]:
     return hits
 
 
+def _pack_density_kg_m3(draft: dict[str, Any]) -> float | None:
+    """包装密度(kg/m³)。length_mm/width_mm/height_mm 统一存「毫米」，体积按毫米算。缺值返回 None。"""
+    L = _to_int(draft.get("length_mm")); W = _to_int(draft.get("width_mm"))
+    H = _to_int(draft.get("height_mm")); wt = _to_int(draft.get("weight_g"))
+    if min(L, W, H) <= 0 or wt <= 0:
+        return None
+    vol_m3 = (L / 1000.0) * (W / 1000.0) * (H / 1000.0)   # 列存毫米 → m³
+    return (wt / 1000.0) / vol_m3 if vol_m3 > 0 else None
+
+
 def dimension_warnings(draft: dict[str, Any]) -> list[str]:
     """克重/包装尺寸缺失 → 软警告（不阻断发布，发到 Ozon 后台再补；Ozon 会按密度校验回显）。"""
     warnings: list[str] = []
@@ -181,6 +220,14 @@ def dimension_warnings(draft: dict[str, Any]) -> list[str]:
     for k, label in (("length_mm", "长"), ("width_mm", "宽"), ("height_mm", "高")):
         if _to_int(draft.get(k)) <= 0:
             warnings.append(f"包装{label}(mm)未填，建议补")
+    # 密度合理性预检：尺寸列统一存「毫米」，单位填错会让密度暴跌/暴涨，Ozon 必报
+    # 「Неверные габариты или вес / INCORRECT_DENSITY」。在发布前就提醒。
+    d = _pack_density_kg_m3(draft)
+    if d is not None:
+        if d < 25:
+            warnings.append(f"密度异常偏低(~{d:.0f} kg/m³)：核对尺寸(mm)与克重单位，否则 Ozon 报габариты/вес错误")
+        elif d > 3000:
+            warnings.append(f"密度异常偏高(~{d:.0f} kg/m³)：核对尺寸/重量是否填反或单位有误")
     return warnings
 
 
@@ -199,7 +246,11 @@ def normalize_category_attrs(raw: Any) -> list[dict[str, Any]]:
             "name": str(a.get("name") or ""),
             "description": str(a.get("description") or ""),   # Ozon 官方填写说明/格式提示，喂 AI
             "is_required": bool(a.get("is_required")),
+            # is_collection=true：多选(可填多个值)；max_value_count=该多选最多几个(下拉限选)
             "is_collection": bool(a.get("is_collection")),
+            "max_value_count": _to_int(a.get("max_value_count")),
+            # is_aspect=true：变体维度/「区别特征」(合并成一张卡时各变体不同的属性，如商品颜色)
+            "is_aspect": bool(a.get("is_aspect")),
             "dictionary_id": _to_int(a.get("dictionary_id")),
             "type": str(a.get("type") or ""),
             "group_name": str(a.get("group_name") or ""),
@@ -288,8 +339,18 @@ def split_collection_value(text: str) -> list[str]:
 
 def offer_id_for(draft: dict[str, Any]) -> str:
     """草稿在 Ozon 上的 offer_id（与发布时一致），用于删除/更新/备货 JOIN。
-    优先用已存的 offer_id 列（发布后会回写，成为单一真相，且功能⑤拉单按它 JOIN），
+    变体组：offer_id **必须每个变体唯一**——同组各 SKU 采集到的 offer_id 都是同一个 1688 商品 id，
+    若直接发会同 offer_id 互相覆盖、合不成多变体卡。故用 variant_group + sku_id 拼成稳定唯一货号。
+    否则优先用已存的 offer_id 列（发布后会回写，成为单一真相，且功能⑤拉单按它 JOIN），
     其次 source_offer_id（采集得到的源货号），最后 manual-{id} 兜底。"""
+    sr = draft.get("source_raw")
+    if isinstance(sr, str):
+        sr = loads_json(sr, {})
+    if isinstance(sr, dict):
+        vg = str(sr.get("variant_group") or "").strip()
+        sku = str(sr.get("sku_id") or "").strip()
+        if vg and sku:
+            return f"{vg}-{sku}"
     explicit = str(draft.get("offer_id") or "").strip()
     if explicit:
         return explicit
@@ -323,12 +384,24 @@ def to_ozon_import_item(draft: dict[str, Any]) -> dict[str, Any]:
     sr = draft.get("source_raw")
     if isinstance(sr, str):
         sr = loads_json(sr, {})
+    # 型号名(9048)：变体组草稿**强制** = variant_group——组内一致 → Ozon 合并为一张多变体卡，
+    # 并覆盖采集到的杂值(如中文"喂食")。与整组发布 publish_variant_group 的 mname 保持一致。
+    _vg = str(sr.get("variant_group") or "").strip() if isinstance(sr, dict) else ""
+    if _vg:
+        publish_attrs = [a for a in publish_attrs if _to_int(a.get("id")) != 9048]
+        publish_attrs.append({"id": 9048, "values": [{"value": _vg}]})
     if isinstance(sr, dict) and sr.get("rich_content_json"):
         publish_attrs.append({
             "id": RICH_CONTENT_ATTR_ID,
             "complex_id": 0,
             "values": [{"value": dumps_json(sr["rich_content_json"])}],
         })
+    # 主题标签(23171/#Хештеги)：Ozon 要求**每个标签是 values 里一个独立值**(以#开头、内部无空格)，
+    # 不能整串塞一个值(否则报"标签内有空格/超30")。把已存值(可能整串/下划线连写)拆成单个标签，≤30。
+    publish_attrs = [
+        ({**a, "values": _hashtag_values(a.get("values"))} if _to_int(a.get("id")) == HASHTAGS_ATTR_ID else a)
+        for a in publish_attrs
+    ]
     publish_attrs = dedupe_publish_attributes(publish_attrs)
     item = {
         "offer_id": str(offer_id),
@@ -342,10 +415,10 @@ def to_ozon_import_item(draft: dict[str, Any]) -> dict[str, Any]:
         "vat": "0",
         "weight": _to_int(draft.get("weight_g")),
         "weight_unit": "g",
-        # 内部尺寸存厘米；Ozon 要毫米 → ×10。depth=长 width=宽 height=高
-        "depth": _to_int(draft.get("length_mm")) * 10,
-        "width": _to_int(draft.get("width_mm")) * 10,
-        "height": _to_int(draft.get("height_mm")) * 10,
+        # 尺寸列统一存「毫米」(列名 *_mm 名实相符)；Ozon 也用毫米 → 直发，不换算。depth=长 width=宽 height=高。
+        "depth": _to_int(draft.get("length_mm")),
+        "width": _to_int(draft.get("width_mm")),
+        "height": _to_int(draft.get("height_mm")),
         "dimension_unit": "mm",
         "images": _as_list(draft.get("images")),
         "attributes": publish_attrs,

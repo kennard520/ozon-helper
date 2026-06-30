@@ -1,221 +1,594 @@
 #!/usr/bin/env python3
 """
-gen-image skill 抓数脚本：调用 gptplus5 网关用 gpt-image-2-2 生成图片。
-纯标准库，无第三方依赖（与 ozon-stats 风格一致）。
+gen-image skill script: call an OpenAI-compatible image gateway.
 
-两种模式（按有无 --image 自动选）：
-  text2img:  python generate.py "一只戴帽子的柴犬"
-  img2img :  python generate.py "改成纯白底电商主图" --image src.png
+Modes for product-image workflows:
+- create: text -> image, POST /images/generations
+- edit: reference image(s) + prompt -> image, POST /images/edits
+- mask: source image + alpha mask + prompt -> local edit, POST /images/edits
 
-常用参数：
-  --model   默认 gpt-image-2-2，可换 gpt-image-2 等
-  --n       生成张数（默认 1）
-  --size    可选，如 1024x1024 / 1024x1536 / 1536x1024
-  --out     输出目录（默认 .claude/skills/gen-image/output）
-  --name    文件名前缀（默认按时间戳）
-
-结果：图片存到 --out，并把清单（含 token 用量）写到本目录 _last.json，
-      stdout 打一行 OK/ERROR 状态。Windows 控制台可能把中文打乱码，
-      取数请用 Read 读 _last.json，别从 stdout 解析。
+Pure standard library. No third-party dependencies.
 """
+
+from __future__ import annotations
 
 import argparse
 import base64
 import json
 import mimetypes
 import os
+import re
+import struct
 import sys
 import time
 import urllib.error
 import urllib.request
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+try:
+    import winreg  # type: ignore  # Windows only
+except ImportError:  # pragma: no cover
+    winreg = None  # type: ignore
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-BASE_URL = os.environ.get("GPTPLUS5_BASE_URL", "https://az.gptplus5.com/v1").rstrip("/")
-
-
-def _load_api_key():
-    """key 优先读环境变量 GPTPLUS5_API_KEY；否则读本目录下未入库的
-    _secret.json（格式 {"api_key": "sk-..."}）。绝不把密钥写进本文件——会随仓库泄露。"""
-    key = os.environ.get("GPTPLUS5_API_KEY")
-    if key:
-        return key.strip()
-    p = os.path.join(HERE, "_secret.json")
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return (json.load(f).get("api_key") or "").strip()
-        except Exception:
-            pass
-    return ""
-
-
-API_KEY = _load_api_key()
-
+DEFAULT_BASE_URL = "https://az.gptplus5.com/v1"
+# Your provided curl examples use gpt-image-2-2. Override with GPTPLUS5_IMAGE_MODEL if needed.
 DEFAULT_MODEL = "gpt-image-2-2"
+DEFAULT_SIZE = "1024x1536"  # Ozon 3:4 portrait default
+# Your provided curl examples repeat multipart field name `image` for multiple images.
+DEFAULT_IMAGE_FIELD = "image"
+RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+MAX_FILE_BYTES = 50 * 1024 * 1024
 
 
-def _auth_headers(extra=None):
-    if not API_KEY:
-        raise SystemExit(
-            "ERROR 缺少 API key：设置环境变量 GPTPLUS5_API_KEY，或在 "
-            ".claude/skills/gen-image/_secret.json 写 {\"api_key\": \"sk-...\"}"
-        )
-    h = {"Authorization": "Bearer " + API_KEY}
+def _get_windows_env(name: str) -> Optional[str]:
+    """Read a Windows user/machine environment variable, useful in Git Bash/MSYS."""
+    if not winreg:
+        return None
+    locations = [
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ]
+    for root, path in locations:
+        try:
+            with winreg.OpenKey(root, path) as key:
+                value, _ = winreg.QueryValueEx(key, name)
+                if value:
+                    return str(value)
+        except Exception:
+            continue
+    return None
+
+
+def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
+    value = os.environ.get(name)
+    if value:
+        return value
+    value = _get_windows_env(name)
+    if value:
+        return value
+    return default
+
+
+def _get_api_key() -> str:
+    """Prefer gateway key, then OpenAI-compatible key name. Never hard-code secrets."""
+    for name in ("GPTPLUS5_API_KEY", "OPENAI_API_KEY"):
+        value = _get_env(name)
+        if value:
+            return value
+    raise RuntimeError(
+        "未配置 API key。请设置环境变量 GPTPLUS5_API_KEY；若你的中转站兼容 OpenAI，也可设置 OPENAI_API_KEY。"
+    )
+
+
+def _redact(value: str) -> str:
+    """Remove secrets from errors/manifests."""
+    value = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "sk-***", value)
+    value = re.sub(r"Bearer\s+[A-Za-z0-9_\-.]+", "Bearer ***", value, flags=re.I)
+    return value
+
+
+def _auth_headers(api_key: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    headers = {
+        "Accept": "application/json",
+        "Authorization": "Bearer " + api_key,
+    }
     if extra:
-        h.update(extra)
-    return h
+        headers.update(extra)
+    return headers
 
 
-def _post(url, data, headers, retries=4):
-    """POST，带 429/5xx 退避重试。返回解析后的 JSON。"""
-    last = None
+def _sleep_seconds_from_retry_after(header_value: Optional[str], attempt: int) -> float:
+    if header_value:
+        try:
+            return min(float(header_value), 90.0)
+        except ValueError:
+            pass
+    return min(4.0 * (2 ** attempt), 60.0)
+
+
+def _post(url: str, data: bytes, headers: Dict[str, str], retries: int = 4, timeout: int = 300) -> Dict[str, Any]:
+    """POST with retry/backoff for 429/5xx. Returns parsed JSON."""
+    last_error = "未知错误"
     for attempt in range(retries):
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")
-            last = f"HTTP {e.code}: {body[:300]}"
-            if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
-                time.sleep(6 * (attempt + 1))
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                text = resp.read().decode("utf-8", "replace")
+                parsed = json.loads(text)
+                parsed.setdefault("_meta", {})["x_request_id"] = resp.headers.get("x-request-id")
+                parsed["_meta"]["status"] = resp.status
+                return parsed
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            last_error = _redact(f"HTTP {exc.code}: {body[:1000]}")
+            if exc.code in RETRY_STATUS and attempt < retries - 1:
+                time.sleep(_sleep_seconds_from_retry_after(exc.headers.get("retry-after"), attempt))
                 continue
-            raise RuntimeError(last)
-        except urllib.error.URLError as e:
-            last = f"URLError: {e}"
+            raise RuntimeError(last_error)
+        except urllib.error.URLError as exc:
+            last_error = _redact(f"URLError: {exc}")
             if attempt < retries - 1:
-                time.sleep(6 * (attempt + 1))
+                time.sleep(_sleep_seconds_from_retry_after(None, attempt))
                 continue
-            raise RuntimeError(last)
-    raise RuntimeError(last or "未知错误")
+            raise RuntimeError(last_error)
+    raise RuntimeError(last_error)
 
 
-def _multipart(fields, files):
-    """构造 multipart/form-data。files: {name: filepath}。返回 (body_bytes, content_type)。"""
+def _get(url: str, headers: Dict[str, str], timeout: int = 120) -> Dict[str, Any]:
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(_redact(f"HTTP {exc.code}: {body[:1000]}"))
+
+
+def _multipart(fields: Sequence[Tuple[str, Any]], files: Sequence[Tuple[str, str]]) -> Tuple[bytes, str]:
+    """Build multipart/form-data. Allows repeated file fields such as image, image[]."""
     boundary = "----genimage" + str(int(time.time() * 1000))
-    bb = boundary.encode()
-    out = b""
-    for k, v in fields.items():
-        out += b"--" + bb + b"\r\n"
-        out += ('Content-Disposition: form-data; name="%s"\r\n\r\n' % k).encode()
-        out += str(v).encode("utf-8") + b"\r\n"
-    for k, path in files.items():
-        fn = os.path.basename(path)
+    boundary_bytes = boundary.encode("ascii")
+    chunks: List[bytes] = []
+    crlf = b"\r\n"
+
+    for key, value in fields:
+        if value is None:
+            continue
+        chunks.append(b"--" + boundary_bytes + crlf)
+        chunks.append(f'Content-Disposition: form-data; name="{key}"'.encode("utf-8") + crlf + crlf)
+        chunks.append(str(value).encode("utf-8") + crlf)
+
+    for key, path in files:
+        filename = os.path.basename(path)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        with open(path, "rb") as f:
-            content = f.read()
-        out += b"--" + bb + b"\r\n"
-        out += ('Content-Disposition: form-data; name="%s"; filename="%s"\r\n' % (k, fn)).encode()
-        out += ("Content-Type: %s\r\n\r\n" % mime).encode()
-        out += content + b"\r\n"
-    out += b"--" + bb + b"--\r\n"
-    return out, "multipart/form-data; boundary=" + boundary
+        with open(path, "rb") as handle:
+            content = handle.read()
+        chunks.append(b"--" + boundary_bytes + crlf)
+        chunks.append(
+            f'Content-Disposition: form-data; name="{key}"; filename="{filename}"'.encode("utf-8") + crlf
+        )
+        chunks.append(f"Content-Type: {mime}".encode("utf-8") + crlf + crlf)
+        chunks.append(content + crlf)
+
+    chunks.append(b"--" + boundary_bytes + b"--" + crlf)
+    return b"".join(chunks), "multipart/form-data; boundary=" + boundary
 
 
-def text2img(prompt, model, n, size):
-    payload = {"model": model, "prompt": prompt, "n": n}
-    if size:
-        payload["size"] = size
-    data = json.dumps(payload).encode("utf-8")
-    headers = _auth_headers({"Content-Type": "application/json"})
-    return _post(BASE_URL + "/images/generations", data, headers)
+def _optional_json_payload(
+    *,
+    model: str,
+    prompt: str,
+    n: int,
+    size: Optional[str],
+    quality: Optional[str],
+    output_format: Optional[str],
+    background: Optional[str],
+    compression: Optional[int],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"model": model, "prompt": prompt, "n": n}
+    for key, value in (
+        ("size", size),
+        ("quality", quality),
+        ("output_format", output_format),
+        ("background", background),
+        ("output_compression", compression),
+    ):
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
-def img2img(prompt, model, n, size, image_path):
-    fields = {"model": model, "prompt": prompt, "n": str(n)}
-    if size:
-        fields["size"] = size
-    body, ctype = _multipart(fields, {"image": image_path})
-    headers = _auth_headers({"Content-Type": ctype})
-    return _post(BASE_URL + "/images/edits", body, headers)
+def _optional_multipart_fields(
+    *,
+    model: str,
+    prompt: str,
+    n: int,
+    size: Optional[str],
+    quality: Optional[str],
+    output_format: Optional[str],
+    background: Optional[str],
+    compression: Optional[int],
+) -> List[Tuple[str, Any]]:
+    fields: List[Tuple[str, Any]] = [("model", model), ("prompt", prompt), ("n", str(n))]
+    for key, value in (
+        ("size", size),
+        ("quality", quality),
+        ("output_format", output_format),
+        ("background", background),
+        ("output_compression", compression),
+    ):
+        if value is not None:
+            fields.append((key, value))
+    return fields
 
 
-def _save_images(resp, out_dir, name_prefix):
+def create_image(
+    *,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    model: str,
+    n: int,
+    size: Optional[str],
+    quality: Optional[str],
+    output_format: Optional[str],
+    background: Optional[str],
+    compression: Optional[int],
+) -> Dict[str, Any]:
+    payload = _optional_json_payload(
+        model=model,
+        prompt=prompt,
+        n=n,
+        size=size,
+        quality=quality,
+        output_format=output_format,
+        background=background,
+        compression=compression,
+    )
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = _auth_headers(api_key, {"Content-Type": "application/json"})
+    return _post(base_url.rstrip("/") + "/images/generations", data, headers)
+
+
+def edit_image(
+    *,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    model: str,
+    n: int,
+    size: Optional[str],
+    quality: Optional[str],
+    output_format: Optional[str],
+    background: Optional[str],
+    compression: Optional[int],
+    image_paths: Sequence[str],
+    mask_path: Optional[str],
+    image_field: str,
+) -> Dict[str, Any]:
+    fields = _optional_multipart_fields(
+        model=model,
+        prompt=prompt,
+        n=n,
+        size=size,
+        quality=quality,
+        output_format=output_format,
+        background=background,
+        compression=compression,
+    )
+    files: List[Tuple[str, str]] = [(image_field, path) for path in image_paths]
+    if mask_path:
+        files.append(("mask", mask_path))
+    body, content_type = _multipart(fields, files)
+    headers = _auth_headers(api_key, {"Content-Type": content_type})
+    return _post(base_url.rstrip("/") + "/images/edits", body, headers)
+
+
+def _save_images(resp: Dict[str, Any], out_dir: str, name_prefix: str, output_format: Optional[str]) -> List[Dict[str, Any]]:
     os.makedirs(out_dir, exist_ok=True)
-    saved = []
-    for i, item in enumerate(resp.get("data", [])):
-        out_path = os.path.join(out_dir, f"{name_prefix}_{i}.png")
+    saved: List[Dict[str, Any]] = []
+    ext = (output_format or "png").lower()
+    if ext == "jpeg":
+        ext = "jpg"
+
+    for index, item in enumerate(resp.get("data", [])):
+        out_path = os.path.join(out_dir, f"{name_prefix}_{index}.{ext}")
         b64 = item.get("b64_json")
         if b64:
-            with open(out_path, "wb") as f:
-                f.write(base64.b64decode(b64))
-            src = "b64_json"
+            with open(out_path, "wb") as handle:
+                handle.write(base64.b64decode(b64))
+            source = "b64_json"
         elif item.get("url"):
-            with urllib.request.urlopen(item["url"], timeout=120) as r:
-                blob = r.read()
-            with open(out_path, "wb") as f:
-                f.write(blob)
-            src = "url"
+            with urllib.request.urlopen(item["url"], timeout=120) as response:
+                blob = response.read()
+            with open(out_path, "wb") as handle:
+                handle.write(blob)
+            source = "url"
         else:
             continue
-        saved.append({"path": out_path.replace("\\", "/"),
-                      "bytes": os.path.getsize(out_path), "source": src})
+        saved.append(
+            {
+                "index": index,
+                "path": out_path.replace("\\", "/"),
+                "bytes": os.path.getsize(out_path),
+                "source": source,
+            }
+        )
     return saved
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("prompt", help="生成提示词")
-    ap.add_argument("--image", help="参考图路径（给了就走 img2img/edits）")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--n", type=int, default=1)
-    ap.add_argument("--size", default=None)
-    ap.add_argument("--out", default=os.path.join(HERE, "output"))
-    ap.add_argument("--name", default=None)
-    args = ap.parse_args()
+def _default_out_dir() -> str:
+    home = os.path.expanduser("~")
+    today = time.strftime("%Y-%m-%d")
+    return os.path.join(home, "Downloads", "gen-image", today)
 
-    name_prefix = args.name or ("img_" + time.strftime("%Y%m%d_%H%M%S"))
-    mode = "img2img" if args.image else "text2img"
 
-    if args.image and not os.path.exists(args.image):
-        print(f"ERROR: 参考图不存在: {args.image}")
-        sys.exit(1)
+def _safe_prefix(name: Optional[str]) -> str:
+    value = name or ("img_" + time.strftime("%Y%m%d_%H%M%S"))
+    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", value).strip(" ._")
+    return value or ("img_" + time.strftime("%Y%m%d_%H%M%S"))
 
-    try:
-        if args.image:
-            resp = img2img(args.prompt, args.model, args.n, args.size, args.image)
-        else:
-            resp = text2img(args.prompt, args.model, args.n, args.size)
-    except Exception as e:  # noqa: BLE001
-        manifest = {"ok": False, "mode": mode, "model": args.model, "error": str(e)}
-        with open(os.path.join(HERE, "_last.json"), "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-        print(f"ERROR: {e}")
-        sys.exit(1)
 
-    saved = _save_images(resp, args.out, name_prefix)
+def _png_info(path: str) -> Optional[Dict[str, Any]]:
+    """Return minimal PNG info if this is a PNG, otherwise None."""
+    with open(path, "rb") as handle:
+        header = handle.read(33)
+    if len(header) < 33 or header[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    if header[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", header[16:24])
+    bit_depth = header[24]
+    color_type = header[25]
+    return {
+        "format": "png",
+        "width": width,
+        "height": height,
+        "bit_depth": bit_depth,
+        "color_type": color_type,
+        "has_alpha": color_type in (4, 6),
+    }
+
+
+def _validate_existing_files(paths: Iterable[str]) -> None:
+    for path in paths:
+        if not path:
+            continue
+        if not os.path.exists(path):
+            raise RuntimeError(f"文件不存在: {path}")
+        if not os.path.isfile(path):
+            raise RuntimeError(f"不是普通文件: {path}")
+        if os.path.getsize(path) > MAX_FILE_BYTES:
+            raise RuntimeError(f"文件超过 50MB，建议先压缩: {path}")
+
+
+def _validate_mask(source_path: str, mask_path: str, strict: bool) -> List[str]:
+    """Validate common mask pitfalls. Returns warnings."""
+    warnings: List[str] = []
+    if not strict:
+        return warnings
+
+    source_ext = os.path.splitext(source_path)[1].lower()
+    mask_ext = os.path.splitext(mask_path)[1].lower()
+    if source_ext != mask_ext:
+        raise RuntimeError("蒙版模式建议原图和 mask 使用同一格式；最稳是二者都保存为 PNG。")
+    if mask_ext != ".png":
+        raise RuntimeError("蒙版必须带 alpha 通道；请把原图和 mask 都保存为 PNG。")
+
+    source_info = _png_info(source_path)
+    mask_info = _png_info(mask_path)
+    if not source_info or not mask_info:
+        raise RuntimeError("无法读取 PNG 信息，请确认原图和 mask 是有效 PNG 文件。")
+    if (source_info["width"], source_info["height"]) != (mask_info["width"], mask_info["height"]):
+        raise RuntimeError(
+            f"原图和 mask 尺寸不一致: 原图 {source_info['width']}x{source_info['height']}, "
+            f"mask {mask_info['width']}x{mask_info['height']}"
+        )
+    if not mask_info["has_alpha"]:
+        raise RuntimeError("mask PNG 没有 alpha 通道。请使用透明区域/不透明区域的 RGBA PNG 蒙版。")
+    return warnings
+
+
+def _resolve_mode(mode: str, images: Sequence[str], mask: Optional[str]) -> str:
+    if mode != "auto":
+        return mode
+    if mask:
+        return "mask"
+    if images:
+        return "edit"
+    return "create"
+
+
+def _write_manifest(path: str, manifest: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, ensure_ascii=False, indent=2)
+
+
+def _usage(resp: Dict[str, Any]) -> Dict[str, Any]:
     usage = resp.get("usage") or {}
-    # 归一化 token 字段：images 端点用 input/output_tokens；兼容 chat 的 prompt/completion
-    tokens = {
+    return {
         "input": usage.get("input_tokens", usage.get("prompt_tokens")),
         "output": usage.get("output_tokens", usage.get("completion_tokens")),
         "total": usage.get("total_tokens"),
         "raw": usage,
     }
 
-    manifest = {
-        "ok": bool(saved),
-        "mode": mode,
-        "model": args.model,
-        "prompt": args.prompt,
-        "image_in": args.image,
-        "size": args.size,
-        "n": args.n,
-        "images": saved,
-        "tokens": tokens,
-        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    with open(os.path.join(HERE, "_last.json"), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
 
-    if saved:
-        print(f"OK {mode} {args.model} -> {len(saved)} 张, "
-              f"tokens total={tokens['total']}; 详情见 _last.json")
-    else:
-        print(f"ERROR: 接口返回无图。usage={usage}")
-        sys.exit(1)
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Call GPT Image through an OpenAI-compatible gateway for ecommerce product images."
+    )
+    parser.add_argument("prompt", nargs="?", help="生成/修改提示词")
+    parser.add_argument("--mode", choices=["auto", "create", "edit", "mask"], default="auto")
+    parser.add_argument("--image", action="append", default=[], help="参考图/原图路径；可重复传多张")
+    parser.add_argument("--mask", help="局部修改蒙版 PNG；给了就走 mask 模式")
+    parser.add_argument(
+        "--image-field",
+        default=_get_env("GPTPLUS5_IMAGE_FIELD", DEFAULT_IMAGE_FIELD),
+        help="multipart 图片字段名。你的中转站 curl 示例用 image；若网关要求 image[] 可改成 image[]。",
+    )
+    parser.add_argument("--model", default=_get_env("GPTPLUS5_IMAGE_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--base-url", default=_get_env("GPTPLUS5_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--n", type=int, default=1)
+    parser.add_argument("--size", default=DEFAULT_SIZE)
+    parser.add_argument("--quality", choices=["low", "medium", "high", "auto"], default=None)
+    parser.add_argument("--format", dest="output_format", choices=["png", "jpeg", "webp"], default=None)
+    parser.add_argument("--background", choices=["transparent", "opaque", "auto"], default=None)
+    parser.add_argument("--compression", type=int, default=None, help="JPEG/WebP 压缩 0-100，网关支持时生效")
+    parser.add_argument("--out", default=None, help="输出目录，默认 ~/Downloads/gen-image/YYYY-MM-DD/")
+    parser.add_argument("--name", default=None, help="输出文件名前缀")
+    parser.add_argument("--manifest", default=os.path.join(HERE, "_last.json"), help="结果 JSON 路径")
+    parser.add_argument("--no-strict-mask", action="store_true", help="跳过 mask PNG 尺寸/alpha 检查")
+    parser.add_argument("--list-models", action="store_true", help="列出中转站可用模型并退出")
+    parser.add_argument("--dry-run", action="store_true", help="只输出将要请求的参数，不调用接口")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    base_url = str(args.base_url).rstrip("/")
+
+    api_key = None
+    if args.list_models or not args.dry_run:
+        try:
+            api_key = _get_api_key()
+        except Exception as exc:
+            print(f"ERROR: {_redact(str(exc))}")
+            return 1
+
+    if args.list_models:
+        try:
+            models = _get(base_url + "/models", _auth_headers(api_key or ""))
+            print(json.dumps(models, ensure_ascii=False, indent=2))
+            return 0
+        except Exception as exc:
+            print(f"ERROR: {_redact(str(exc))}")
+            return 1
+
+    if not args.prompt:
+        print("ERROR: 缺少 prompt。")
+        return 1
+
+    if args.compression is not None and not 0 <= args.compression <= 100:
+        print("ERROR: --compression 必须是 0-100。")
+        return 1
+    if args.n < 1 or args.n > 10:
+        print("ERROR: --n 建议 1-10。")
+        return 1
+
+    mode = _resolve_mode(args.mode, args.image, args.mask)
+    out_dir = args.out or _default_out_dir()
+    name_prefix = _safe_prefix(args.name)
+    warnings: List[str] = []
+
+    try:
+        if mode == "create":
+            if args.mask:
+                raise RuntimeError("create 模式不能传 --mask。需要局部修改请用 --mode mask。")
+        elif mode in ("edit", "mask"):
+            if not args.image:
+                raise RuntimeError(f"{mode} 模式必须传 --image。")
+            _validate_existing_files(args.image)
+            if args.mask:
+                _validate_existing_files([args.mask])
+        if mode == "mask":
+            if not args.mask:
+                raise RuntimeError("mask 模式必须传 --mask。")
+            warnings.extend(_validate_mask(args.image[0], args.mask, strict=not args.no_strict_mask))
+
+        request_summary = {
+            "mode": mode,
+            "model": args.model,
+            "base_url": base_url,
+            "prompt": args.prompt,
+            "images_in": args.image,
+            "mask_in": args.mask,
+            "image_field": args.image_field if mode in ("edit", "mask") else None,
+            "size": args.size,
+            "quality": args.quality,
+            "output_format": args.output_format,
+            "background": args.background,
+            "compression": args.compression,
+            "n": args.n,
+            "out_dir": out_dir,
+            "warnings": warnings,
+        }
+
+        if args.dry_run:
+            manifest = {"ok": True, "dry_run": True, **request_summary, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
+            _write_manifest(args.manifest, manifest)
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+
+        if mode == "create":
+            response = create_image(
+                base_url=base_url,
+                api_key=api_key or "",
+                prompt=args.prompt,
+                model=args.model,
+                n=args.n,
+                size=args.size,
+                quality=args.quality,
+                output_format=args.output_format,
+                background=args.background,
+                compression=args.compression,
+            )
+        else:
+            response = edit_image(
+                base_url=base_url,
+                api_key=api_key or "",
+                prompt=args.prompt,
+                model=args.model,
+                n=args.n,
+                size=args.size,
+                quality=args.quality,
+                output_format=args.output_format,
+                background=args.background,
+                compression=args.compression,
+                image_paths=args.image,
+                mask_path=args.mask,
+                image_field=args.image_field,
+            )
+
+        saved = _save_images(response, out_dir, name_prefix, args.output_format)
+        tokens = _usage(response)
+        manifest = {
+            "ok": bool(saved),
+            **request_summary,
+            "images": saved,
+            "tokens": tokens,
+            "response_meta": response.get("_meta", {}),
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        _write_manifest(args.manifest, manifest)
+
+        if saved:
+            print(f"OK {mode} {args.model} -> {len(saved)} 张, tokens total={tokens['total']}")
+            for item in saved:
+                print(item["path"])
+            return 0
+
+        print(f"ERROR: 接口返回无图。usage={tokens['raw']}")
+        return 1
+
+    except Exception as exc:  # noqa: BLE001
+        manifest = {
+            "ok": False,
+            "mode": mode,
+            "model": args.model,
+            "base_url": base_url,
+            "prompt": args.prompt,
+            "images_in": args.image,
+            "mask_in": args.mask,
+            "error": _redact(str(exc)),
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        _write_manifest(args.manifest, manifest)
+        print(f"ERROR: {manifest['error']}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -62,9 +62,9 @@ class OzonToDraftTest(unittest.TestCase):
         self.assertIsInstance(d["price"], str)
         self.assertEqual(d["images"], ["https://img/a.jpg", "https://img/b.jpg"])
         self.assertEqual(d["stock"], 7)                # stocks[].present
-        self.assertEqual(d["length_mm"], 30)           # Ozon 300mm → 内部 30cm
-        self.assertEqual(d["width_mm"], 20)
-        self.assertEqual(d["height_mm"], 10)
+        self.assertEqual(d["length_mm"], 300)          # Ozon 300mm → 内部 300mm
+        self.assertEqual(d["width_mm"], 200)
+        self.assertEqual(d["height_mm"], 100)
         self.assertEqual(d["weight_g"], 500)           # attrs weight(g)
         self.assertEqual(d["attributes"], attrs["attributes"])
         self.assertEqual(d["status"], "published")
@@ -93,17 +93,17 @@ class OzonToDraftTest(unittest.TestCase):
         self.assertEqual(d["length_mm"], 0)
 
     def test_units_normalized_internal_cm_g(self) -> None:
-        """单位归一：内部尺寸 cm、重量 g。kg→g；Ozon cm→cm、mm→cm。"""
+        """单位归一：内部尺寸 mm、重量 g。kg→g；Ozon cm→mm、mm→mm。"""
         from backend.ozon_client_adapter import ozon_to_draft  # noqa: PLC0415
         info = _fake_info()
         attrs = _fake_attrs(weight=2, depth=30, width=20, height=10)
         attrs["weight_unit"] = "kg"        # 2kg → 2000g
-        attrs["dimension_unit"] = "cm"     # 30/20/10 cm → 内部 30/20/10 cm
+        attrs["dimension_unit"] = "cm"     # 30/20/10 cm → 内部 300/200/100 mm
         d = ozon_to_draft(info, attrs)
         self.assertEqual(d["weight_g"], 2000)
-        self.assertEqual(d["length_mm"], 30)
-        self.assertEqual(d["width_mm"], 20)
-        self.assertEqual(d["height_mm"], 10)
+        self.assertEqual(d["length_mm"], 300)
+        self.assertEqual(d["width_mm"], 200)
+        self.assertEqual(d["height_mm"], 100)
 
 
 class FindByOfferIdTest(unittest.TestCase):

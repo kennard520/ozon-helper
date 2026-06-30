@@ -217,6 +217,9 @@ MYSQL_DDL = [
         old_price VARCHAR(64),
         stock INT,
         weight_g INT,
+        -- 以下三列统一存「毫米(mm)」(列名 _mm 名实相符)。
+        -- 发布时直发给 Ozon(毫米,见 backend/drafts.py build item: depth=length_mm，不再 ×10)。
+        -- 1688/WB/Ozon 采集与 Ozon 拉取都归一成毫米；单位填错会让密度异常 → Ozon 报 INCORRECT_DENSITY。
         length_mm INT,
         width_mm INT,
         height_mm INT,

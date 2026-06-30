@@ -187,17 +187,21 @@ class LocalMatchTest(unittest.TestCase):
 
 
 class ResolveValuesTest(unittest.TestCase):
-    def test_local_hit_skips_search(self):
+    def test_resolves_via_live_search(self):
+        # _resolve_values 现在只走实时搜(不用俄文本地缓存:AI出俄文值、中文字典不全)——即便有缓存也搜
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             svc, app = _make_app(tmp)
             try:
                 app.store.save_attr_values(100, 22, 99, [{"id": 5, "value": "Хлопок"}], False)
+                calls = []
 
-                def boom(*a, **k):
-                    raise AssertionError("不应调用实时搜")
-                svc.search_attribute_values = boom
+                def fake_search(settings, cat, typ, aid, value, language="RU"):
+                    calls.append(value)
+                    return {"result": [{"id": 5, "value": "Хлопок"}]}
+                svc.search_attribute_values = fake_search
                 out = app._resolve_values(100, 22, 99, ["хлопок"], False)
                 self.assertEqual(out, [{"dictionary_value_id": 5, "value": "Хлопок"}])
+                self.assertEqual(calls, ["хлопок"])
             finally:
                 app.store.close()
 
@@ -224,12 +228,11 @@ class ResolvePairsConcurrentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             svc, app = _make_app(tmp)
             try:
-                app.store.save_attr_values(100, 22, 11, [{"id": 1, "value": "Красный"}], False)
-                app.store.save_attr_values(100, 22, 22, [{"id": 2, "value": "Малый"}], False)
+                ids = {"красный": 1, "малый": 2}
 
-                def boom(*a, **k):
-                    raise AssertionError("本地命中不应实时搜")
-                svc.search_attribute_values = boom
+                def fake_search(settings, cat, typ, aid, value, language="RU"):
+                    return {"result": [{"id": ids[value.lower()], "value": value.capitalize()}]}
+                svc.search_attribute_values = fake_search
                 res = app._resolve_pairs_concurrent(100, 22, [
                     (11, ["красный"], False),
                     (22, ["малый"], False),

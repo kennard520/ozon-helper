@@ -14,7 +14,13 @@
     var sku = g(d, ['Root', 'fields', 'dataJson', 'skuModel']) || {}
     return {
       productTitle: { fields: { title: g(d, ['productTitle', 'fields', 'title']) } },
-      mainPrice: { fields: { priceModel: { originalPriceDisplay: g(d, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) } } },
+      mainPrice: { fields: {
+        priceModel: { originalPriceDisplay: g(d, ['mainPrice', 'fields', 'priceModel', 'originalPriceDisplay']) },
+        finalPriceModel: { tradeWithoutPromotion: {
+          offerPriceDisplay: g(d, ['mainPrice', 'fields', 'finalPriceModel', 'tradeWithoutPromotion', 'offerPriceDisplay']),
+          offerMaxPrice: g(d, ['mainPrice', 'fields', 'finalPriceModel', 'tradeWithoutPromotion', 'offerMaxPrice'])
+        } }
+      } },
       gallery: { fields: { mainImage: g(d, ['gallery', 'fields', 'mainImage']), offerImgList: g(d, ['gallery', 'fields', 'offerImgList']), video: g(d, ['gallery', 'fields', 'video']) } },
       productPackInfo: { fields: { pieceWeightScale: { pieceWeightScaleInfo: g(d, ['productPackInfo', 'fields', 'pieceWeightScale', 'pieceWeightScaleInfo']) } } },
       Root: { fields: { dataJson: { skuModel: { skuProps: sku.skuProps, skuInfoMap: sku.skuInfoMap } } } }

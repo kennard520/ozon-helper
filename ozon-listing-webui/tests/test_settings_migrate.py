@@ -105,6 +105,17 @@ class MigrateAiTest(unittest.TestCase):
     def test_ai_text_multimodal_defaults_false(self):
         self.assertFalse(migrate_ai({})["ai_text"]["multimodal"])
 
+    def test_ai_multimodal_slot_default(self):
+        out = migrate_ai({})
+        self.assertEqual(out["ai_multimodal"]["engine"], "openai")
+        self.assertEqual(out["ai_multimodal"]["model"], "")
+
+    def test_ai_multimodal_new_keys_and_resolver(self):
+        s = {"ai_multimodal": {"engine": "openai", "api_base": "B", "api_key": "K", "model": "gpt-4o"}}
+        self.assertEqual(migrate_ai(s)["ai_multimodal"]["model"], "gpt-4o")
+        self.assertEqual(ai_config(s, "multimodal"),
+                         {"engine": "openai", "base": "B", "key": "K", "model": "gpt-4o"})
+
 
 if __name__ == "__main__":
     unittest.main()

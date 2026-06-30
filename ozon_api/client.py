@@ -149,6 +149,13 @@ class OzonSellerClient:
     def get_import_info(self, task_id: int) -> dict[str, Any]:
         return self.request("/v1/product/import/info", {"task_id": int(task_id)})
 
+    def import_by_sku(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        # POST /v1/product/import-by-sku（v1）— 基于已有 Ozon SKU 复制建卡（官方"复制"通道）。
+        # item: {sku:int, offer_id:str, name?, price?, old_price?, currency_code?, vat?}
+        # 返回 {result:{task_id, unmatched_sku_list[]}}；源卡主开"禁止复制"时该 sku 进 unmatched_sku_list。
+        # 轮询结果复用 get_import_info(task_id)。
+        return self.request("/v1/product/import-by-sku", {"items": items})
+
     def import_prices(self, prices: list[dict[str, Any]]) -> dict[str, Any]:
         return self.request("/v1/product/import/prices", {"prices": prices})
 

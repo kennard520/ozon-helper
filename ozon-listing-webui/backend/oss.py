@@ -117,11 +117,11 @@ class OssClient:
             return u
         if u.startswith("/media/") or not u.startswith("http"):
             from backend.media import read_media_bytes  # noqa: PLC0415
-            rel = u[len("/media/"):] if u.startswith("/media/") else u
-            data = read_media_bytes(rel)
+            media_url = u if u.startswith("/media/") else ("/media/" + u.lstrip("/"))
+            data = read_media_bytes(media_url)   # read_media_bytes 需要带 /media/ 前缀(它内部再剥)
             if data is None:
                 raise RuntimeError(f"本地媒体读不到: {u}")
-            ext = os.path.splitext(rel)[1].lstrip(".") or "jpg"
+            ext = os.path.splitext(media_url)[1].lstrip(".") or "jpg"
             return self.upload_bytes(data, ext)
         req = Request(u, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=60) as resp:  # noqa: S310

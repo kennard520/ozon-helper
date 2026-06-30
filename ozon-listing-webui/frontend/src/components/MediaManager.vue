@@ -1,10 +1,9 @@
 <template>
-  <section class="md-section">
+  <section v-if="only !== 'video'" class="md-section">
     <div class="md-head">
       <h4>图片 <span class="ai-pill">AI</span></h4>
       <div class="md-actions">
         <slot name="image-actions" />
-        <el-button>打开照片编辑器</el-button>
         <el-upload
           :show-file-list="false"
           accept="image/*"
@@ -16,9 +15,13 @@
       </div>
     </div>
     <div v-if="images.length" class="md-grid ozon-media-grid">
-      <div v-for="(u, i) in images" :key="i" class="md-cell">
-        <el-image :src="disp(u)" :preview-src-list="images.map(disp)" :initial-index="i" fit="cover" loading="lazy" />
+      <div v-for="(u, i) in images" :key="i" class="md-cell" :class="{ 'md-drag-over': dragOver === i }"
+           draggable="true" @dragstart="dragIndex = i" @dragenter="dragOver = i" @dragover.prevent
+           @drop="onDrop(i)" @dragend="dragOver = -1; dragIndex = -1">
+        <el-image :src="disp(u)" :preview-src-list="images.map(disp)" :initial-index="i" fit="cover" loading="lazy"
+                  :preview-teleported="true" hide-on-click-modal />
         <div class="md-badge" v-if="i === 0">主图</div>
+        <div class="md-type" v-if="imageTypes[u]">{{ imageTypes[u] }}</div>
         <div class="md-ops">
           <el-button link size="small" :disabled="i === 0" @click="moveUp(i)">上移</el-button>
           <el-button link size="small" :disabled="i === images.length - 1" @click="moveDown(i)">下移</el-button>
@@ -33,7 +36,7 @@
     <slot name="image-extra" />
   </section>
 
-  <section class="md-section">
+  <section v-if="only !== 'images'" class="md-section">
     <div class="md-head">
       <h4>视频</h4>
       <div class="md-actions">
@@ -60,7 +63,7 @@
     <div class="md-rule-note">要求：MP4/MOV，长边 1080-1920 像素，8 秒至 5 分钟。</div>
   </section>
 
-  <section class="md-section">
+  <section v-if="only !== 'images'" class="md-section">
     <div class="md-head">
       <h4>视频封面</h4>
       <el-button>添加封面</el-button>
@@ -75,7 +78,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '../api.js'
 
 const props = defineProps({
@@ -83,6 +86,8 @@ const props = defineProps({
   videoUrl: { type: String, default: '' },
   draftId: { type: [Number, String], default: null },
   localMap: { type: Object, default: () => ({}) },
+  only: { type: String, default: 'all' },   // 'all' | 'images' | 'video'：控制只渲染图片或视频区
+  imageTypes: { type: Object, default: () => ({}) },   // {图url: 类型}：白底/细节/场景/尺寸/卖点…，显示类型徽章
 })
 
 // 显示用 URL：优先本地副本(localMap 是 源url→/media 路径 的字典)。
@@ -93,6 +98,20 @@ function disp(u) {
 }
 const emit = defineEmits(['update:images', 'update:videoUrl'])
 const emptyImageSlots = computed(() => Math.max(0, 12 - props.images.length))
+
+// 拖拽排序：把第 from 张拖到第 i 张的位置
+const dragIndex = ref(-1)
+const dragOver = ref(-1)
+function onDrop(i) {
+  const from = dragIndex.value
+  dragOver.value = -1
+  dragIndex.value = -1
+  if (from < 0 || from === i) return
+  const next = props.images.slice()
+  const [pick] = next.splice(from, 1)
+  next.splice(i, 0, pick)
+  emit('update:images', next)
+}
 
 function removeImage(i) {
   const next = props.images.slice()
@@ -241,6 +260,15 @@ defineExpose({ removeImage, setCover, removeVideo, addImage, addVideo, moveUp, m
   background: rgba(255, 255, 255, 0.95);
 }
 .md-cell:hover .md-ops { display: flex; }
+.md-type {
+  position: absolute; right: 6px; top: 6px; z-index: 2;
+  background: rgba(59,130,246,0.85); color: #fff;
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px;
+}
+.md-cell[draggable="true"] { cursor: grab; }
+.md-cell[draggable="true"]:active { cursor: grabbing; }
+.md-drag-over { outline: 2px dashed var(--c-info); outline-offset: -2px; }
+.md-cell .el-image :deep(img) { -webkit-user-drag: none; user-drag: none; }
 .md-empty { color: var(--c-text-3); font-size: 13px; margin-bottom: 8px; }
 .md-rule-note {
   padding: 10px 12px;
