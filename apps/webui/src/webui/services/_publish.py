@@ -1,0 +1,567 @@
+"""PublishMixin —— 发布/上架/拉 Ozon 商品/变体组发布/FBS 标签。"""
+from __future__ import annotations
+
+import time
+
+import webui.media as _media
+from webui.drafts import (
+    NO_BRAND,
+    dimension_warnings,
+    missing_required_attributes,
+    to_ozon_import_item,
+    utc_now_iso,
+    validate_draft,
+)
+from webui.media_rehost import needs_rehost, rehost_draft_media
+from webui.ozon_client_adapter import get_import_info
+from webui.services._helpers import _has_cjk, _to_int
+
+
+class PublishMixin:
+    def batch_publish(self, ids: list, store_client_id: str | None = None) -> dict:
+        """批量发布：逐个调 publish（各自校验/扣费/媒体托管），单个失败不影响其它。
+        返回 {results:[{id, published, errors}], published, failed}。"""
+        results = []
+        ok = 0
+        for did in ids or []:
+            try:
+                r = self.publish(int(did), store_client_id)
+                published = bool(r.get("published"))
+                if published:
+                    ok += 1
+                results.append({"id": did, "published": published,
+                                "errors": r.get("errors") or [], "warnings": r.get("warnings") or []})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"id": did, "published": False, "errors": [str(exc)]})
+        return {"results": results, "published": ok, "failed": len(results) - ok}
+
+    def translate_draft(self, draft_id: int) -> dict:
+        from webui.translate import get_engine  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        settings = self.store.get_settings()
+        from webui.settings_migrate import ai_config, migrate_ai  # noqa: PLC0415
+        _tm = migrate_ai(settings)["translate_mode"]
+        # ai translate_mode 需要 key；无 key 时降级 manual（避免抛 RuntimeError）
+        if _tm == "ai" and not ai_config(settings, "text")["key"]:
+            _tm = "manual"
+        engine = get_engine(_tm, settings)
+        title = engine.translate(str(draft.get("ozon_title") or ""))
+        desc = engine.translate(str(draft.get("description") or ""))
+        updated = self.store.update_draft(draft_id, {"ozon_title": title, "description": desc})
+        still = _has_cjk(title) or _has_cjk(desc)
+        note = "" if not still else "仍含中文：manual 引擎只占位，请配置 remote 引擎或手动翻译"
+        return {"draft": updated, "engine": engine.name, "still_cjk": still, "note": note}
+
+    def _validate_and_build_item(self, draft: dict, store_settings: dict | None = None) -> tuple[list[str], dict | None]:
+        """共享校验 + item 构建逻辑（publish 与 publish_preview 共用）。
+
+        返回 (errors, item)：
+        - errors: 阻断性错误列表（同 publish 的拦截规则）；非空时 item 为 None
+        - item: to_ozon_import_item 产出 + 币种换算后的 import item（pre-media-swap）
+
+        注意：
+        - 此方法不写 DB（不改 status、不写 validation_errors）——由调用方决定是否持久化
+        - 媒体上传不在此方法里发生；media 检测仅验证 company_id / is_logged_in（is_ok 检查）
+        - 返回的 item 仍使用 draft 里的原始 media URL（未上传替换），仅供预览；
+          publish 会在校验通过后自行完成 upload + swap
+        """
+        errors: list[str] = list(validate_draft(draft))
+        warnings: list[str] = list(dimension_warnings(draft))   # 克重/尺寸缺失=软警告，不拦发布
+        # 1688 来源若标题/描述仍含中文，说明还没本地化（功能③的 AI 中译俄）——拦截
+        if draft.get("source_platform") == "1688" and (
+            _has_cjk(draft.get("ozon_title")) or _has_cjk(draft.get("description"))
+        ):
+            errors.append("1688 商品未本地化（标题/描述仍含中文），请先翻译成俄语再发布")
+        # 类目必填属性：缺了只警告、不阻断——发到 Ozon 后在后台补(Ozon 卡片好编辑)
+        cat, typ = str(draft.get("category_id") or "").strip(), str(draft.get("type_id") or "").strip()
+        if cat and typ:
+            try:
+                attrs = self._category_attrs(int(cat), int(typ))
+                for m in missing_required_attributes(draft, attrs):
+                    warnings.append(f"缺必填属性：{m['name']}")
+            except ValueError:
+                pass  # 未配置 API key 等：不阻断
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"类目必填属性校验失败，无法确认是否缺失（请重试）：{exc}")
+        # 合同货币汇率校验
+        settings = store_settings if store_settings is not None else self.store.get_settings()
+        currency = str(settings.get("contract_currency") or "CNY").upper()
+        if not settings.get("rub_cny"):
+            errors.append("未配置 RUB/CNY 汇率，无法换算合同币价格，请先在设置里填写汇率")
+        if errors:
+            return errors, warnings, None
+        # 构建 item（用原始 URL，不做 upload/swap）
+        item = to_ozon_import_item(draft)
+        # 内部 price/old_price 统一为 CNY 人民币。
+        if currency == "RUB":
+            # 合同币种=卢布 → CNY 换算成 RUB（rub_cny = CNY/RUB）
+            rate = float(settings.get("rub_cny"))
+            item["currency_code"] = "RUB"
+            item["price"] = str(round(float(item["price"] or 0) / rate, 2))
+            if item.get("old_price"):
+                item["old_price"] = str(round(float(item["old_price"]) / rate, 2))
+        else:
+            # 合同币种=CNY → 价格已是人民币，直接发，不换算
+            item["currency_code"] = currency
+        return [], warnings, item
+
+    def publish_preview(self, draft_id: int, store_client_id: str | None = None) -> dict:
+        """预览将要发布的内容，不发送任何请求，不写 DB（无副作用）。"""
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        target_store = str(draft.get("store_client_id") or "") or store_client_id
+        errors, warnings, item = self._validate_and_build_item(draft, self._settings_for_store(target_store))
+        if errors:
+            return {"ok": False, "errors": errors, "warnings": warnings, "summary": None}
+        # 构建摘要（item 已含换算后价格）
+        images = item.get("images") or []
+        attributes = item.get("attributes") or []
+        has_video = bool(draft.get("video_url"))
+        summary = {
+            "offer_id": item.get("offer_id"),
+            "name": item.get("name"),
+            "description_len": len(str(item.get("description_category_id") and draft.get("description") or "")),
+            "category_id": item.get("description_category_id"),
+            "type_id": item.get("type_id"),
+            "price": item.get("price"),
+            "old_price": item.get("old_price"),
+            "currency_code": item.get("currency_code"),
+            "dims_mm": {
+                "depth": item.get("depth"),
+                "width": item.get("width"),
+                "height": item.get("height"),
+            },
+            "weight_g": item.get("weight"),
+            "images_count": len(images),
+            "attributes_count": len(attributes),
+            "has_video": has_video,
+        }
+        return {"ok": True, "errors": [], "warnings": warnings, "summary": summary}
+
+    def publish_preflight(self, draft_id: int) -> dict:
+        """发布前核对清单：error=硬拦(不让发) / warn=建议 / verify=看图识别需人工核对 / passed=已就绪。
+        硬拦复用 validate_draft;软项=尺寸密度警告 + 理解层标'图片识别'的数字 + 标题长度/图片数。"""
+        from webui.drafts import dimension_warnings, loads_json, validate_draft  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = draft.get("source_raw")
+        if isinstance(sr, str):
+            sr = loads_json(sr, {})
+        sr = sr if isinstance(sr, dict) else {}
+        und = sr.get("understanding") if isinstance(sr.get("understanding"), dict) else {}
+        conf = und.get("confidence") if isinstance(und.get("confidence"), dict) else {}
+        specs = und.get("specs") if isinstance(und.get("specs"), dict) else {}
+
+        checks: list = []
+        for e in validate_draft(draft):                       # 🔴 硬拦
+            checks.append({"severity": "error", "label": e})
+        for w in dimension_warnings(draft):                    # 🟡 尺寸/密度建议
+            checks.append({"severity": "warn", "label": w})
+        for key, c in conf.items():                            # 🟡 看图识别·待核对的数字(只列 specs 里有值的)
+            if str(c) == "图片识别" and str(key).startswith("specs."):
+                field = str(key).split(".", 1)[1]
+                val = specs.get(field, "")
+                if str(val).strip():
+                    checks.append({"severity": "verify",
+                                   "label": f"核对 {field}: {val}（看图识别,易错,发布前请确认）"})
+        title = str(draft.get("ozon_title") or "")
+        if len(title) > 150:
+            checks.append({"severity": "warn", "label": f"标题偏长({len(title)} 字),建议精简到 150 内"})
+        imgs = draft.get("images") or []
+        if len(imgs) < 3:
+            checks.append({"severity": "warn", "label": f"图片偏少({len(imgs)} 张),Ozon 建议多张主图/细节"})
+
+        passed: list = []
+        if title and not any("标题" in c["label"] for c in checks if c["severity"] == "error"):
+            passed.append(f"标题就绪({len(title)} 字)")
+        if str(draft.get("brand_name") or "") == "Нет бренда":
+            passed.append("品牌 = 无品牌 ✓")
+        try:
+            if float(draft.get("price") or 0) > 0:
+                passed.append(f"售价 {draft.get('price')} ✓")
+        except (TypeError, ValueError):
+            pass
+        if (draft.get("weight_g") or 0) and (draft.get("length_mm") or 0):
+            passed.append("尺寸/重量已填 ✓")
+
+        blocking = sum(1 for c in checks if c["severity"] == "error")
+        return {"ok": True, "checks": checks, "passed": passed,
+                "blocking": blocking, "can_publish": blocking == 0}
+
+    def publish(self, draft_id: int, store_client_id: str | None = None) -> dict:
+        import webui.app_service as _app_svc  # noqa: PLC0415
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        if str(draft.get("media_status") or "done") == "pending":
+            raise ValueError("图片还在上传，请稍候再发布")
+        # 草稿绑定店：优先发到草稿自带店；旧草稿(无 store_client_id)回退入参/默认店
+        target_store = str(draft.get("store_client_id") or "") or store_client_id
+        store_settings = self._settings_for_store(target_store)
+        # 写死：品牌=无品牌、原产国=中国(覆盖任何采集/AI 值；要改去 Ozon 后台改)
+        draft = self._ensure_fixed_attrs(draft)
+        # 媒体托管：插件已把媒体传到卖家自己的 Ozon 店铺(ir.ozone.ru)时，全是 Ozon 原生链接、
+        # 无需 OSS——跳过。只有存在非 Ozon 媒体(老路径/手动加图)时才用 OSS 兜底；未配 OSS 才硬拦。
+        oss = _app_svc.OssClient(store_settings, local_reader=_media.read_media_bytes)
+        rehost_stats = {"uploaded": 0, "failed": 0}
+        if needs_rehost(draft):
+            if not oss.configured():
+                errs = ["有非 Ozon 来源的图片/视频需托管：请用插件把媒体传到你的 Ozon 店铺，或在设置里配置阿里云 OSS"]
+                updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+                return {"published": False, "draft": updated, "errors": errs}
+            draft, rehost_stats = rehost_draft_media(draft, oss.upload_remote)
+            # OSS URL 持久化回草稿（再发幂等；展示也变 OSS 图）
+            self.store.update_draft(draft_id, {
+                "images": draft.get("images") or [], "video_url": draft.get("video_url") or "",
+                "source_raw": draft.get("source_raw") or {}})
+        errors, warnings, item = self._validate_and_build_item(draft, store_settings)
+        if errors:
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errors})
+            return {"published": False, "draft": updated, "errors": errors, "warnings": warnings}
+        if rehost_stats.get("failed"):
+            warnings = [*warnings, f"{rehost_stats['failed']} 个媒体未能上传到 OSS，已沿用原链接（Ozon 可能抓不到）"]
+        # 发布扣费（publish_fee>0 才扣；余额不足直接拦下不发布）
+        fee = self.publish_fee()
+        if fee > 0 and not self.store.deduct(fee, biz_no=f"publish:{draft_id}", remark="发布商品"):
+            errs = ["余额不足，请先充值后再发布"]
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+            return {"published": False, "draft": updated, "errors": errs, "warnings": warnings}
+        try:
+            response = _app_svc.publish_items(store_settings, [item])
+        except Exception as exc:  # noqa: BLE001  Ozon 报错(如图片URL无效)别透成 500，落库+回前端
+            if fee > 0:  # 调用失败把刚扣的费退回，不白扣
+                self.store.refund(fee, biz_no=f"publish-refund:{draft_id}", remark="发布失败退款")
+            msg = f"Ozon 拒收: {exc}"
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": [msg]})
+            return {"published": False, "draft": updated, "errors": [msg], "warnings": warnings}
+        self.store.save_settings({"last_publish_store": str(store_settings.get("ozon_client_id") or "")})
+        task_id = ((response.get("result") or {}).get("task_id"))
+        poll: dict = {}
+        final_status = "draft"
+        item_errors: list[str] = []
+        if task_id:
+            for _ in range(10):
+                time.sleep(2)
+                try:
+                    info = get_import_info(store_settings, task_id)
+                except Exception as exc:  # noqa: BLE001
+                    poll = {"error": str(exc)}
+                    break
+                poll_items = (info.get("result") or {}).get("items") or []
+                statuses = [it.get("status") for it in poll_items]
+                if statuses and not any(s in ("pending", "not_started", "") for s in statuses):
+                    poll = info
+                    # ⚠️ Ozon 即使 status='imported' 也可能带 level='error' 的错误：卡片建了(有 product_id)
+                    # 但不可售(如必填属性空)，不会出现在后台正常商品里。有 error 级错误 → 视为失败，
+                    # 并把 Ozon 的具体原因带回前端，否则会误报"已发布"而后台实际没有。
+                    for it in poll_items:
+                        for e in (it.get("errors") or []):
+                            if str(e.get("level") or "").lower() == "error":
+                                aid = e.get("attribute_id")
+                                desc = str(e.get("description") or e.get("code") or "未知错误")
+                                item_errors.append(f"[属性{aid}] {desc}" if aid else desc)
+                    # skipped = Ozon 跳过(变体单条发常见：变体须走「整组发布」；或内容无变化)。
+                    # 既非成功也非失败，单独标记并提示，避免误报"已发布"或"失败"。
+                    if statuses and all(s == "skipped" for s in statuses) and not item_errors:
+                        final_status = "skipped"
+                        item_errors.append("Ozon 跳过未更新：若是变体商品请用「整组发布」；单品则说明内容无变化")
+                        break
+                    ok = all(s in ("imported", "skipped") for s in statuses) and not item_errors
+                    final_status = "published" if ok else "failed"
+                    break
+            else:
+                poll = {"warning": "poll timeout — Ozon 仍在异步处理，稍后用 task_id 查"}
+        updated = self.store.update_draft(draft_id, {
+            "status": final_status,
+            "validation_errors": item_errors or None,
+            "publish_response": {"import": response, "poll": poll, "warnings": warnings,
+                                 "store_client_id": str(store_settings.get("ozon_client_id") or ""),
+                                 "rehost": rehost_stats},
+            "offer_id": item["offer_id"],
+        })
+        if fee > 0 and final_status == "failed":   # Ozon 校验没过、卡片不可售 → 退发布费
+            self.store.refund(fee, biz_no=f"publish-refund:{draft_id}", remark="发布未成功(Ozon 校验)退款")
+        return {"published": final_status == "published", "draft": updated, "response": response,
+                "poll": poll, "task_id": task_id, "warnings": warnings, "rehost": rehost_stats,
+                "errors": item_errors}
+
+    def pull_ozon_products(self, visibility: str = "ALL") -> dict:
+        from webui.ozon_client_adapter import (  # noqa: PLC0415
+            get_ozon_attributes,
+            get_ozon_descriptions,
+            get_ozon_info,
+            list_ozon_products,
+            ozon_to_draft,
+        )
+        errors: list = []
+        try:
+            listing = list_ozon_products(self.store.get_settings(), visibility)
+        except Exception as exc:  # noqa: BLE001
+            return {"pulled": 0, "drafts": self.store.list_drafts(), "errors": [str(exc)]}
+        offer_ids = [str(it.get("offer_id")) for it in listing if it.get("offer_id")]
+        info = get_ozon_info(self.store.get_settings(), offer_ids) if offer_ids else {}
+        try:
+            attrs = get_ozon_attributes(self.store.get_settings(), offer_ids) if offer_ids else {}
+        except Exception as exc:  # noqa: BLE001
+            attrs = {}
+            errors.append(f"属性拉取失败(尺寸/属性留空): {exc}")
+        try:
+            descriptions = get_ozon_descriptions(self.store.get_settings(), offer_ids) if offer_ids else {}
+        except Exception as exc:  # noqa: BLE001
+            descriptions = {}
+            errors.append(f"描述拉取失败(描述留空): {exc}")
+        pulled = 0
+        for oid in offer_ids:
+            if oid not in info:
+                continue
+            d = ozon_to_draft(info[oid], attrs.get(oid))
+            # 补全描述：/v3/product/info/list 不含描述，单独接口拉取
+            desc_text = descriptions.get(oid, "")
+            if desc_text:
+                d["description"] = desc_text
+            existing = self.store.find_by_offer_id(oid)
+            if existing:
+                # 再拉已存在草稿：非破坏式合并，只补空字段 + 刷新 Ozon 权威身份，
+                # 绝不覆盖用户手编的 description/price/supplier 等（否则每次拉单都丢编辑）。
+                self.store.update_draft(existing["id"], self._merge_pulled_into_existing(existing, d))
+            else:
+                self.store.insert_draft(self._normalize_ozon_draft(d, oid))
+            pulled += 1
+        return {"pulled": pulled, "drafts": self.store.list_drafts(), "errors": errors}
+
+    @staticmethod
+    def _merge_pulled_into_existing(existing: dict, pulled: dict) -> dict:
+        """再拉已存在草稿时，算出"只补空、不覆盖"的最小更新集（纯函数，可测）。
+
+        - 用户可能手编的字段：仅当现有草稿该字段为空/缺失时才用拉来的值填补；
+          已有非空值则一律保留，不传进更新集（让 store 维持原值）。
+        - Ozon 权威身份/元数据：用户不会手改 → 总是用拉来的最新值刷新。
+        - status 显式设为 "published"：从 Ozon 拉回的商品已上架，
+          update_draft 的 status 重算逻辑若不传 status 会将其降级为 "ready"，
+          故此处明确传入 "published" 保持已上架状态。
+        """
+        def _empty(v: object) -> bool:
+            if v is None:
+                return True
+            if isinstance(v, str):
+                return v.strip() == ""
+            if isinstance(v, (list, tuple, dict)):
+                return len(v) == 0
+            return False
+
+        patch: dict = {}
+        # 用户可能手编的字段：只在现有为空时补
+        user_editable = (
+            "description", "ozon_title", "price", "old_price", "stock",
+            "supplier", "purchase_url", "purchase_note", "cost_cny",
+            "category_id", "type_id",
+        )
+        for k in user_editable:
+            if k in pulled and _empty(existing.get(k)) and not _empty(pulled.get(k)):
+                patch[k] = pulled[k]
+
+        # 图片：仅当现有草稿一张都没有时才用拉来的
+        if _empty(existing.get("images")) and not _empty(pulled.get("images")):
+            patch["images"] = pulled["images"]
+
+        # 视频：仅当现有草稿没有视频时才用拉来的（Ozon 重新托管的 v.ozone.ru URL）
+        if _empty(existing.get("video_url")) and not _empty(pulled.get("video_url")):
+            patch["video_url"] = pulled["video_url"]
+
+        # Ozon 权威身份/元数据：总是刷新（用户不会手编）
+        if pulled.get("ozon_product_id") is not None:
+            patch["ozon_product_id"] = pulled["ozon_product_id"]
+        patch["source"] = pulled.get("source", "ozon")
+        patch["offer_id"] = existing.get("offer_id") or pulled.get("offer_id")
+        # 从 Ozon 拉回的商品已在平台上线，显式保持 published 状态（不让 update_draft 重算降级）
+        patch["status"] = "published"
+        return patch
+
+    @staticmethod
+    def _normalize_ozon_draft(draft: dict, offer_id: str) -> dict:
+        """补齐 store.insert_draft 要求但纯映射不产出的键。
+        source_url 在 drafts 表是 UNIQUE 主键约束（且 insert 按它去重），
+        Ozon 商品无 1688 链接，故用合成唯一键 ozon://product/<offer_id>。"""
+        now = utc_now_iso()
+        draft.setdefault("purchase_url", "")
+        draft.setdefault("purchase_note", "")
+        draft["brand_id"] = None
+        draft["brand_name"] = NO_BRAND
+        draft.setdefault("cost_cny", None)
+        draft.setdefault("video_url", "")
+        draft.setdefault("local_images", [])
+        draft.setdefault("validation_errors", [])
+        draft.setdefault("publish_response", None)
+        draft["source_url"] = f"ozon://product/{offer_id}"
+        draft["created_at"] = now
+        draft["updated_at"] = now
+        return draft
+
+    def _auto_map_safe(self, draft_id: int) -> None:
+        """采集后尽力自动映射属性(类目对上才有效)：把采集的名值对填进 Ozon 上架属性。
+        无网/无key/无类目/失败都静默跳过，绝不阻断采集。"""
+        try:
+            d = self.store.get_draft(draft_id)
+            if d and str(d.get("category_id") or "").strip() and str(d.get("type_id") or "").strip():
+                self.auto_map_attributes(draft_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _media_needs_upload(self, draft: dict) -> bool:
+        """草稿里是否还有未传到我们 OSS 的媒体（需后台上传 → media_status=pending）。
+        插件同步流已把图直传 OSS（URL 在 oss_public_base 下）→ 不需要 → done；
+        计划三异步流推原始 ir.ozone.ru 链接 → 需要 → pending。
+        没配 oss_public_base 时，有媒体即按 pending（兼容旧行为/媒体异步测试）。
+        两池化后采集图进 materials(in_gallery=0),需同时检查素材 URL。"""
+        base = str((self.store.get_settings() or {}).get("oss_public_base") or "").rstrip("/")
+        # 图集 URL(images) + 素材 URL(materials) 都检查
+        urls = list(draft.get("images") or [])
+        for m in draft.get("materials") or []:
+            mu = str(m.get("url") or "").strip()
+            if mu and mu not in urls:
+                urls.append(mu)
+        v = str(draft.get("video_url") or "").strip()
+        if v:
+            urls.append(v)
+        urls = [str(u).strip() for u in urls if str(u or "").strip()]
+        if not urls:
+            return False
+        return any(not (base and u.startswith(base)) for u in urls)
+
+    def _maybe_auto_publish(self, draft_id: int) -> None:
+        """采集/媒体就绪后，若用户开了 auto_publish 且草稿可发，则后台发布到 Ozon。
+        守卫：开关开 + 草稿存在 + status!=published（幂等）+ media_status!=pending（等媒体）。
+        best-effort：整段吞异常，发不出去的草稿原样留 webui 等人工。"""
+        try:
+            if not bool((self.store.get_settings() or {}).get("auto_publish")):
+                return
+            draft = self.store.get_draft(draft_id)
+            if draft is None:
+                return
+            if str(draft.get("status") or "") == "published":
+                return
+            if str(draft.get("media_status") or "done") == "pending":
+                return
+            self._dispatch_auto_publish(draft_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _dispatch_auto_publish(self, draft_id: int) -> None:
+        """派发后台线程跑 publish()，不阻塞采集（publish 会轮询 Ozon ~20s）。
+        复制父线程 context 把 current_user_id 带进子线程（否则用错 Ozon 凭证）。
+        抽成单独方法：测试 monkeypatch 本方法即可同步断言、不起真线程。"""
+        import contextvars  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        ctx = contextvars.copy_context()
+
+        def _run() -> None:
+            try:
+                ctx.run(self.publish, draft_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def publish_variant_group(
+        self,
+        variant_group: str,
+        store_client_id: str | None = None,
+        model_name: str | None = None,
+    ) -> dict:
+        """把同一 variant_group 的所有草稿合并成一张 Ozon 多变体卡批量发布（批量 import）。
+        颜色/尺寸字典值通过 search_attribute_values 实时解析；型号名(9048)作合并 key。
+        **不可逆外部写**，由路由层二次确认后调用。"""
+        import webui.app_service as _app_svc  # noqa: PLC0415
+        from webui.variant_publish import build_group_items  # noqa: PLC0415
+        drafts = self.store.list_drafts_by_variant_group(variant_group)
+        if not drafts:
+            raise ValueError("该分组没有草稿")
+        store_settings = self._settings_for_store(store_client_id)
+        # 类目取第一条（同组同类目）
+        first = drafts[0]
+        cat = int(str(first.get("category_id") or "0") or 0)
+        typ = int(str(first.get("type_id") or "0") or 0)
+        if not cat or not typ:
+            raise ValueError("草稿缺类目，无法合并发布（先在编辑器选类目/AI匹配）")
+        category_attrs = self._category_attrs(cat, typ)
+        # 型号名(合并 key)：默认用分组键(主 SKU)，保证组内一致→合并
+        mname = (model_name or "").strip() or str(variant_group)
+
+        # 变体维度：采集没给 selected_aspects 时，从各变体 spec_attrs 跨组推导(颜色/规格变化维度)，
+        # 颜色值中文 → 翻成俄语(与俄语 listing 一致 + 能匹配 Ozon 颜色字典)，写回内存 selected_aspects。
+        from webui.variant_publish import derive_group_aspects  # noqa: PLC0415
+        if not any((d.get("source_raw") or {}).get("selected_aspects") for d in drafts):
+            derived = derive_group_aspects(drafts)
+            if derived:
+                from webui.settings_migrate import ai_config, migrate_ai  # noqa: PLC0415
+                from webui.translate import get_engine  # noqa: PLC0415
+                _tm = migrate_ai(store_settings)["translate_mode"]
+                if _tm == "ai" and not ai_config(store_settings, "text")["key"]:
+                    _tm = "manual"
+                _engine = get_engine(_tm, store_settings)
+                _cache: dict[str, str] = {}
+
+                def _ru(v: str) -> str:
+                    v = (v or "").strip()
+                    if not v or not _has_cjk(v):
+                        return v
+                    if v not in _cache:
+                        try:
+                            _cache[v] = (_engine.translate(v) or v).strip() or v
+                        except Exception:  # noqa: BLE001
+                            _cache[v] = v
+                    return _cache[v]
+
+                for d in drafts:
+                    asp = derived.get(d.get("id")) or []
+                    if not asp:
+                        continue
+                    sr = dict(d.get("source_raw") or {})
+                    sr["selected_aspects"] = [{"aspect_key": a.get("aspect_key"),
+                                               "value": _ru(a.get("value"))} for a in asp]
+                    d["source_raw"] = sr
+
+        def resolve_dict(attr_id: int, dictionary_id: int, text: str) -> dict | None:
+            try:
+                r = _app_svc.search_attribute_values(store_settings, cat, typ, int(attr_id), str(text), limit=5)
+                vals = (r or {}).get("result") if isinstance(r, dict) else None
+                vals = vals or []
+                if vals:
+                    v0 = vals[0]
+                    vid = v0.get("id") or v0.get("dictionary_value_id")
+                    if vid:
+                        return {"dictionary_value_id": int(vid), "value": v0.get("value") or text}
+            except Exception:  # noqa: BLE001
+                return None
+            return None
+
+        items = build_group_items(drafts, category_attrs, mname, resolve_dict)
+        # 币种换算（内部统一 CNY → 目标店币种；与 publish() 保持一致）
+        currency = str(store_settings.get("contract_currency") or "CNY").upper()
+        if currency == "RUB":
+            rate = float(store_settings.get("rub_cny") or 0) or None
+            if rate:
+                for it in items:
+                    it["currency_code"] = "RUB"
+                    it["price"] = str(round(float(it.get("price") or 0) / rate, 2))
+                    if it.get("old_price"):
+                        it["old_price"] = str(round(float(it["old_price"]) / rate, 2))
+        else:
+            for it in items:
+                it["currency_code"] = currency
+        response = _app_svc.publish_items(store_settings, items)
+        return {
+            "published": True,
+            "count": len(items),
+            "variant_group": variant_group,
+            "model_name": mname,
+            "response": response,
+        }
+
+    def fbs_label(self, posting_number: str, store_client_id: str | None = None) -> bytes:
+        from webui.ozon_client_adapter import fbs_label_pdf  # noqa: PLC0415
+        return fbs_label_pdf(self._settings_for_store(store_client_id), [posting_number])

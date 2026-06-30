@@ -26,6 +26,11 @@
     return '<button class="ohl-edit" type="button">编辑上架</button>'
   }
 
+  // 多变体商品(variantCount>1)才显示「采集全部变体」——逐变体各建草稿、同 variant_group 合并
+  function _variantsBtn(n) {
+    return `<button class="ohl-variants" type="button">采集全部变体(${n})</button>`
+  }
+
   function _fmtShort(n) {
     if (n >= 10000) return (n / 10000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + '万'
     return String(n)
@@ -56,7 +61,8 @@
     state = state || {}
     if (state.loading) return _info(['加载中…']) + _editBtn()
     if (state.error) return _info(['未获取']) + _editBtn()
-    return _info(_metricLines(state)) + _editBtn()
+    const vbtn = (state.variantCount > 1) ? _variantsBtn(state.variantCount) : ''
+    return _info(_metricLines(state)) + _editBtn() + vbtn
   }
 
   return { uniqueProductIds, cardHtml }

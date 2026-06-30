@@ -1,0 +1,616 @@
+"""Analytics service 单测 —— 纯函数 + 编排（mock client）。"""
+from __future__ import annotations
+
+import unittest
+
+
+class FakeClient:
+    def __init__(self, responses: dict | None = None):
+        self.responses = responses or {}
+        self.calls: list[tuple] = []
+
+    def request(self, path: str, payload: dict):
+        self.calls.append((path, payload))
+        return self.responses.get(path, {})
+
+
+# ---------- build_dashboard_rows ----------
+
+class BuildDashboardRowsTest(unittest.TestCase):
+    def _call(self, infos, funnel):
+        from webui.services.analytics_service import build_dashboard_rows
+        return build_dashboard_rows(infos, funnel)
+
+    def test_merges_info_and_funnel(self):
+        infos = {"OFF1": {"sku": "101", "title": "杯子", "price": "100", "stock": 5}}
+        funnel = {"101": {"exposure": 300, "sessions": 50, "cart": 10, "ordered_units": 3, "revenue": 300.0}}
+        rows = self._call(infos, funnel)
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(str(r["sku"]), "101")
+        self.assertEqual(r["exposure"], 300)
+        self.assertEqual(r["sessions"], 50)
+        self.assertEqual(r["cart"], 10)
+        self.assertEqual(r["ordered_units"], 3)
+        self.assertAlmostEqual(r["conv_cart_pct"], 20.0)
+        self.assertEqual(r["title"], "杯子")
+        self.assertEqual(r["product_url"], "https://www.ozon.ru/product/101/")
+
+    def test_product_url_empty_for_non_numeric_sku(self):
+        infos = {"OFF1": {"sku": "LOCAL-101", "title": "杯子", "price": "100", "stock": 5}}
+        rows = self._call(infos, {})
+        self.assertEqual(rows[0]["product_url"], "")
+
+    def test_diagnosis_que_huo(self):
+        """stock=0 → '缺货'。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 0}}
+        funnel = {"101": {"exposure": 500, "sessions": 0, "cart": 0, "ordered_units": 0, "revenue": 0}}
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertIn("缺货", r["diagnostics"])
+
+    def test_diagnosis_zero_exposure(self):
+        """exposure=0 → '0曝光'。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 5}}
+        funnel = {}  # 无漏斗数据 → 曝光=0
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertIn("0曝光", r["diagnostics"])
+        self.assertEqual(r["conv_cart_pct"], 0)
+
+    def test_diagnosis_high_exposure_no_order(self):
+        """高曝光（>200）+ 下单=0 → '高曝光0转化'。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 5}}
+        funnel = {"101": {"exposure": 500, "sessions": 0, "cart": 0, "ordered_units": 0, "revenue": 0}}
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertIn("高曝光0转化", r["diagnostics"])
+        # 同时满足"缺货"（stock=5→不缺）但 sessions=0 → 不触发加购未转化
+        self.assertNotIn("缺货", r["diagnostics"])
+
+    def test_diagnosis_cart_no_order(self):
+        """加购>0 + 下单=0 → '加购未转化'。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 10}}
+        funnel = {"101": {"exposure": 100, "sessions": 50, "cart": 5, "ordered_units": 0, "revenue": 0}}
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertIn("加购未转化", r["diagnostics"])
+
+    def test_no_diagnosis_when_healthy(self):
+        """有库存、有订单、正常曝光 → 无诊断标签。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 10}}
+        funnel = {"101": {"exposure": 300, "sessions": 100, "cart": 20, "ordered_units": 5, "revenue": 500.0}}
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertEqual(r["diagnostics"], [])
+
+    def test_conv_cart_pct_zero_sessions(self):
+        """sessions=0 时 conv_cart_pct=0（不抛除零错误）。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 5}}
+        funnel = {"101": {"exposure": 500, "sessions": 0, "cart": 0, "ordered_units": 0, "revenue": 0}}
+        rows = self._call(infos, funnel)
+        self.assertEqual(rows[0]["conv_cart_pct"], 0)
+
+    def test_conv_cart_pct_calculation(self):
+        """conv_cart_pct = cart/sessions*100，精确到 2 位小数。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 5}}
+        funnel = {"101": {"exposure": 100, "sessions": 3, "cart": 1, "ordered_units": 1, "revenue": 100.0}}
+        rows = self._call(infos, funnel)
+        self.assertAlmostEqual(rows[0]["conv_cart_pct"], round(1 / 3 * 100, 2))
+
+    def test_sorted_by_exposure_desc(self):
+        """结果按曝光量降序。"""
+        infos = {
+            "OFF1": {"sku": "101", "title": "低曝光", "price": 100, "stock": 5},
+            "OFF2": {"sku": "102", "title": "高曝光", "price": 200, "stock": 5},
+        }
+        funnel = {
+            "101": {"exposure": 50, "sessions": 10, "cart": 2, "ordered_units": 1, "revenue": 100.0},
+            "102": {"exposure": 500, "sessions": 100, "cart": 20, "ordered_units": 5, "revenue": 1000.0},
+        }
+        rows = self._call(infos, funnel)
+        self.assertEqual(str(rows[0]["sku"]), "102")
+        self.assertEqual(str(rows[1]["sku"]), "101")
+
+    def test_funnel_int_sku_key(self):
+        """funnel key 为 int（如从真实 API）也能匹配。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 5}}
+        funnel = {101: {"exposure": 200, "sessions": 50, "cart": 5, "ordered_units": 2, "revenue": 200.0}}
+        rows = self._call(infos, funnel)
+        self.assertEqual(rows[0]["exposure"], 200)
+
+    def test_multiple_diagnostics(self):
+        """stock=0 且 exposure=0 → 两个标签同时出现。"""
+        infos = {"OFF1": {"sku": "101", "title": "杯", "price": 100, "stock": 0}}
+        funnel = {}
+        rows = self._call(infos, funnel)
+        r = rows[0]
+        self.assertIn("缺货", r["diagnostics"])
+        self.assertIn("0曝光", r["diagnostics"])
+
+    def test_build_dashboard_rows_plan_scenario(self):
+        """计划中的示例场景：stock=0 + 高曝光 + 0访问。"""
+        from webui.services.analytics_service import build_dashboard_rows
+        infos = {"OFF1": {"sku": 101, "title": "杯", "price": 100, "stock": 0}}
+        funnel = {101: {"exposure": 500, "sessions": 0, "cart": 0, "ordered_units": 0, "revenue": 0}}
+        rows = build_dashboard_rows(infos, funnel)
+        r = rows[0]
+        self.assertEqual(str(r["sku"]), "101")
+        self.assertIn("缺货", r["diagnostics"])
+        self.assertEqual(r["conv_cart_pct"], 0)
+        # 高曝光 0 下单
+        self.assertTrue(any("曝光" in d or "转化" in d for d in r["diagnostics"]))
+
+
+# ---------- grand_total ----------
+
+class GrandTotalTest(unittest.TestCase):
+    def _call(self, rows):
+        from webui.services.analytics_service import grand_total
+        return grand_total(rows)
+
+    def test_empty_rows(self):
+        gt = self._call([])
+        self.assertEqual(gt["sku_count"], 0)
+        self.assertEqual(gt["exposure"], 0)
+        self.assertEqual(gt["conv_cart_pct"], 0)
+
+    def test_aggregates_correctly(self):
+        rows = [
+            {"exposure": 300, "sessions": 100, "cart": 20, "ordered_units": 5, "revenue": 500.0},
+            {"exposure": 200, "sessions": 50, "cart": 5, "ordered_units": 2, "revenue": 200.0},
+        ]
+        gt = self._call(rows)
+        self.assertEqual(gt["sku_count"], 2)
+        self.assertEqual(gt["exposure"], 500)
+        self.assertEqual(gt["sessions"], 150)
+        self.assertEqual(gt["cart"], 25)
+        self.assertEqual(gt["ordered_units"], 7)
+        self.assertAlmostEqual(gt["revenue"], 700.0)
+        self.assertAlmostEqual(gt["conv_cart_pct"], round(25 / 150 * 100, 2))
+
+    def test_sku_with_traffic_count(self):
+        rows = [
+            {"exposure": 0, "sessions": 0, "cart": 0, "ordered_units": 0, "revenue": 0},
+            {"exposure": 100, "sessions": 10, "cart": 2, "ordered_units": 1, "revenue": 100.0},
+        ]
+        gt = self._call(rows)
+        self.assertEqual(gt["sku_with_traffic"], 1)
+
+    def test_single_row(self):
+        rows = [{"exposure": 100, "sessions": 30, "cart": 6, "ordered_units": 2, "revenue": 200.0}]
+        gt = self._call(rows)
+        self.assertEqual(gt["sku_count"], 1)
+        self.assertAlmostEqual(gt["conv_cart_pct"], round(6 / 30 * 100, 2))
+
+
+# ---------- 缓存 TTL ----------
+
+class CacheTTLTest(unittest.TestCase):
+    def test_cache_hit_returns_same_object(self):
+        """同 key 两次调用返回同一对象（缓存命中）。"""
+        from webui.services import analytics_service
+        analytics_service._cache.clear()
+        key = ("test_cid", "dashboard", "2026-06-01", "2026-06-07")
+        analytics_service._cache_set(key, {"rows": [1, 2, 3]}, ttl=3600)
+        result = analytics_service._cache_get(key)
+        self.assertEqual(result, {"rows": [1, 2, 3]})
+
+    def test_cache_miss_after_expiry(self):
+        """TTL 过期后 _cache_get 返回 None。"""
+        from webui.services import analytics_service
+        analytics_service._cache.clear()
+        key = ("test_cid", "dashboard", "2026-06-01", "2026-06-07")
+        analytics_service._cache_set(key, {"rows": []}, ttl=-1)  # 已过期
+        result = analytics_service._cache_get(key)
+        self.assertIsNone(result)
+
+
+# ---------- ValueError 缺凭证 ----------
+
+class MissingCredentialsTest(unittest.TestCase):
+    def test_dashboard_raises_value_error_no_creds(self):
+        from webui.services.analytics_service import dashboard
+        with self.assertRaises(ValueError) as ctx:
+            dashboard({}, "2026-06-01", "2026-06-07")
+        self.assertIn("凭证", str(ctx.exception))
+
+    def test_traffic_raises_value_error_no_creds(self):
+        from webui.services.analytics_service import traffic
+        with self.assertRaises(ValueError):
+            traffic({}, "2026-06-01", "2026-06-07")
+
+    def test_keywords_raises_value_error_no_creds(self):
+        from webui.services.analytics_service import keywords
+        with self.assertRaises(ValueError):
+            keywords({}, "2026-06-01", "2026-06-07")
+
+
+class KeywordPeriodTest(unittest.TestCase):
+    def test_recent_period_is_shifted_to_latest_available_day(self):
+        from datetime import date, timedelta
+
+        from webui.services.analytics_service import normalize_keyword_period
+
+        latest = date.today() - timedelta(days=3)
+        requested_from = latest - timedelta(days=29)
+        requested_to = latest + timedelta(days=3)
+
+        actual_from, actual_to, adjusted = normalize_keyword_period(
+            requested_from.isoformat(),
+            requested_to.isoformat(),
+        )
+
+        self.assertTrue(adjusted)
+        self.assertEqual(actual_to, latest.isoformat())
+        self.assertEqual(
+            actual_from,
+            (latest - (requested_to - requested_from)).isoformat(),
+        )
+
+    def test_old_period_is_not_adjusted(self):
+        from webui.services.analytics_service import normalize_keyword_period
+
+        actual_from, actual_to, adjusted = normalize_keyword_period(
+            "2026-06-01",
+            "2026-06-07",
+        )
+
+        self.assertFalse(adjusted)
+        self.assertEqual(actual_from, "2026-06-01")
+        self.assertEqual(actual_to, "2026-06-07")
+
+
+# ---------- adapter 纯函数测试 ----------
+
+class FetchAnalyticsSkuTest(unittest.TestCase):
+    """fetch_analytics_sku 纯函数逻辑（mock client.request）。"""
+
+    def _make_response(self, rows_data):
+        return {"result": {"data": rows_data}}
+
+    def test_normal_response_parsed(self):
+        from webui.ozon_client_adapter import fetch_analytics_sku
+        client = FakeClient({
+            "/v1/analytics/data": self._make_response([
+                {"dimensions": [{"id": "101"}],
+                 "metrics": [500, 80, 10, 5, 999.0]},
+            ])
+        })
+        result = fetch_analytics_sku(client, "2026-06-01", "2026-06-07")
+        self.assertFalse(result["degraded"])
+        self.assertEqual(len(result["rows"]), 1)
+        r = result["rows"][0]
+        self.assertEqual(r["sku"], "101")
+        self.assertEqual(r["exposure"], 500)
+        self.assertEqual(r["sessions"], 80)
+        self.assertEqual(r["cart"], 10)
+        self.assertEqual(r["ordered_units"], 5)
+        self.assertAlmostEqual(r["revenue"], 999.0)
+
+    def test_403_degraded(self):
+        """403 → 降级重试 ordered_units/revenue，degraded=True。"""
+        from webui.ozon_client_adapter import fetch_analytics_sku
+
+        class DegradedClient:
+            def __init__(self):
+                self.call_count = 0
+
+            def request(self, path, payload):
+                self.call_count += 1
+                metrics = payload.get("metrics", [])
+                if "hits_view" in metrics:
+                    # 模拟 403
+                    exc = Exception("forbidden")
+                    exc.status_code = 403
+                    raise exc
+                # 降级：只返回 ordered_units/revenue
+                return {"result": {"data": [
+                    {"dimensions": [{"id": "101"}], "metrics": [3, 300.0]}
+                ]}}
+
+        client = DegradedClient()
+        result = fetch_analytics_sku(client, "2026-06-01", "2026-06-07")
+        self.assertTrue(result["degraded"])
+        self.assertEqual(len(result["rows"]), 1)
+        r = result["rows"][0]
+        self.assertEqual(r["sku"], "101")
+        self.assertEqual(r["ordered_units"], 3)
+        self.assertAlmostEqual(r["revenue"], 300.0)
+        self.assertEqual(r["exposure"], 0)   # 降级后无 exposure
+
+    def test_empty_response(self):
+        from webui.ozon_client_adapter import fetch_analytics_sku
+        client = FakeClient({"/v1/analytics/data": {}})
+        result = fetch_analytics_sku(client, "2026-06-01", "2026-06-07")
+        self.assertEqual(result["rows"], [])
+        self.assertFalse(result["degraded"])
+
+
+class FetchAnalyticsTrafficTest(unittest.TestCase):
+    def test_normal_response(self):
+        from webui.ozon_client_adapter import fetch_analytics_traffic
+        client = FakeClient({
+            "/v1/analytics/data": {"result": {"data": [
+                {"dimensions": [{"id": "101"}, {"id": "2026-06-01"}],
+                 "metrics": [300, 50, 10, 5]},
+            ]}}
+        })
+        result = fetch_analytics_traffic(client, "2026-06-01", "2026-06-07")
+        self.assertEqual(len(result["rows"]), 1)
+        r = result["rows"][0]
+        self.assertEqual(r["sku"], "101")
+        self.assertEqual(r["day"], "2026-06-01")
+        self.assertEqual(r["hits_view"], 300)
+        self.assertEqual(r["session_view"], 50)
+
+    def test_403_returns_empty(self):
+        from webui.ozon_client_adapter import fetch_analytics_traffic
+
+        class ForbiddenClient:
+            def request(self, path, payload):
+                exc = Exception("forbidden")
+                exc.status_code = 403
+                raise exc
+
+        result = fetch_analytics_traffic(ForbiddenClient(), "2026-06-01", "2026-06-07")
+        self.assertEqual(result["rows"], [])
+
+
+class FetchProductQueriesTest(unittest.TestCase):
+    def test_single_page(self):
+        from webui.ozon_client_adapter import fetch_product_queries
+        client = FakeClient({
+            "/v1/analytics/product-queries/details": {
+                "queries": [
+                    {"sku": "101", "query": "стакан", "unique_search_users": 500,
+                     "view_conversion": 2.5, "position": 3.0, "order_count": 5, "gmv": 500.0},
+                ],
+                "page_count": 1,
+            }
+        })
+        result = fetch_product_queries(client, ["101"], "2026-06-01", "2026-06-07")
+        by_sku = result["by_sku"]
+        self.assertIn("101", by_sku)
+        q = by_sku["101"][0]
+        self.assertEqual(q["query"], "стакан")
+        self.assertEqual(q["searches"], 500)
+        self.assertAlmostEqual(q["ctr"], 2.5)
+        self.assertEqual(q["orders"], 5)
+
+    def test_empty_response(self):
+        from webui.ozon_client_adapter import fetch_product_queries
+        client = FakeClient({
+            "/v1/analytics/product-queries/details": {"queries": [], "page_count": 1}
+        })
+        result = fetch_product_queries(client, ["101"], "2026-06-01", "2026-06-07")
+        self.assertEqual(result["by_sku"], {})
+
+
+class FetchPricesTest(unittest.TestCase):
+    def test_normal(self):
+        from webui.ozon_client_adapter import fetch_prices
+
+        class PriceClient:
+            def request(self, path, payload):
+                return {"items": [
+                    {"offer_id": "OFF1", "price": {
+                        "marketing_seller_price": "90", "price": "100", "old_price": "120"
+                    }}
+                ], "cursor": ""}
+
+        result = fetch_prices(PriceClient(), ["OFF1"])
+        self.assertIn("OFF1", result)
+        self.assertEqual(result["OFF1"]["marketing_seller_price"], "90")
+
+
+class FetchStocksTest(unittest.TestCase):
+    def test_sums_stocks(self):
+        from webui.ozon_client_adapter import fetch_stocks
+
+        class StockClient:
+            def request(self, path, payload):
+                return {
+                    "items": [
+                        {"offer_id": "OFF1", "stocks": [{"present": 10}, {"present": 5}]},
+                    ],
+                    "cursor": "",
+                }
+
+        result = fetch_stocks(StockClient(), ["OFF1"])
+        self.assertEqual(result["OFF1"], 15)
+
+
+# ---------- router 端点冒烟 ----------
+
+class AnalyticsRouterTest(unittest.TestCase):
+    """router 三端点：缺凭证 → 400（不 500）。"""
+
+    def _app_client(self, tmp):
+        from fastapi.testclient import TestClient
+        from pathlib import Path
+        import webui.store as store_mod
+        import importlib
+        store_mod.DEFAULT_DB = Path(tmp) / "analytics.db"
+        import webui.app_service as svc
+        importlib.reload(svc)
+        import webui.main as main_mod
+        importlib.reload(main_mod)
+        return TestClient(main_mod.app), main_mod
+
+    # 注:不调 main_mod.APP.store.close()——它会 dispose 全局 engine 单例,污染后续 test_api（reload main 不重建 engine→撞已 dispose）。
+    # 临时库残留由 ignore_cleanup_errors=True 容忍（同 test_api/test_copy_images_multi 范式）。
+    def test_dashboard_no_creds_400(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client, main_mod = self._app_client(tmp)
+            resp = client.post("/api/analytics/dashboard", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("凭证", resp.json().get("detail", ""))
+
+    def test_traffic_no_creds_400(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client, main_mod = self._app_client(tmp)
+            resp = client.post("/api/analytics/traffic", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
+
+    def test_keywords_no_creds_400(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client, main_mod = self._app_client(tmp)
+            resp = client.post("/api/analytics/keywords", json={
+                "date_from": "2026-06-01", "date_to": "2026-06-07"
+            })
+            self.assertEqual(resp.status_code, 400)
+
+
+# ---------- 多店并发聚合 ----------
+
+class DashboardAllTest(unittest.TestCase):
+    """dashboard_all：并发跑各店 dashboard 并合并。"""
+
+    def test_merges_rows_grand_total_and_marks_store(self):
+        """各店返回不同 rows → 合并 rows（每行带 store）+ grand_total 重算 + 每店都被调用。"""
+        from webui.services import analytics_service
+
+        calls: list[str] = []
+
+        def fake_dashboard(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            calls.append(cid)
+            if cid == "c1":
+                return {
+                    "store": "c1", "date_from": date_from, "date_to": date_to,
+                    "rows": [
+                        {"sku": 101, "exposure": 300, "sessions": 100, "cart": 20,
+                         "ordered_units": 5, "revenue": 500.0},
+                    ],
+                    "grand_total": {}, "degraded": False,
+                }
+            return {
+                "store": "c2", "date_from": date_from, "date_to": date_to,
+                "rows": [
+                    {"sku": 202, "exposure": 100, "sessions": 50, "cart": 5,
+                     "ordered_units": 2, "revenue": 200.0},
+                ],
+                "grand_total": {}, "degraded": True,
+            }
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "c1", "ozon_api_key": "k1"},
+                {"ozon_client_id": "c2", "ozon_api_key": "k2"},
+            ]
+            res = analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+        # 每店都被调用
+        self.assertEqual(sorted(calls), ["c1", "c2"])
+        # rows 合并（2 行），按曝光降序，且每行带来源 store
+        self.assertEqual(len(res["rows"]), 2)
+        self.assertEqual(res["rows"][0]["store"], "c1")  # 曝光 300 在前
+        self.assertEqual(res["rows"][1]["store"], "c2")
+        # grand_total 用合并 rows 重算
+        self.assertEqual(res["grand_total"]["sku_count"], 2)
+        self.assertEqual(res["grand_total"]["exposure"], 400)
+        self.assertEqual(res["grand_total"]["sessions"], 150)
+        self.assertAlmostEqual(res["grand_total"]["revenue"], 700.0)
+        # store='all'，degraded=任一店 degraded
+        self.assertEqual(res["store"], "all")
+        self.assertTrue(res["degraded"])
+
+    def test_skips_store_missing_creds(self):
+        """某店缺凭证（ValueError）→ 跳过该店，其余店正常合并。"""
+        from webui.services import analytics_service
+
+        def fake_dashboard(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            if cid == "bad":
+                raise ValueError("未配置 Ozon 店铺凭证")
+            return {
+                "store": cid, "date_from": date_from, "date_to": date_to,
+                "rows": [{"sku": 101, "exposure": 50, "sessions": 10, "cart": 2,
+                          "ordered_units": 1, "revenue": 100.0}],
+                "grand_total": {}, "degraded": False,
+            }
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "good", "ozon_api_key": "k"},
+                {"ozon_client_id": "bad", "ozon_api_key": ""},
+            ]
+            res = analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+        # 只剩 good 店 1 行
+        self.assertEqual(len(res["rows"]), 1)
+        self.assertEqual(res["rows"][0]["store"], "good")
+        self.assertEqual(res["grand_total"]["sku_count"], 1)
+
+    def test_all_missing_raises_value_error(self):
+        """全部店缺凭证 → raise ValueError。"""
+        from webui.services import analytics_service
+
+        def fake_dashboard(settings, date_from, date_to):
+            raise ValueError("未配置 Ozon 店铺凭证")
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "a", "ozon_api_key": ""},
+                {"ozon_client_id": "b", "ozon_api_key": ""},
+            ]
+            with self.assertRaises(ValueError):
+                analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+    def test_empty_settings_list_raises(self):
+        from webui.services import analytics_service
+        with self.assertRaises(ValueError):
+            analytics_service.dashboard_all([], "2026-06-01", "2026-06-07")
+
+
+class KeywordsAllTest(unittest.TestCase):
+    def test_merges_by_sku_with_store_prefix(self):
+        """各店 by_sku 跨店同 sku → 用 store 前缀避免覆盖。"""
+        from webui.services import analytics_service
+
+        def fake_keywords(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            return {
+                "store": cid, "date_from": date_from, "date_to": date_to,
+                "by_sku": {"101": [{"query": f"q-{cid}", "searches": 10}]},
+            }
+
+        orig = analytics_service.keywords
+        analytics_service.keywords = fake_keywords
+        try:
+            settings_list = [
+                {"ozon_client_id": "c1", "ozon_api_key": "k1"},
+                {"ozon_client_id": "c2", "ozon_api_key": "k2"},
+            ]
+            res = analytics_service.keywords_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.keywords = orig
+
+        # 同 sku '101' 两店都保留（前缀区分）
+        self.assertIn("c1:101", res["by_sku"])
+        self.assertIn("c2:101", res["by_sku"])
+        self.assertEqual(res["store"], "all")
+
+
+if __name__ == "__main__":
+    unittest.main()

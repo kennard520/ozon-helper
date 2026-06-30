@@ -191,6 +191,24 @@
     return ''
   }
 
+  // 抽该 SKU 的结构化变体维度：对每个轴(skuProps，如 颜色/规格)，取其在 specAttrs 里命中的值。
+  // → [{axis:'颜色', value:'美式'}, {axis:'规格', value:'20升'}]。供后端映射到 Ozon 颜色/尺寸 aspect。
+  // 关键:1688 的变体维度本就分轴存在 skuProps 里，别再让后端从拼接串硬猜。
+  function _selectedAspects(skuProps, specAttrs) {
+    const sa = String(specAttrs || '')
+    const out = []
+    for (const prop of skuProps || []) {
+      const axis = (prop && (prop.prop || prop.propName || prop.name)) || ''
+      let best = null
+      for (const v of (prop && prop.value) || []) {
+        // 同轴可能多个值是子串，取最长的那个最精确(如'摩托车专用款3升' vs '3升')
+        if (v && v.name && sa.indexOf(v.name) >= 0 && (!best || v.name.length > best.length)) best = v.name
+      }
+      if (best) out.push({ axis: axis, value: best })
+    }
+    return out
+  }
+
   // 区间最高价（"143.00-159.00" → 最贵那档；阶梯价小批量实付价，用户要"贵的那个"）
   function _highestFromDisplay(disp) {
     const nums = String(disp || '').match(/\d+(?:\.\d+)?/g)
@@ -238,6 +256,7 @@
         width_mm: dims.width_mm,
         height_mm: dims.height_mm,
         images: images,
+        selected_aspects: _selectedAspects(skuProps, sku.specAttrs || k),  // 结构化变体维度 → 后端映 Ozon aspect
         source_raw: Object.assign({}, base.source_raw, {
           sku_id: sku.skuId, spec_id: sku.specId, spec_attrs: sku.specAttrs, stock: sku.canBookCount
         })

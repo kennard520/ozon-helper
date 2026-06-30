@@ -1,0 +1,22 @@
+:root {
+  /* 品牌 */
+  --c-primary:#7c3aed; --c-primary-hover:#8b5cf6;
+  --c-primary-50:#f5f3ff; --c-primary-100:#ede9fe; --c-primary-200:#c4b5fd;
+  --c-indigo:#6366f1;
+  /* 中性 */
+  --c-text:#1f2733; --c-text-2:#5b6675; --c-text-3:#8a94a3; --c-text-4:#b8c0cc;
+  --c-border:#e5e8ef; --c-bg:#f7f9fc; --c-bg-2:#fafbfc; --c-white:#fff;
+  /* 状态 + 浅底 */
+  --c-success:#10b981; --c-success-bg:#ecfdf5;
+  --c-danger:#ef4444;  --c-danger-bg:#fef2f2;
+  --c-info:#3b82f6;    --c-info-bg:#eff6ff;
+  --c-warn:#b45309;    --c-warn-bg:#fffbeb;
+  --c-warn-amber:#f59e0b; /* 趋势图「加购」橙、原型琥珀强调 */
+  /* 间距 */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  /* 圆角 + 阴影 */
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --sh-card:0 1px 3px rgba(20,20,40,.06); --sh-pop:0 8px 24px rgba(20,20,40,.12);
+  /* 字号 */
+  --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:20px; --fs-2xl:24px;
+}
