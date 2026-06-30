@@ -1,10 +1,10 @@
 # Ozon 上品助手 webui 镜像。构建上下文 = 仓库根。
 
 # ── Stage 1: 前端构建 ──────────────────────────────────────────
-FROM node:20-slim AS frontend-build
+FROM registry.cn-hangzhou.aliyuncs.com/library/node:20-slim AS frontend-build
 WORKDIR /frontend
 COPY apps/webui/frontend/package.json apps/webui/frontend/package-lock.json* ./
-RUN npm install --prefer-offline
+RUN npm install --registry=https://registry.npmmirror.com
 COPY apps/webui/frontend/ ./
 RUN npm run build
 
