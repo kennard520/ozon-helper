@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getToken, setAuth, getUser, clearAuth, isLoggedIn, authHeader } from './auth.js'
+import { getToken, setAuth, getUser, clearAuth, isLoggedIn, authHeader, consumeUrlToken } from './auth.js'
 
 describe('authHeader (纯函数)', () => {
   it('有 token → Bearer 头', () => {
@@ -8,6 +8,21 @@ describe('authHeader (纯函数)', () => {
   it('无 token → 空对象', () => {
     expect(authHeader('')).toEqual({})
     expect(authHeader(null)).toEqual({})
+  })
+})
+
+describe('consumeUrlToken', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'localStorage', { value: makeLS(), configurable: true, writable: true })
+    window.history.pushState(null, '', '/')
+  })
+
+  it('saves token before router guard and strips it from URL', () => {
+    window.history.pushState(null, '', '/?token=tok-url&edit=799#/login')
+    expect(consumeUrlToken()).toBe('tok-url')
+    expect(getToken()).toBe('tok-url')
+    expect(window.location.search).toBe('?edit=799')
+    expect(window.location.hash).toBe('#/login')
   })
 })
 

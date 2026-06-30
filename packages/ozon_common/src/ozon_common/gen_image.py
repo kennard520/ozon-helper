@@ -35,6 +35,11 @@ NON_PRODUCT_RULE = (
     "sourcing / business claims ('源头工厂', 'OEM/ODM', '厂家直供', '一件代发'); "
     "promotions, discounts, 'hot sale' / 'best seller' badges, awards, ratings, sales counts; "
     "price, contact info, phone, QR codes, links, watermarks. "
+    "For supplier/factory banner copy, remove the ENTIRE phrase/block instead of translating it. "
+    "Typical forbidden banner claims include: '14 years R&D/production', 'factory support', 'factory audit', "
+    "'cross-border supply/export supply', 'complete certifications', 'CE/FCC/RoHS certified', 'free labeling', "
+    "'OEM custom', 'large stock', 'same-day/fast/lightning shipping', 'direct manufacturer', and similar B2B "
+    "supplier-service claims. "
     "Keep ONLY content about the product itself: its appearance, features, specs, materials, dimensions and usage."
 )
 
@@ -70,7 +75,12 @@ SCENE_PROMPT = (
 # 俄化提示词（模式1单张）：保持整张图，中文产品文字→俄语，非产品文字一律去掉
 LOCALIZE_PROMPT = (
     "Keep this product image's product, layout, background, colors, graphics and icons the same. "
-    "Translate the Chinese **product-relevant** text into natural, correct Russian, keeping its position/size/style. "
+    "Translate ONLY Chinese text that directly describes the product itself into natural, correct Russian, "
+    "keeping its position/size/style when it remains. Product-relevant means: product name, model, chipset, "
+    "speed, interface, dimensions, material, package contents, use instructions, compatibility, and real product "
+    "features/specifications. "
+    "Do NOT translate supplier/manufacturer/service/compliance/shipping banner text. Remove those words or the "
+    "whole banner text area cleanly while keeping the visual layout polished. "
     + NON_PRODUCT_RULE +
     " Add no new text, no watermark." + OZON_RU_RULE
 )

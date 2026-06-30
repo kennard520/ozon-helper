@@ -8,5 +8,7 @@ import './styles/tokens.css'
 import './styles/element-theme.css'
 import App from './App.vue'
 import { router } from './router/index.js'
+import { consumeUrlToken } from './auth.js'
 
+consumeUrlToken()
 createApp(App).use(createPinia()).use(ElementPlus).use(router).mount('#app')

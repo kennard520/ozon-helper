@@ -92,6 +92,72 @@ def list_ozon_products(settings: dict, visibility: str = "ALL") -> list[dict]:
     return items
 
 
+def count_ozon_products(settings: dict, visibility: str = "ALL") -> int:
+    """Count products through /v3/product/list pagination."""
+    client = build_client(settings)
+    total = 0
+    last_id = ""
+    while True:
+        r = client.list_products(visibility=visibility, last_id=last_id, limit=1000)
+        result = r.get("result") or {}
+        batch = result.get("items") or []
+        total += len(batch)
+        last_id = result.get("last_id") or ""
+        if len(batch) < 1000 or not last_id:
+            break
+    return total
+
+
+def _first_number_by_key(obj: object, preferred: tuple[str, ...]) -> float | None:
+    if isinstance(obj, dict):
+        lower = {str(k).lower(): v for k, v in obj.items()}
+        for key in preferred:
+            if key in lower:
+                try:
+                    return float(lower[key])
+                except (TypeError, ValueError):
+                    pass
+        for value in obj.values():
+            found = _first_number_by_key(value, preferred)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for value in obj:
+            found = _first_number_by_key(value, preferred)
+            if found is not None:
+                return found
+    return None
+
+
+def fetch_finance_balance(settings: dict) -> dict:
+    """Best-effort Ozon finance balance snapshot.
+
+    Some seller accounts do not grant finance report access; callers should treat
+    missing amount as non-fatal.
+    """
+    from datetime import date  # noqa: PLC0415
+
+    client = build_client(settings)
+    today = date.today()
+    start = today.replace(day=1)
+    payload = {
+        "date": {
+            "from": f"{start.isoformat()}T00:00:00.000Z",
+            "to": f"{today.isoformat()}T23:59:59.999Z",
+        },
+        "page": 1,
+        "page_size": 1,
+    }
+    data = client.finance_cash_flow_statement(payload)
+    amount = _first_number_by_key(data, (
+        "end_balance_amount",
+        "closing_balance",
+        "balance",
+        "amount",
+    ))
+    return {"amount": amount, "currency_code": "RUB" if amount is not None else ""}
+
+
 def get_ozon_info(settings: dict, offer_ids: list[str]) -> dict[str, dict]:
     client = build_client(settings)
     out: dict[str, dict] = {}
@@ -532,4 +598,3 @@ def ozon_to_draft(info: dict, attrs: dict | None) -> dict:
         "video_url": _video_from_complex(attrs.get("complex_attributes")),
         "status": "published",
     }
-

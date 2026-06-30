@@ -122,3 +122,32 @@ def apply_ai_proposal(draft_id: int) -> dict:
         return app_instance.APP.apply_ai_proposal(draft_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/drafts/{draft_id}/generate-all")
+def generate_all(draft_id: int) -> dict:
+    """提交合并文本生成任务(understand→category→copy→attrs)到 MQ，立即返回 job_id。"""
+    try:
+        return app_instance.APP.submit_text_job(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/api/text-jobs/{job_id}")
+def get_text_job(job_id: int) -> dict:
+    try:
+        return app_instance.APP.get_text_job_status(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/api/drafts/{draft_id}/text-job/latest")
+def get_latest_text_job(draft_id: int) -> dict:
+    try:
+        return app_instance.APP.get_latest_text_job(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

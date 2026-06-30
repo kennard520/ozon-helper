@@ -4,7 +4,7 @@
 
 ## ⚠️ 部署前必读:数据库迁移
 本仓库的 DAL 用 SQLAlchemy + Alembic(`migrations/versions/`)。**`metadata.create_all` 只建缺失的「表」,不会给已存在的表加「列」**。所以升级已有 MySQL 库时,**必须先跑 Alembic 迁移**,否则新代码 SELECT 新列会崩。
-- 关键迁移:`0006_in_gallery`(draft_images.in_gallery)、`0007_draft_image_local_url`(draft_images.local_url)。
+- 关键迁移:`0006_in_gallery`(draft_images.in_gallery)、`0007_draft_image_local_url`(draft_images.local_url)、`0008_text_jobs`(文本生成 MQ 任务状态表)。
 - 上线当前代码前在生产 MySQL 跑:`python -m uv run --package ozon-webui alembic upgrade head`(或容器内 `alembic upgrade head`),并按 `docs/dal-m4-mysql-verification-checklist.md` 核对。
 - 全新库:`create_all` 已含全部列,首启自动建表,无需迁移。
 
@@ -50,6 +50,15 @@ docker run -d --name ozon-worker --restart always --network ozonnet \
   ozon-webui:latest uv run --package ozon-image-worker ozon-worker
 ```
 > 需 RABBITMQ_* + GPTPLUS5_* + OZON_MYSQL_*(见 `.env.template`)。
+
+## 3.1 文本生成 worker(可选,AI 生成内容异步化)
+工作台「AI 生成内容」会发布 RabbitMQ `ozon_text_jobs` 消息，并写 `text_jobs` 任务状态；需要单独启动文本 worker 消费：
+```bash
+docker run -d --name ozon-text-worker --restart always --network ozonnet \
+  --env-file /opt/ozon/.env \
+  ozon-webui:latest uv run --package ozon-image-worker ozon-text-worker
+```
+> 文本 worker 与图生图 worker 共用同一个 RabbitMQ broker 和 MySQL；上线前确认已跑 `alembic upgrade head`，且 admin(user_id=1) 设置里有 Ozon Client-Id/Api-Key 与文本 AI 配置。
 
 ## 4. HTTPS 反代(Caddy)
 ```bash

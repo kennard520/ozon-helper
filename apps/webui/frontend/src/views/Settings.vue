@@ -13,8 +13,6 @@ const form = reactive({
   auto_publish: false,
 })
 
-// 回填只做一次：settings 异步到达（loadState 未完成就切到本页）时也能填上，
-// 之后不再覆盖用户正在编辑的内容。避免"表单空着→保存→把真实值抹成空"。
 let backfilled = false
 function backfill(s) {
   if (backfilled || !s || Object.keys(s).length === 0) return
@@ -26,62 +24,63 @@ function backfill(s) {
 }
 watch(() => store.settings, backfill, { immediate: true, deep: true })
 
-// AI 平台：地址+Key 配一次，多用途复用。{name, base, key(新输入), key_saved}
 const aiPlatforms = ref([])
-// AI 用途：只存 平台名 + 模型（协议/引擎按用途后端自动定，用户不选；地址+Key 来自所选平台）
 const aiUses = reactive({
   text: { platform: '', model: '', multimodal: false },
   multimodal: { platform: '', model: '' },
   image: { platform: '', model: '' },
   video: { platform: '', model: '' },
 })
-
-// 模型下拉：点开时按所选平台调 /v1/models 拉取(后端用平台已存地址/Key)。仍可手输自定义。
 const aiModels = reactive({ text: [], image: [], video: [], multimodal: [] })
 const modelsLoading = reactive({ text: false, image: false, video: false, multimodal: false })
+
 async function loadModels(use) {
   const plat = aiUses[use].platform
-  if (!plat) { ElMessage.warning('请先选平台'); return }
+  if (!plat) { ElMessage.warning('请先选择平台'); return }
   if (modelsLoading[use]) return
   modelsLoading[use] = true
   try {
-    const r = await api.aiModels(use, '', '', plat)   // 传平台名 → 后端用该平台地址/Key
+    const r = await api.aiModels(use, '', '', plat)
     const ms = r.models || []
     const cur = aiUses[use].model
-    aiModels[use] = (cur && !ms.includes(cur)) ? [cur, ...ms] : ms   // 保留当前已选,避免覆盖丢显示
-    if (!ms.length) ElMessage.warning(r.error || '没拉到模型，可手动输入')
+    aiModels[use] = (cur && !ms.includes(cur)) ? [cur, ...ms] : ms
+    if (!ms.length) ElMessage.warning(r.error || '没有拉到模型，可手动输入')
   } catch (e) {
     ElMessage.warning('拉取模型失败，可手动输入：' + ((e && e.message) || e))
-  } finally { modelsLoading[use] = false }
+  } finally {
+    modelsLoading[use] = false
+  }
 }
 
 function _loadAi() {
   const s = store.settings || {}
   aiPlatforms.value = (s.ai_platforms || []).map((p) => ({
-    name: p.name || '', base: p.base || '', key: '', key_saved: !!p.key_saved }))
+    name: p.name || '',
+    base: p.base || '',
+    key: '',
+    key_saved: !!p.key_saved,
+  }))
   for (const [use, key] of [['text', 'ai_text'], ['multimodal', 'ai_multimodal'], ['image', 'ai_image'], ['video', 'ai_video']]) {
     const b = s[key] || {}
     aiUses[use].platform = b.platform || ''
     aiUses[use].model = b.model || ''
-    // 把已存模型种进下拉选项，否则 el-select(allow-create) 初始 options 空时不显示这个值(看着像没存)
     if (b.model) aiModels[use] = [b.model]
   }
   aiUses.text.multimodal = !!(s.ai_text && s.ai_text.multimodal)
 }
 onMounted(_loadAi)
-watch(() => store.settings, _loadAi, { deep: true })   // deep:就地更新 settings 也回填
+watch(() => store.settings, _loadAi, { deep: true })
+
+function addPlatform() {
+  aiPlatforms.value.push({ name: '', base: '', key: '', key_saved: false })
+}
 
 async function save() {
-  // contract_currency 一直有有效值，照常发送
-  const payload = {
-    contract_currency: form.contract_currency,
-  }
-  // 汇率仅在 >0 时发送（0/空不覆盖已存汇率，且后端会补时间戳）
+  const payload = { contract_currency: form.contract_currency }
   const rate = Number(form.rub_cny)
   if (rate > 0) payload.rub_cny = rate
   payload.ai_auto_apply = form.ai_auto_apply
   payload.auto_publish = form.auto_publish
-  // AI 平台：地址+Key 配一次。key 留空 = 不改（沿用同名平台已存 key）
   payload.ai_platforms = aiPlatforms.value
     .filter((p) => (p.name || '').trim())
     .map((p) => {
@@ -89,58 +88,19 @@ async function save() {
       if ((p.key || '').trim()) o.key = p.key.trim()
       return o
     })
-  // 各用途：平台名 + 模型(引擎后端按用途自动)
   const useBlock = (u) => ({ platform: u.platform || '', model: (u.model || '').trim() })
   payload.ai_text = { ...useBlock(aiUses.text), multimodal: aiUses.text.multimodal }
   payload.ai_multimodal = useBlock(aiUses.multimodal)
   payload.ai_image = useBlock(aiUses.image)
   payload.ai_video = useBlock(aiUses.video)
-  payload.translate_mode = 'ai'   // 固定走 AI 翻译（无 key 时后端降级为原样返回）
-
+  payload.translate_mode = 'ai'
   const r = await api.saveSettings(payload)
-  if (r.settings) store.settings = r.settings   // 触发 _loadAi 重填(平台 key 输入框随之清空)
+  if (r.settings) store.settings = r.settings
   if (r.status) store.status = r.status
   if (r.paths) store.paths = r.paths
   ElMessage.success('设置已保存')
 }
 
-// 店铺管理（统一列表，唯一默认店）
-// extraStores 是从 store.settings.ozon_stores 来的脱敏列表（{name, client_id, is_default, api_key_saved}）
-const extraStores = computed(() => store.settings.ozon_stores || [])
-
-// 新增店铺表单
-const newStore = reactive({ name: '', client_id: '', api_key: '' })
-
-async function persistStores(list) {
-  const r = await api.saveSettings({ ozon_stores: list })
-  if (r.settings) store.settings = r.settings
-  if (r.status) store.status = r.status
-  if (r.paths) store.paths = r.paths
-}
-
-async function addStore() {
-  const name = newStore.name.trim(), client_id = newStore.client_id.trim(), api_key = newStore.api_key.trim()
-  if (!name || !client_id || !api_key) { ElMessage.warning('请填写店铺名称、Client ID 和 API Key'); return }
-  const existing = extraStores.value.map(s => ({ name: s.name, client_id: s.client_id, is_default: s.is_default }))
-  await persistStores([...existing, { name, client_id, api_key, is_default: existing.length === 0 }])
-  newStore.name = ''; newStore.client_id = ''; newStore.api_key = ''
-  ElMessage.success('店铺已保存')
-}
-
-async function setDefaultStore(client_id) {
-  const list = extraStores.value.map(s => ({ name: s.name, client_id: s.client_id, is_default: s.client_id === client_id }))
-  await persistStores(list)
-  ElMessage.success('已设为默认')
-}
-
-async function removeStore(client_id) {
-  const list = extraStores.value.filter(s => s.client_id !== client_id)
-    .map(s => ({ name: s.name, client_id: s.client_id, is_default: s.is_default }))
-  await persistStores(list)
-  ElMessage.success('已删除')
-}
-
-// realFBS 运费表：导出 CSV → Excel 改 → 导入覆盖（智能定价即刻生效）
 const realfbsImporting = ref(false)
 async function exportRealfbs() {
   try {
@@ -148,9 +108,13 @@ async function exportRealfbs() {
     const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'realfbs_routes.csv'; a.click()
+    a.href = url
+    a.download = 'realfbs_routes.csv'
+    a.click()
     URL.revokeObjectURL(url)
-  } catch (e) { ElMessage.error('导出失败：' + (e.message || e)) }
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e.message || e))
+  }
 }
 async function importRealfbs(file) {
   realfbsImporting.value = true
@@ -158,196 +122,260 @@ async function importRealfbs(file) {
     const text = await file.text()
     const r = await api.importRealfbsRoutes(text)
     ElMessage.success(`运费表已导入 ${r.count} 条，智能定价即刻生效`)
-  } catch (e) { ElMessage.error('导入失败：' + (e.message || e)) }
-  finally { realfbsImporting.value = false }
-  return false   // 阻止 el-upload 自动上传
+  } catch (e) {
+    ElMessage.error('导入失败：' + (e.message || e))
+  } finally {
+    realfbsImporting.value = false
+  }
+  return false
 }
 
-// realFBS 佣金表（只 FBS=RFBS，按类目×价格档）：导出 xlsx → Excel 改 → 导入覆盖；
-// 也可直接丢 Ozon 官方 Tarifs xlsx 导入（自动认 'MP Tree Tarifs CN' 的 RFBS 三档）
 const commissionImporting = ref(false)
 async function exportCommission() {
   try {
     const blob = await api.exportCommissionCategories()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'commission_categories.xlsx'; a.click()
+    a.href = url
+    a.download = 'commission_categories.xlsx'
+    a.click()
     URL.revokeObjectURL(url)
-  } catch (e) { ElMessage.error('导出失败：' + (e.message || e)) }
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e.message || e))
+  }
 }
 async function importCommission(file) {
   commissionImporting.value = true
   try {
     const r = await api.importCommissionCategories(file)
     ElMessage.success(`佣金表已导入 ${r.count} 个类目，智能定价即刻生效`)
-  } catch (e) { ElMessage.error('导入失败：' + (e.message || e)) }
-  finally { commissionImporting.value = false }
-  return false   // 阻止 el-upload 自动上传
+  } catch (e) {
+    ElMessage.error('导入失败：' + (e.message || e))
+  } finally {
+    commissionImporting.value = false
+  }
+  return false
 }
 
-defineExpose({ form, save, newStore, addStore, removeStore, setDefaultStore, aiPlatforms, aiUses, exportRealfbs, importRealfbs, exportCommission, importCommission })
+const aiUseRows = [
+  { key: 'text', title: '文本 AI', platformPlaceholder: '平台', modelPlaceholder: '模型' },
+  { key: 'multimodal', title: '多模态 AI', platformPlaceholder: '留空复用文本 AI', modelPlaceholder: '视觉模型' },
+  { key: 'image', title: '图片 AI', platformPlaceholder: '平台', modelPlaceholder: '模型' },
+  { key: 'video', title: '视频 AI', platformPlaceholder: '平台', modelPlaceholder: '模型' },
+]
+
+defineExpose({
+  form, save, aiPlatforms, aiUses,
+  exportRealfbs, importRealfbs, exportCommission, importCommission,
+})
 </script>
 
 <template>
-  <div class="settings-page" style="max-width:600px;margin:0 auto;padding:24px">
-    <h2>设置</h2>
+  <div class="settings-page">
+    <header class="settings-hero">
+      <div>
+        <p class="settings-hero__eyebrow">System Settings</p>
+        <h1>系统设置</h1>
+        <p class="settings-hero__desc">统一管理汇率、AI 平台、店铺凭证和智能定价数据。</p>
+      </div>
+      <el-button type="primary" size="large" @click="save">保存设置</el-button>
+    </header>
 
-    <el-form label-width="140px" label-position="left">
-      <el-form-item label="RUB/CNY 汇率">
-        <el-input-number v-model="form.rub_cny" :precision="4" :step="0.01" :min="0" />
-      </el-form-item>
-
-      <el-form-item label="合同货币">
-        <el-select v-model="form.contract_currency">
-          <el-option label="CNY" value="CNY" />
-          <el-option label="RUB" value="RUB" />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="AI 平台">
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <div v-for="(p, i) in aiPlatforms" :key="i" style="display:flex;gap:6px;align-items:center">
-            <el-input v-model="p.name" placeholder="平台名 如 GPTPlus5" size="small" style="width:150px" />
-            <el-input v-model="p.base" placeholder="接口地址 如 https://az.gptplus5.com/v1" size="small" style="width:290px" />
-            <el-input v-model="p.key" type="password" show-password
-                      :placeholder="p.key_saved ? '已配(留空不改)' : 'API Key'" size="small" style="width:170px" />
-            <el-button link type="danger" size="small" @click="aiPlatforms.splice(i, 1)">删除</el-button>
+    <div class="settings-layout">
+      <section class="setting-section">
+        <div class="section-head">
+          <div>
+            <h2>基础偏好</h2>
+            <p>影响报价、草稿生成和发布行为。</p>
           </div>
-          <el-button size="small" style="width:120px" @click="aiPlatforms.push({ name: '', base: '', key: '', key_saved: false })">+ 添加平台</el-button>
-          <span style="color:#999;font-size:12px">平台只配「地址+Key」一次；下面各用途选平台+模型即可，不用重复配 Key。</span>
         </div>
-      </el-form-item>
-
-      <el-form-item label="文本 AI">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <el-select v-model="aiUses.text.platform" placeholder="平台" size="small" style="width:140px" clearable>
-            <el-option v-for="p in aiPlatforms" :key="p.name" :label="p.name" :value="p.name" />
-          </el-select>
-          <el-select v-model="aiUses.text.model" filterable allow-create default-first-option clearable
-                     :loading="modelsLoading.text" size="small" style="width:180px" placeholder="模型(点开拉取)"
-                     @visible-change="(o) => o && loadModels('text')">
-            <el-option v-for="m in aiModels.text" :key="m" :label="m" :value="m" />
-          </el-select>
-          <el-select v-model="aiUses.text.multimodal" size="small" style="width:100px">
-            <el-option :value="false" label="纯文本" /><el-option :value="true" label="多模态" />
-          </el-select>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="多模态 AI">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <el-select v-model="aiUses.multimodal.platform" placeholder="平台(留空用文本AI)" size="small" style="width:150px" clearable>
-            <el-option v-for="p in aiPlatforms" :key="p.name" :label="p.name" :value="p.name" />
-          </el-select>
-          <el-select v-model="aiUses.multimodal.model" filterable allow-create default-first-option clearable
-                     :loading="modelsLoading.multimodal" size="small" style="width:180px" placeholder="视觉模型(留空用文本AI)"
-                     @visible-change="(o) => o && loadModels('multimodal')">
-            <el-option v-for="m in aiModels.multimodal" :key="m" :label="m" :value="m" />
-          </el-select>
-          <span style="color:#999;font-size:12px">看图理解(留空复用文本AI)</span>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="图片 AI">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <el-select v-model="aiUses.image.platform" placeholder="平台" size="small" style="width:140px" clearable>
-            <el-option v-for="p in aiPlatforms" :key="p.name" :label="p.name" :value="p.name" />
-          </el-select>
-          <el-select v-model="aiUses.image.model" filterable allow-create default-first-option clearable
-                     :loading="modelsLoading.image" size="small" style="width:180px" placeholder="模型(点开拉取)"
-                     @visible-change="(o) => o && loadModels('image')">
-            <el-option v-for="m in aiModels.image" :key="m" :label="m" :value="m" />
-          </el-select>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="视频 AI">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <el-select v-model="aiUses.video.platform" placeholder="平台" size="small" style="width:140px" clearable>
-            <el-option v-for="p in aiPlatforms" :key="p.name" :label="p.name" :value="p.name" />
-          </el-select>
-          <el-select v-model="aiUses.video.model" filterable allow-create default-first-option clearable
-                     :loading="modelsLoading.video" size="small" style="width:180px" placeholder="模型(点开拉取)"
-                     @visible-change="(o) => o && loadModels('video')">
-            <el-option v-for="m in aiModels.video" :key="m" :label="m" :value="m" />
-          </el-select>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="AI 卡片应用">
-        <el-radio-group v-model="form.ai_auto_apply">
-          <el-radio :value="false">人工确认</el-radio>
-          <el-radio :value="true">自动应用</el-radio>
-        </el-radio-group>
-        <div style="font-size:12px;color:var(--c-text-3);margin-top:4px">
-          人工确认：AI 生成后存为待确认草案，逐项可改/删，点应用才生效。自动应用：生成即合并。
-        </div>
-      </el-form-item>
-
-      <el-form-item label="采集后自动发布">
-        <el-radio-group v-model="form.auto_publish">
-          <el-radio :value="false">只建草稿</el-radio>
-          <el-radio :value="true">自动发布到 Ozon</el-radio>
-        </el-radio-group>
-        <div style="font-size:12px;color:var(--c-text-3);margin-top:4px">
-          开启后采集会直接发到 Ozon（原样直发，到 Ozon 后台再改）；发不出去的留草稿等你手动补。
-        </div>
-      </el-form-item>
-
-      <!-- Ozon 店铺（统一列表，可设默认/删除） -->
-      <el-form-item label="Ozon 店铺">
-        <div style="width:100%">
-          <template v-if="extraStores.length">
-            <div v-for="st in extraStores" :key="st.client_id" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="min-width:80px">{{ st.name }}</span>
-              <span style="font-family:monospace;color:var(--c-text-2)">…{{ st.client_id.slice(-4) }}</span>
-              <span :style="st.api_key_saved ? 'color:var(--c-success)' : 'color:var(--c-danger)'">{{ st.api_key_saved ? '已配' : '未配' }}</span>
-              <el-tag v-if="st.is_default" type="success" size="small">默认</el-tag>
-              <el-button v-else size="small" text @click="setDefaultStore(st.client_id)">设为默认</el-button>
-              <el-button size="small" type="danger" text @click="removeStore(st.client_id)">删除</el-button>
+        <div class="section-grid section-grid--two">
+          <div class="money-row">
+            <div class="money-row__copy">
+              <strong>汇率与合同货币</strong>
+              <span>用于成本换算、报价和利润测算。</span>
             </div>
-          </template>
-          <div v-else style="color:var(--c-text-3);font-size:13px;margin-bottom:8px">暂无店铺</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-            <el-input v-model="newStore.name" placeholder="店铺名称" style="width:120px" size="small" />
-            <el-input v-model="newStore.client_id" placeholder="Client ID" style="width:120px" size="small" />
-            <el-input v-model="newStore.api_key" type="password" show-password placeholder="API Key" style="width:140px" size="small" />
-            <el-button size="small" type="primary" @click="addStore">添加店铺</el-button>
+            <div class="money-row__controls">
+              <div class="money-input">
+                <span>RUB/CNY</span>
+                <el-input-number v-model="form.rub_cny" :precision="4" :step="0.01" :min="0" controls-position="right" />
+              </div>
+              <div class="money-currency">
+                <span>合同币</span>
+                <el-radio-group v-model="form.contract_currency">
+                  <el-radio-button value="CNY">CNY</el-radio-button>
+                  <el-radio-button value="RUB">RUB</el-radio-button>
+                </el-radio-group>
+              </div>
+            </div>
+          </div>
+          <div class="choice-box">
+            <div>
+              <strong>AI 卡片应用</strong>
+              <span>人工确认会先保存为待确认草稿，自动应用会直接合并生成结果。</span>
+            </div>
+            <el-radio-group v-model="form.ai_auto_apply">
+              <el-radio-button :value="false">人工确认</el-radio-button>
+              <el-radio-button :value="true">自动应用</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="choice-box">
+            <div>
+              <strong>采集后自动发布</strong>
+              <span>开启后采集流程会尝试直接发布到 Ozon。</span>
+            </div>
+            <el-radio-group v-model="form.auto_publish">
+              <el-radio-button :value="false">只建草稿</el-radio-button>
+              <el-radio-button :value="true">自动发布</el-radio-button>
+            </el-radio-group>
           </div>
         </div>
-      </el-form-item>
+      </section>
 
-      <el-form-item label="运费表(realFBS)">
-        <div style="width:100%">
-          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:6px">
-            智能定价用的快递运费路线。导出 CSV → 在 Excel 改费率/加减快递 → 导入覆盖即生效（拉不到表时定价自动回退内置数据）。
+      <section class="setting-section">
+        <div class="section-head">
+          <div>
+            <h2>AI 平台</h2>
+            <p>平台只配置一次地址和 Key，各用途选择平台与模型即可。</p>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <el-button size="small" @click="exportRealfbs">导出 CSV</el-button>
-            <el-upload :show-file-list="false" accept=".csv" :before-upload="importRealfbs">
-              <el-button size="small" type="primary" :loading="realfbsImporting">导入 CSV 覆盖</el-button>
-            </el-upload>
+          <el-button @click="addPlatform">添加平台</el-button>
+        </div>
+
+        <div class="platform-list">
+          <div v-for="(p, i) in aiPlatforms" :key="i" class="platform-row">
+            <el-input v-model="p.name" placeholder="平台名，如 GPTPlus5" />
+            <el-input v-model="p.base" placeholder="接口地址，如 https://example.com/v1" />
+            <el-input
+              v-model="p.key"
+              type="password"
+              show-password
+              :placeholder="p.key_saved ? '已配置，留空不改' : 'API Key'"
+            />
+            <el-button text type="danger" @click="aiPlatforms.splice(i, 1)">删除</el-button>
+          </div>
+          <div v-if="!aiPlatforms.length" class="empty-box">还没有 AI 平台，点击右上角添加一个。</div>
+        </div>
+
+        <div class="ai-use-grid">
+          <div v-for="row in aiUseRows" :key="row.key" class="ai-use-card">
+            <div class="ai-use-card__title">{{ row.title }}</div>
+            <div class="ai-use-card__controls">
+              <el-select v-model="aiUses[row.key].platform" :placeholder="row.platformPlaceholder" clearable>
+                <el-option v-for="p in aiPlatforms" :key="p.name" :label="p.name" :value="p.name" />
+              </el-select>
+              <el-select
+                v-model="aiUses[row.key].model"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                :loading="modelsLoading[row.key]"
+                :placeholder="row.modelPlaceholder"
+                @visible-change="(o) => o && loadModels(row.key)"
+              >
+                <el-option v-for="m in aiModels[row.key]" :key="m" :label="m" :value="m" />
+              </el-select>
+              <el-select v-if="row.key === 'text'" v-model="aiUses.text.multimodal" class="mode-select">
+                <el-option :value="false" label="纯文本" />
+                <el-option :value="true" label="多模态" />
+              </el-select>
+            </div>
           </div>
         </div>
-      </el-form-item>
+      </section>
 
-      <el-form-item label="佣金表(FBS)">
-        <div style="width:100%">
-          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:6px">
-            智能定价用的 realFBS 佣金，按「类目 × 价格档(0–1500 / 1500–5000 / 5000+ ₽)」，只取 FBS(RFBS)。可直接丢 Ozon 官方 Tarifs xlsx 导入；或导出模板在 Excel 改完再导入覆盖即生效（拉不到表时定价自动回退内置数据）。
-          </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <el-button size="small" @click="exportCommission">导出 xlsx</el-button>
-            <el-upload :show-file-list="false" accept=".xlsx" :before-upload="importCommission">
-              <el-button size="small" type="primary" :loading="commissionImporting">导入 Excel 覆盖</el-button>
-            </el-upload>
+      <section class="setting-section">
+        <div class="section-head">
+          <div>
+            <h2>智能定价数据</h2>
+            <p>维护 realFBS 运费和佣金表，导入后立即参与定价计算。</p>
           </div>
         </div>
-      </el-form-item>
 
-      <el-form-item>
-        <el-button type="primary" @click="save">保存</el-button>
-      </el-form-item>
-    </el-form>
+        <div class="data-tools">
+          <div class="data-card">
+            <div>
+              <h3>运费表 realFBS</h3>
+              <p>导出 CSV 后在 Excel 调整，再导入覆盖。</p>
+            </div>
+            <div class="data-card__actions">
+              <el-button @click="exportRealfbs">导出 CSV</el-button>
+              <el-upload :show-file-list="false" accept=".csv" :before-upload="importRealfbs">
+                <el-button type="primary" :loading="realfbsImporting">导入 CSV</el-button>
+              </el-upload>
+            </div>
+          </div>
+
+          <div class="data-card">
+            <div>
+              <h3>佣金表 FBS</h3>
+              <p>支持导出模板或导入 Ozon 官方 Tarifs xlsx。</p>
+            </div>
+            <div class="data-card__actions">
+              <el-button @click="exportCommission">导出 xlsx</el-button>
+              <el-upload :show-file-list="false" accept=".xlsx" :before-upload="importCommission">
+                <el-button type="primary" :loading="commissionImporting">导入 Excel</el-button>
+              </el-upload>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.settings-page{max-width:1180px;margin:0 auto;padding:var(--sp-6);color:var(--c-text)}
+.settings-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-5)}
+.settings-hero__eyebrow{margin:0 0 4px;color:var(--c-primary);font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.settings-hero h1{margin:0;font-size:28px;line-height:1.2;color:var(--c-text)}
+.settings-hero__desc{margin:8px 0 0;color:var(--c-text-3);font-size:var(--fs-md)}
+.settings-layout{display:flex;flex-direction:column;gap:var(--sp-4)}
+.setting-section{background:#fff;border:1px solid var(--c-border);border-radius:var(--r-sm);box-shadow:var(--sh-card);padding:var(--sp-5)}
+.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-4)}
+.section-head h2{margin:0;font-size:var(--fs-xl);color:var(--c-text)}
+.section-head p{margin:6px 0 0;color:var(--c-text-3);font-size:var(--fs-sm)}
+.section-grid{display:grid;gap:var(--sp-3)}
+.section-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.field-box,.choice-box,.ai-use-card,.data-card{border:1px solid var(--c-border);border-radius:var(--r-sm);background:var(--c-bg-2);padding:var(--sp-4)}
+.money-row{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-5);border:1px solid var(--c-border);border-radius:var(--r-sm);background:linear-gradient(180deg,#fff,var(--c-bg-2));padding:var(--sp-4)}
+.money-row__copy{display:flex;flex-direction:column;gap:4px;min-width:180px}
+.money-row__copy strong{font-size:var(--fs-md);color:var(--c-text)}
+.money-row__copy span{font-size:var(--fs-xs);color:var(--c-text-3)}
+.money-row__controls{display:flex;align-items:flex-end;gap:var(--sp-3);flex:1;justify-content:flex-end}
+.money-input,.money-currency{display:flex;flex-direction:column;gap:6px}
+.money-input{width:260px}
+.money-currency{width:178px}
+.money-input span,.money-currency span{font-size:var(--fs-xs);font-weight:700;color:var(--c-text-3)}
+.field-box{display:flex;flex-direction:column;gap:var(--sp-2)}
+.field-box label{font-size:var(--fs-xs);font-weight:700;color:var(--c-text-3)}
+.choice-box{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.choice-box > div{min-width:0}
+.choice-box strong{display:block;font-size:var(--fs-md);color:var(--c-text)}
+.choice-box span{display:block;margin-top:4px;color:var(--c-text-3);font-size:var(--fs-xs);line-height:1.5}
+.choice-box :deep(.el-radio-group){flex:0 0 auto;display:flex;flex-wrap:nowrap}
+.choice-box :deep(.el-radio-button){white-space:nowrap}
+.platform-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.platform-row{display:grid;grid-template-columns:minmax(130px,.8fr) minmax(260px,1.6fr) minmax(180px,1fr) auto;gap:var(--sp-2);align-items:center}
+.empty-box{border:1px dashed var(--c-border);border-radius:var(--r-sm);padding:var(--sp-4);color:var(--c-text-3);font-size:var(--fs-sm);background:var(--c-bg-2)}
+.ai-use-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
+.ai-use-card__title{font-weight:700;color:var(--c-text);margin-bottom:var(--sp-3)}
+.ai-use-card__controls{display:grid;grid-template-columns:minmax(130px,1fr) minmax(160px,1.2fr);gap:var(--sp-2)}
+.mode-select{grid-column:1 / -1}
+.data-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
+.data-card{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4)}
+.data-card h3{margin:0;color:var(--c-text);font-size:var(--fs-md)}
+.data-card p{margin:6px 0 0;color:var(--c-text-3);font-size:var(--fs-sm);line-height:1.6}
+.data-card__actions{display:flex;align-items:center;gap:var(--sp-2);flex-shrink:0}
+:deep(.el-input-number),:deep(.el-select){width:100%}
+@media (max-width:900px){
+  .settings-page{padding:var(--sp-4)}
+  .settings-hero{align-items:flex-start;flex-direction:column}
+  .section-grid--two,.ai-use-grid,.data-tools{grid-template-columns:1fr}
+  .money-row{align-items:flex-start;flex-direction:column}
+  .money-row__controls{width:100%;justify-content:flex-start;flex-wrap:wrap}
+  .money-input,.money-currency{width:100%}
+  .platform-row{grid-template-columns:1fr}
+  .choice-box,.data-card{align-items:flex-start;flex-direction:column}
+}
+</style>

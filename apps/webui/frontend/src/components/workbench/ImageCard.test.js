@@ -29,4 +29,21 @@ describe('ImageCard', () => {
     const w = factory({}, { actions: '<button class="act">删</button>' })
     expect(w.find('button.act').exists()).toBe(true)
   })
+  it('clicking image emits zoom even when selectable', async () => {
+    const w = factory({ selectable: true })
+    await w.find('img').trigger('click')
+    expect(w.emitted('zoom')).toBeTruthy()
+    expect(w.emitted('zoom')[0][0]).toBe('/media/a.jpg')
+    expect(w.emitted('toggle-select')).toBeFalsy()
+  })
+  it('clicking select control emits toggle-select only', async () => {
+    const w = factory({ selectable: true })
+    await w.find('.img-card__select').trigger('click')
+    expect(w.emitted('toggle-select')).toBeTruthy()
+    expect(w.emitted('zoom')).toBeFalsy()
+  })
+  it('can hide built-in select control for modal overlays', () => {
+    const w = factory({ selectable: true, showSelectControl: false })
+    expect(w.find('.img-card__select').exists()).toBe(false)
+  })
 })

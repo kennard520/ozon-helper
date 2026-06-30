@@ -86,7 +86,12 @@ export function useAnalytics() {
   }
 
   function setRange(preset, from, to) {
-    if (preset === '7') {
+    if (preset === 'today') {
+      dateRange.value = { preset: 'today', from: todayStr(), to: todayStr() }
+    } else if (preset === 'yesterday') {
+      const y = daysAgoStr(1)
+      dateRange.value = { preset: 'yesterday', from: y, to: y }
+    } else if (preset === '7') {
       dateRange.value = { preset: '7', from: daysAgoStr(7), to: todayStr() }
     } else if (preset === '30') {
       dateRange.value = { preset: '30', from: daysAgoStr(30), to: todayStr() }

@@ -910,11 +910,15 @@ name = "ozon-image-worker"
 version = "0.1.0"
 source = { editable = "apps/image_worker" }
 dependencies = [
+    { name = "ozon-api" },
     { name = "ozon-common" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ozon-common", editable = "packages/ozon_common" }]
+requires-dist = [
+    { name = "ozon-api", editable = "packages/ozon_api" },
+    { name = "ozon-common", editable = "packages/ozon_common" },
+]
 
 [[package]]
 name = "ozon-webui"

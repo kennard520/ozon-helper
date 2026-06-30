@@ -64,6 +64,7 @@ class AiImageIn(BaseModel):
     mode: str = "text2img"
     prompt: str = ""
     source_url: str | None = None
+    reference_urls: list[str] | None = None
     size: str | None = None
     as_main: bool | None = None
 

@@ -101,6 +101,26 @@ describe('useAnalytics', () => {
     expect(a.dateRange.value.preset).toBe('7')
   })
 
+  it("setRange('today') → from/to 均为今天", async () => {
+    const a = useAnalytics()
+    await a.setRange('today')
+    const today = new Date().toISOString().slice(0, 10)
+    expect(a.dateRange.value.preset).toBe('today')
+    expect(a.dateRange.value.from).toBe(today)
+    expect(a.dateRange.value.to).toBe(today)
+  })
+
+  it("setRange('yesterday') → from/to 均为昨天", async () => {
+    const a = useAnalytics()
+    await a.setRange('yesterday')
+    const d = new Date()
+    d.setDate(d.getDate() - 1)
+    const yesterday = d.toISOString().slice(0, 10)
+    expect(a.dateRange.value.preset).toBe('yesterday')
+    expect(a.dateRange.value.from).toBe(yesterday)
+    expect(a.dateRange.value.to).toBe(yesterday)
+  })
+
   it('缺凭证 400 → error 友好提示，dashboard 为 null', async () => {
     api.analyticsDashboard.mockRejectedValue(
       Object.assign(new Error('未配置 Ozon 店铺凭证'), { status: 400, data: { detail: '未配置 Ozon 店铺凭证' } })

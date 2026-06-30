@@ -34,6 +34,12 @@ class BuildDashboardRowsTest(unittest.TestCase):
         self.assertEqual(r["ordered_units"], 3)
         self.assertAlmostEqual(r["conv_cart_pct"], 20.0)
         self.assertEqual(r["title"], "杯子")
+        self.assertEqual(r["product_url"], "https://www.ozon.ru/product/101/")
+
+    def test_product_url_empty_for_non_numeric_sku(self):
+        infos = {"OFF1": {"sku": "LOCAL-101", "title": "杯子", "price": "100", "stock": 5}}
+        rows = self._call(infos, {})
+        self.assertEqual(rows[0]["product_url"], "")
 
     def test_diagnosis_que_huo(self):
         """stock=0 → '缺货'。"""
@@ -218,6 +224,41 @@ class MissingCredentialsTest(unittest.TestCase):
         from webui.services.analytics_service import keywords
         with self.assertRaises(ValueError):
             keywords({}, "2026-06-01", "2026-06-07")
+
+
+class KeywordPeriodTest(unittest.TestCase):
+    def test_recent_period_is_shifted_to_latest_available_day(self):
+        from datetime import date, timedelta
+
+        from webui.services.analytics_service import normalize_keyword_period
+
+        latest = date.today() - timedelta(days=3)
+        requested_from = latest - timedelta(days=29)
+        requested_to = latest + timedelta(days=3)
+
+        actual_from, actual_to, adjusted = normalize_keyword_period(
+            requested_from.isoformat(),
+            requested_to.isoformat(),
+        )
+
+        self.assertTrue(adjusted)
+        self.assertEqual(actual_to, latest.isoformat())
+        self.assertEqual(
+            actual_from,
+            (latest - (requested_to - requested_from)).isoformat(),
+        )
+
+    def test_old_period_is_not_adjusted(self):
+        from webui.services.analytics_service import normalize_keyword_period
+
+        actual_from, actual_to, adjusted = normalize_keyword_period(
+            "2026-06-01",
+            "2026-06-07",
+        )
+
+        self.assertFalse(adjusted)
+        self.assertEqual(actual_from, "2026-06-01")
+        self.assertEqual(actual_to, "2026-06-07")
 
 
 # ---------- adapter 纯函数测试 ----------
@@ -426,6 +467,149 @@ class AnalyticsRouterTest(unittest.TestCase):
                 "date_from": "2026-06-01", "date_to": "2026-06-07"
             })
             self.assertEqual(resp.status_code, 400)
+
+
+# ---------- 多店并发聚合 ----------
+
+class DashboardAllTest(unittest.TestCase):
+    """dashboard_all：并发跑各店 dashboard 并合并。"""
+
+    def test_merges_rows_grand_total_and_marks_store(self):
+        """各店返回不同 rows → 合并 rows（每行带 store）+ grand_total 重算 + 每店都被调用。"""
+        from webui.services import analytics_service
+
+        calls: list[str] = []
+
+        def fake_dashboard(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            calls.append(cid)
+            if cid == "c1":
+                return {
+                    "store": "c1", "date_from": date_from, "date_to": date_to,
+                    "rows": [
+                        {"sku": 101, "exposure": 300, "sessions": 100, "cart": 20,
+                         "ordered_units": 5, "revenue": 500.0},
+                    ],
+                    "grand_total": {}, "degraded": False,
+                }
+            return {
+                "store": "c2", "date_from": date_from, "date_to": date_to,
+                "rows": [
+                    {"sku": 202, "exposure": 100, "sessions": 50, "cart": 5,
+                     "ordered_units": 2, "revenue": 200.0},
+                ],
+                "grand_total": {}, "degraded": True,
+            }
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "c1", "ozon_api_key": "k1"},
+                {"ozon_client_id": "c2", "ozon_api_key": "k2"},
+            ]
+            res = analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+        # 每店都被调用
+        self.assertEqual(sorted(calls), ["c1", "c2"])
+        # rows 合并（2 行），按曝光降序，且每行带来源 store
+        self.assertEqual(len(res["rows"]), 2)
+        self.assertEqual(res["rows"][0]["store"], "c1")  # 曝光 300 在前
+        self.assertEqual(res["rows"][1]["store"], "c2")
+        # grand_total 用合并 rows 重算
+        self.assertEqual(res["grand_total"]["sku_count"], 2)
+        self.assertEqual(res["grand_total"]["exposure"], 400)
+        self.assertEqual(res["grand_total"]["sessions"], 150)
+        self.assertAlmostEqual(res["grand_total"]["revenue"], 700.0)
+        # store='all'，degraded=任一店 degraded
+        self.assertEqual(res["store"], "all")
+        self.assertTrue(res["degraded"])
+
+    def test_skips_store_missing_creds(self):
+        """某店缺凭证（ValueError）→ 跳过该店，其余店正常合并。"""
+        from webui.services import analytics_service
+
+        def fake_dashboard(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            if cid == "bad":
+                raise ValueError("未配置 Ozon 店铺凭证")
+            return {
+                "store": cid, "date_from": date_from, "date_to": date_to,
+                "rows": [{"sku": 101, "exposure": 50, "sessions": 10, "cart": 2,
+                          "ordered_units": 1, "revenue": 100.0}],
+                "grand_total": {}, "degraded": False,
+            }
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "good", "ozon_api_key": "k"},
+                {"ozon_client_id": "bad", "ozon_api_key": ""},
+            ]
+            res = analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+        # 只剩 good 店 1 行
+        self.assertEqual(len(res["rows"]), 1)
+        self.assertEqual(res["rows"][0]["store"], "good")
+        self.assertEqual(res["grand_total"]["sku_count"], 1)
+
+    def test_all_missing_raises_value_error(self):
+        """全部店缺凭证 → raise ValueError。"""
+        from webui.services import analytics_service
+
+        def fake_dashboard(settings, date_from, date_to):
+            raise ValueError("未配置 Ozon 店铺凭证")
+
+        orig = analytics_service.dashboard
+        analytics_service.dashboard = fake_dashboard
+        try:
+            settings_list = [
+                {"ozon_client_id": "a", "ozon_api_key": ""},
+                {"ozon_client_id": "b", "ozon_api_key": ""},
+            ]
+            with self.assertRaises(ValueError):
+                analytics_service.dashboard_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.dashboard = orig
+
+    def test_empty_settings_list_raises(self):
+        from webui.services import analytics_service
+        with self.assertRaises(ValueError):
+            analytics_service.dashboard_all([], "2026-06-01", "2026-06-07")
+
+
+class KeywordsAllTest(unittest.TestCase):
+    def test_merges_by_sku_with_store_prefix(self):
+        """各店 by_sku 跨店同 sku → 用 store 前缀避免覆盖。"""
+        from webui.services import analytics_service
+
+        def fake_keywords(settings, date_from, date_to):
+            cid = settings["ozon_client_id"]
+            return {
+                "store": cid, "date_from": date_from, "date_to": date_to,
+                "by_sku": {"101": [{"query": f"q-{cid}", "searches": 10}]},
+            }
+
+        orig = analytics_service.keywords
+        analytics_service.keywords = fake_keywords
+        try:
+            settings_list = [
+                {"ozon_client_id": "c1", "ozon_api_key": "k1"},
+                {"ozon_client_id": "c2", "ozon_api_key": "k2"},
+            ]
+            res = analytics_service.keywords_all(settings_list, "2026-06-01", "2026-06-07")
+        finally:
+            analytics_service.keywords = orig
+
+        # 同 sku '101' 两店都保留（前缀区分）
+        self.assertIn("c1:101", res["by_sku"])
+        self.assertIn("c2:101", res["by_sku"])
+        self.assertEqual(res["store"], "all")
 
 
 if __name__ == "__main__":

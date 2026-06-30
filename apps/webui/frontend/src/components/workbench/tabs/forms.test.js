@@ -14,7 +14,8 @@ describe('InfoTab', () => {
       brand_name: '', stock: 5, price: 38, old_price: '', cost_cny: '', weight_g: 0,
       length_mm: 0, width_mm: 0, height_mm: 0, description: '' }
     const w = mountInfo(form)
-    expect(w.find('input[value="保温杯"], textarea').exists() || w.html().includes('保温杯')).toBe(true)
+    expect(w.find('input[placeholder="上架用俄语标题"]').element.value).toBe('保温杯')
+    expect(w.text()).not.toContain('简介')
     const btn = w.findAll('button').find(b => b.text().includes('保存'))
     await btn.trigger('click')
     expect(w.emitted('save')).toBeTruthy()

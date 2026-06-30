@@ -182,26 +182,53 @@ class OrderRepo(BaseRepo):
     def list_procurement(
         self, store_client_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """按店过滤（None = 不过滤），LEFT JOIN postings 取 ship_by，按截止时间升序。
+        """按店过滤（None = 不过滤），LEFT JOIN postings 取 ship_by/status，
+        再 LEFT JOIN drafts(同 offer_id + 同店) 批量补商品标题，按截止时间升序。
 
-        NULL/空 ship_by 放最后；相同 ship_by 按 posting_number 稳定排序。
+        - NULL/空 ship_by 放最后；相同 ship_by 按 posting_number 稳定排序。
+        - title 取 drafts.ozon_title，空则回退 source_title；查不到草稿则为空串。
+          drafts.offer_id 是 Ozon 商品唯一标识，与采购行基本一对一，单次 JOIN
+          不放大行数，无 N+1。
+        - status 透传 postings.status（前端分阶段 tab 用：awaiting_packaging
+          待发货 / 已发货态等）。
         """
         ship_by_col = func.coalesce(P.c.ship_by, literal("")).label("ship_by")
+        status_col = func.coalesce(P.c.status, literal("")).label("posting_status")
+        # ozon_title 优先，空回退 source_title，再回退空串
+        title_col = func.coalesce(
+            func.nullif(DR.c.ozon_title, literal("")),
+            DR.c.source_title,
+            literal(""),
+        ).label("title")
         sort_key = case(
             (func.coalesce(P.c.ship_by, literal("")) == "", "9999-99-99"),
             else_=P.c.ship_by,
         )
+        # drafts JOIN：同 offer_id 且同店（与 rebuild_procurement 的取数口径一致）
+        draft_join_on = (DR.c.offer_id == PR.c.offer_id) & (
+            DR.c.store_client_id == PR.c.store_client_id
+        )
         q = (
-            select(PR, ship_by_col)
-            .select_from(PR.outerjoin(P, P.c.posting_number == PR.c.posting_number))
+            select(PR, ship_by_col, status_col, title_col)
+            .select_from(
+                PR.outerjoin(P, P.c.posting_number == PR.c.posting_number).outerjoin(
+                    DR, draft_join_on
+                )
+            )
             .order_by(sort_key.asc(), PR.c.posting_number.asc())
         )
         if store_client_id is not None:
             q = q.where(PR.c.store_client_id == str(store_client_id or ""))
         rows = self.s.execute(q).all()
-        out = []
+        # 同 offer_id 偶有多条草稿时 JOIN 会放大行数：按采购行主键去重，保第一条。
+        out: list[dict[str, Any]] = []
+        seen: set[int] = set()
         for r in rows:
             d = dict(r._mapping)
+            pid = d.get("id")
+            if pid in seen:
+                continue
+            seen.add(pid)
             d["cost_cny"] = _to_float_or_none(d.get("cost_cny"))
             out.append(d)
         return out

@@ -5,6 +5,7 @@ import RichContentPreview from '../../RichContentPreview.vue'
 import { api } from '../../../api.js'
 
 const props = defineProps({ draft: Object })
+const emit = defineEmits(['saved'])
 
 const richLoading = ref(false)
 
@@ -23,6 +24,8 @@ async function doRichContent() {
     } else {
       ElMessage.warning('生成完成，请刷新查看')
     }
+    // 生成后回传刷新草稿——否则 source_raw.rich_content_json 没更新，预览不出现
+    emit('saved')
   } catch (e) {
     ElMessage.error('生成失败：' + (e && e.message || ''))
   } finally {

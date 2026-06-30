@@ -697,7 +697,7 @@ class AiCardMixin:
         force=True 重抽;已有缓存且非 force → 直接返回(cached=True)。图先经 _resolve_image_input
         转成模型可取链接(http 直用 / /media/ 转 data URI)。"""
         from webui.drafts import loads_json  # noqa: PLC0415
-        from webui.understand import understand  # noqa: PLC0415
+        from ozon_common.text_pipeline.understand import understand  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")

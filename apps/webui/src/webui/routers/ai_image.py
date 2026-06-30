@@ -126,7 +126,8 @@ def ai_image_prompts(draft_id: int, body: ImagePromptsIn) -> dict:
 def ai_image(draft_id: int, body: AiImageIn) -> dict:
     try:
         return app_instance.APP.ai_generate_image(draft_id, mode=body.mode, prompt=body.prompt,
-                                     source_url=body.source_url, size=body.size,
+                                     source_url=body.source_url, reference_urls=body.reference_urls,
+                                     size=body.size,
                                      as_main=bool(body.as_main))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

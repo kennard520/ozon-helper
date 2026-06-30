@@ -9,6 +9,7 @@ M1 只如实翻译现有 SQLite/MySQL 表结构,不改类型语义、不加 Fore
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     Float,
     ForeignKey,
@@ -21,17 +22,24 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.mysql import LONGTEXT
 
 from ozon_common.dal.types import ISODateTime
 
 metadata = MetaData()
+
+
+def _longtext() -> Text:
+    """大 JSON/文本列:MySQL 用 LONGTEXT(普通 TEXT 仅 64KB,装不下目录缓存/抓取原文等),
+    SQLite 仍是 TEXT(无大小限制)。对应老库 MYSQL_DDL 里的 longtext 列,保真不缩水。"""
+    return Text().with_variant(LONGTEXT(), "mysql")
 
 # 多用户 settings:(user_id, key) 复合主键;user_id=0 为系统级全局。
 settings = Table(
     "settings", metadata,
     Column("user_id", Integer, primary_key=True, nullable=False, server_default="0"),
     Column("key", String(255), primary_key=True, nullable=False),
-    Column("value", Text, nullable=False),
+    Column("value", _longtext(), nullable=False),
 )
 
 users = Table(
@@ -90,16 +98,16 @@ drafts = Table(
     Column("purchase_url", String(1024), nullable=False, server_default=""),
     Column("purchase_note", Text, nullable=True),
     Column("ozon_title", Text, nullable=False),
-    Column("description", Text, nullable=False),
+    Column("description", _longtext(), nullable=False),
     Column("category_id", Text, nullable=False),
     Column("price", Text, nullable=False),
     Column("old_price", Text, nullable=False),
     Column("stock", Integer, nullable=False),
-    Column("images_json", Text, nullable=False),
-    Column("attributes_json", Text, nullable=False),
+    Column("images_json", _longtext(), nullable=False),
+    Column("attributes_json", _longtext(), nullable=False),
     Column("status", String(32), nullable=False),
-    Column("validation_errors_json", Text, nullable=False),
-    Column("publish_response_json", Text),
+    Column("validation_errors_json", _longtext(), nullable=False),
+    Column("publish_response_json", _longtext()),
     Column("created_at", ISODateTime, nullable=False),
     Column("updated_at", ISODateTime, nullable=False),
     # _ensure_column 追加列
@@ -108,19 +116,19 @@ drafts = Table(
     Column("width_mm", Integer),
     Column("height_mm", Integer),
     Column("type_id", String(64), nullable=False, server_default=""),
-    Column("brand_id", Integer),
+    Column("brand_id", BigInteger),
     Column("brand_name", String(255), nullable=False, server_default=""),
     Column("cost_cny", Numeric(18, 4, asdecimal=True)),
     Column("video_url", Text),
-    Column("local_images_json", Text),
-    Column("pricing_json", Text),
+    Column("local_images_json", _longtext()),
+    Column("pricing_json", _longtext()),
     Column("source", String(64), nullable=False, server_default=""),
-    Column("ozon_product_id", Integer),
+    Column("ozon_product_id", BigInteger),
     Column("offer_id", String(191), nullable=False, server_default=""),
     Column("supplier", String(255), nullable=False, server_default=""),
-    Column("warehouse_id", Integer),
-    Column("source_raw_json", Text),
-    Column("ai_proposal_json", Text),
+    Column("warehouse_id", BigInteger),
+    Column("source_raw_json", _longtext()),
+    Column("ai_proposal_json", _longtext()),
     Column("media_status", String(16), nullable=False, server_default="done"),
     Column("variant_group", String(255), nullable=False, server_default=""),
     # _migrate_drafts_store_scoped 追加
@@ -138,46 +146,46 @@ drafts = Table(
 
 commission_map = Table(
     "commission_map", metadata,
-    Column("description_category_id", Integer, primary_key=True),
-    Column("type_id", Integer, primary_key=True),
+    Column("description_category_id", BigInteger, primary_key=True),
+    Column("type_id", BigInteger, primary_key=True),
     Column("parent_en", Text),
     Column("sub_en", Text),
-    Column("rfbs_json", Text),
+    Column("rfbs_json", _longtext()),
     Column("updated_at", ISODateTime),
 )
 
 catalog_cache = Table(
     "catalog_cache", metadata,
     Column("language", String(32), primary_key=True),
-    Column("leaves_json", Text, nullable=False),
+    Column("leaves_json", _longtext(), nullable=False),
     Column("fetched_at", ISODateTime, nullable=False),
 )
 
 catalog_tree_cache = Table(
     "catalog_tree_cache", metadata,
     Column("language", String(32), primary_key=True),
-    Column("tree_json", Text, nullable=False),
+    Column("tree_json", _longtext(), nullable=False),
     Column("fetched_at", ISODateTime, nullable=False),
 )
 
 category_attr_values_cache = Table(
     "category_attr_values_cache", metadata,
-    Column("description_category_id", Integer, primary_key=True),
-    Column("type_id", Integer, primary_key=True),
-    Column("attribute_id", Integer, primary_key=True),
+    Column("description_category_id", BigInteger, primary_key=True),
+    Column("type_id", BigInteger, primary_key=True),
+    Column("attribute_id", BigInteger, primary_key=True),
     Column("language", String(32), primary_key=True, nullable=False, server_default="RU"),
-    Column("values_json", Text, nullable=False),
+    Column("values_json", _longtext(), nullable=False),
     Column("oversized", Integer, nullable=False, server_default="0"),
     Column("fetched_at", ISODateTime, nullable=False),
 )
 
 attribute_values_cache = Table(
     "attribute_values_cache", metadata,
-    Column("description_category_id", Integer, primary_key=True),
-    Column("type_id", Integer, primary_key=True),
-    Column("attribute_id", Integer, primary_key=True),
+    Column("description_category_id", BigInteger, primary_key=True),
+    Column("type_id", BigInteger, primary_key=True),
+    Column("attribute_id", BigInteger, primary_key=True),
     Column("language", String(32), primary_key=True, nullable=False, server_default="ZH_HANS"),
-    Column("dictionary_value_id", Integer, primary_key=True),
+    Column("dictionary_value_id", BigInteger, primary_key=True),
     Column("value", String(1024)),
     Column("info", Text),
     Column("fetched_at", ISODateTime),
@@ -190,16 +198,16 @@ attribute_values_cache = Table(
 
 category_attr_cache = Table(
     "category_attr_cache", metadata,
-    Column("description_category_id", Integer, primary_key=True),
-    Column("type_id", Integer, primary_key=True),
+    Column("description_category_id", BigInteger, primary_key=True),
+    Column("type_id", BigInteger, primary_key=True),
     Column("language", String(32), primary_key=True, nullable=False, server_default="ZH_HANS"),
-    Column("attrs_json", Text, nullable=False),
+    Column("attrs_json", _longtext(), nullable=False),
     Column("fetched_at", ISODateTime, nullable=False),
 )
 
 warehouses = Table(
     "warehouses", metadata,
-    Column("warehouse_id", Integer, primary_key=True),
+    Column("warehouse_id", BigInteger, primary_key=True),
     Column("name", String(255), nullable=False, server_default=""),
     Column("is_rfbs", Integer, nullable=False, server_default="0"),
     Column("status", String(64), nullable=False, server_default=""),
@@ -211,12 +219,12 @@ warehouses = Table(
 
 delivery_methods = Table(
     "delivery_methods", metadata,
-    Column("delivery_method_id", Integer, primary_key=True),
-    Column("warehouse_id", Integer),
+    Column("delivery_method_id", BigInteger, primary_key=True),
+    Column("warehouse_id", BigInteger),
     Column("name", String(255), nullable=False, server_default=""),
     Column("status", String(64), nullable=False, server_default=""),
-    Column("provider_id", Integer),
-    Column("template_id", Integer),
+    Column("provider_id", BigInteger),
+    Column("template_id", BigInteger),
     Column("tpl_integration_type", Text),
     Column("is_express", Integer),
     Column("cutoff", Text),
@@ -230,7 +238,7 @@ delivery_methods = Table(
     Column("updated_at", ISODateTime),
     Column("fetched_at", ISODateTime),
     Column("store_client_id", String(64), nullable=False, server_default=""),
-    Column("raw_json", Text),
+    Column("raw_json", _longtext()),
     Index("idx_dm_store_wh", "store_client_id", "warehouse_id"),
 )
 
@@ -240,9 +248,9 @@ postings = Table(
     Column("ozon_order_id", Text),
     Column("status", Text),
     Column("ship_by", Text),
-    Column("products_json", Text, nullable=True),
-    Column("warehouse_id", Integer),
-    Column("raw_json", Text),
+    Column("products_json", _longtext(), nullable=True),
+    Column("warehouse_id", BigInteger),
+    Column("raw_json", _longtext()),
     Column("synced_at", ISODateTime),
     # _ensure_column 追加
     Column("store_client_id", String(64), nullable=False, server_default=""),
@@ -278,7 +286,7 @@ offer_snapshots = Table(
     Column("follow_count", Integer),
     Column("price_min", Numeric(18, 4, asdecimal=True)),
     Column("price_max", Numeric(18, 4, asdecimal=True)),
-    Column("sellers_json", Text),
+    Column("sellers_json", _longtext()),
     # _ensure_column 追加
     Column("store_client_id", String(64), nullable=False, server_default=""),
     Index("idx_offer_snap_pid", "product_id"),
@@ -320,6 +328,24 @@ gen_jobs = Table(
     Column("created_at", ISODateTime, nullable=False),
     Column("updated_at", ISODateTime, nullable=False),
     Index("idx_gen_jobs_draft", "user_id", "draft_id"),
+)
+
+text_jobs = Table(
+    "text_jobs", metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "draft_id", Integer,
+        ForeignKey("drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("user_id", Integer, nullable=False, server_default="1"),
+    Column("status", String(16), nullable=False, server_default="queued"),
+    Column("current_step", String(32)),
+    Column("steps_done", Text),
+    Column("error", Text),
+    Column("created_at", ISODateTime, nullable=False),
+    Column("updated_at", ISODateTime, nullable=False),
+    Index("idx_text_jobs_draft", "user_id", "draft_id"),
 )
 
 gen_job_images = Table(

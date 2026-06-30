@@ -41,14 +41,18 @@ def test_images():
     assert step_flags(_d())["images"] is False
 
 
-def test_returns_7_keys():
+def test_returns_step_keys():
     assert set(step_flags(_d())) == {
-        "understand", "category", "copy", "attrs", "images", "rich", "publish"
+        "understand", "category", "copy", "attrs", "content", "images", "rich", "publish"
     }
 
 
 def test_rich():
-    assert step_flags(_d(source_raw={"rich_content_json": {"blocks": []}}))["rich"] is True
+    assert step_flags(_d(source_raw={"rich_content_json": {"blocks": []}}))["rich"] is False
+    assert step_flags(_d(source_raw={
+        "rich_content_json": {"blocks": []},
+        "workflow_status": {"rich": {"status": "done"}},
+    }))["rich"] is True
     assert step_flags(_d())["rich"] is False
 
 

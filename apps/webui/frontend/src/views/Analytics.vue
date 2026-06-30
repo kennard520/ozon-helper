@@ -1,6 +1,5 @@
 <script setup>
 import { onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAnalytics } from '../composables/useAnalytics.js'
 import SAlert from '../ui/SAlert.vue'
 import SButton from '../ui/SButton.vue'
@@ -12,7 +11,6 @@ import ProductTable from '../components/analytics/ProductTable.vue'
 import TrafficTrend from '../components/analytics/TrafficTrend.vue'
 import KeywordInsight from '../components/analytics/KeywordInsight.vue'
 
-const router = useRouter()
 const {
   loading, error, store, storeList, dateRange,
   dashboard, traffic, keywords, activeTab,
@@ -26,6 +24,8 @@ const TABS = [
 ]
 
 const RANGE_OPTS = [
+  { label: '今天', value: 'today' },
+  { label: '昨天', value: 'yesterday' },
   { label: '近 7 天', value: '7' },
   { label: '近 30 天', value: '30' },
 ]
@@ -36,15 +36,6 @@ function onTabChange(key) {
 
 function onRangeChange(preset) {
   setRange(preset)
-}
-
-function onOpenDraft(row) {
-  // 尝试跳转到工作台草稿，如 offer_id 可定位就传，否则退回首页
-  if (row && row.offer_id) {
-    router.push({ path: '/', query: { offer_id: row.offer_id } })
-  } else {
-    router.push('/')
-  }
 }
 
 onMounted(() => {
@@ -118,7 +109,7 @@ onMounted(() => {
         <div class="ap__tab-content">
           <!-- 商品表现 -->
           <div v-if="activeTab === 'product'">
-            <ProductTable :rows="dashboard.rows || []" @open-draft="onOpenDraft" />
+            <ProductTable :rows="dashboard.rows || []" />
           </div>
           <!-- 流量趋势 -->
           <div v-else-if="activeTab === 'traffic'">
@@ -130,7 +121,13 @@ onMounted(() => {
           <div v-else-if="activeTab === 'keyword'">
             <div v-if="loading" class="ap__tab-loading">加载中…</div>
             <div v-else-if="!keywords" class="ap__tab-empty">切换到此 Tab 后自动加载</div>
-            <KeywordInsight v-else :by-sku="keywords.by_sku || {}" />
+            <KeywordInsight
+              v-else
+              :by-sku="keywords.by_sku || {}"
+              :date-from="keywords.date_from || ''"
+              :date-to="keywords.date_to || ''"
+              :date-adjusted="!!keywords.date_adjusted"
+            />
           </div>
         </div>
       </div>

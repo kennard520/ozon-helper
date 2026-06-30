@@ -4,10 +4,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import Workbench from './Workbench.vue'
 
 describe('Workbench 外壳', () => {
-  it('渲染三栏容器', () => {
+  it('渲染左栏 + 右侧主区容器', () => {
     setActivePinia(createPinia())
-    const w = mount(Workbench, { global: { stubs: { DraftListPane: true, VariantCardsPane: true } } })
+    const w = mount(Workbench, { global: { stubs: { DraftListPane: true, VariantGroupBar: true } } })
     expect(w.find('.wb-grid').exists()).toBe(true)
-    expect(w.find('.wb-center').exists()).toBe(true)
+    expect(w.find('.wb-left').exists()).toBe(true)
+    expect(w.find('.wb-main').exists()).toBe(true)
   })
 })

@@ -224,6 +224,29 @@ def test_replace_delivery_methods_full_replace():
             eng.dispose()
 
 
+def test_replace_delivery_methods_dedupes_duplicate_ids():
+    """同一次 Ozon 同步里重复返回的 delivery_method_id 只保存一条。"""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        eng = _bind(tmp)
+        try:
+            duplicate = [
+                {"delivery_method_id": 7, "warehouse_id": 10, "name": "A",
+                 "status": "ACTIVE", "is_express": False, "raw": {}},
+                {"delivery_method_id": 7, "warehouse_id": 10, "name": "A duplicate",
+                 "status": "ACTIVE", "is_express": False, "raw": {}},
+            ]
+            with S.session_scope():
+                WarehouseRepo().replace_delivery_methods(duplicate, store_client_id="shop1")
+
+            with S.session_scope():
+                rows = WarehouseRepo().list_delivery_methods(store_client_id="shop1")
+
+            assert len(rows) == 1
+            assert rows[0]["delivery_method_id"] == 7
+        finally:
+            eng.dispose()
+
+
 def test_replace_scoped_by_store():
     """replace_delivery_methods 只删指定店的行，不影响其他店。"""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

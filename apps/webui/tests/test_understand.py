@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from webui.understand import (  # noqa: E402
+from ozon_common.text_pipeline.understand import (  # noqa: E402
     SYS_UNDERSTAND,
     build_understand_input,
     parse_understanding,

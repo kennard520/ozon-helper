@@ -48,3 +48,19 @@ export function isLoggedIn() {
 export function authHeader(token) {
   return token ? { Authorization: 'Bearer ' + token } : {}
 }
+
+export function consumeUrlToken() {
+  if (typeof window === 'undefined') return ''
+  try {
+    const url = new URL(window.location.href)
+    const token = url.searchParams.get('token')
+    if (!token) return ''
+    setAuth(token, null)
+    url.searchParams.delete('token')
+    const qs = url.searchParams.toString()
+    window.history.replaceState(null, '', url.pathname + (qs ? '?' + qs : '') + url.hash)
+    return token
+  } catch (e) {
+    return ''
+  }
+}

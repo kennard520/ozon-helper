@@ -130,7 +130,7 @@ class ExtMixin:
             # 重复采集：用新解析的源字段「补空」（不覆盖用户已编辑/已选的非空字段），
             # 这样旧的、缺描述/克重/尺寸的草稿能被重新采集刷新。
             patch = {}
-            for k in ("ozon_title", "description", "price", "old_price", "images",
+            for k in ("ozon_title", "description", "price", "old_price",
                       "video_url", "weight_g", "length_mm", "width_mm", "height_mm",
                       "category_id", "type_id"):
                 cur = existing.get(k)
@@ -165,6 +165,22 @@ class ExtMixin:
                 patch["attributes"] = merged_attrs
             if patch:
                 self.store.update_draft(existing["id"], patch)
+            image_types = (new_draft.get("source_raw") or {}).get("image_types")
+            image_types = image_types if isinstance(image_types, dict) else {}
+            existing_urls = {str(m.get("url") or "") for m in (existing.get("materials") or [])}
+            local_images = list(new_draft.get("local_images") or [])
+            for i, raw_url in enumerate(new_draft.get("images") or []):
+                img_url = str(raw_url or "").strip()
+                if not img_url or img_url in existing_urls:
+                    continue
+                self.store.add_draft_image(
+                    existing["id"],
+                    img_url,
+                    type=str(image_types.get(img_url) or "其他"),
+                    source="collected",
+                    in_gallery=0,
+                    local_url=str(local_images[i] or "") if i < len(local_images) else "",
+                )
             if _has_media and self._media_needs_upload(self.store.get_draft(existing["id"]) or existing):
                 self.store.set_media_status(existing["id"], "pending")  # 媒体未传 OSS，待后台补
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）

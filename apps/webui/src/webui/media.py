@@ -10,6 +10,12 @@ MEDIA_ROOT = Path(__file__).resolve().parents[1] / "data" / "images"   # ozon-li
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 
+_DEPLOY_DATA_ROOT = Path("/app/ozon-listing-webui/data")
+if _DEPLOY_DATA_ROOT.exists():
+    MEDIA_ROOT = _DEPLOY_DATA_ROOT / "images"
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
 def _safe(key: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", str(key or "x")).strip("_") or "x"
 

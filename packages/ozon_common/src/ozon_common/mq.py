@@ -7,6 +7,7 @@ import os
 from typing import Callable
 
 GEN_JOB_QUEUE = "ozon_gen_jobs"
+TEXT_JOB_QUEUE = "ozon_text_jobs"
 
 
 def _mq_config() -> dict:
@@ -34,12 +35,13 @@ def publish_gen_job(job_id: int, draft_id: int, target: int, mode: str = "plan")
     mode: 'plan'=AI设计图集计划出图 / 'custom'=用户自定义提示词出图（跳过设计步骤）。"""
     conn = _connect()
     try:
+        import pika
         ch = conn.channel()
         ch.queue_declare(queue=GEN_JOB_QUEUE, durable=True)
         body = json.dumps({"job_id": job_id, "draft_id": draft_id, "target": target, "mode": mode})
         ch.basic_publish(
             exchange="", routing_key=GEN_JOB_QUEUE, body=body.encode("utf-8"),
-            properties=None,
+            properties=pika.BasicProperties(delivery_mode=2),
         )
     finally:
         conn.close()
@@ -64,6 +66,45 @@ def consume_gen_jobs(callback: Callable[[int, int, int, str], None]) -> None:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
         ch.basic_consume(queue=GEN_JOB_QUEUE, on_message_callback=_handle)
+        ch.start_consuming()
+    finally:
+        conn.close()
+
+
+def publish_text_job(job_id: int, draft_id: int) -> None:
+    """发一条文本任务到队列（durable），API 调用。"""
+    conn = _connect()
+    try:
+        import pika
+        ch = conn.channel()
+        ch.queue_declare(queue=TEXT_JOB_QUEUE, durable=True)
+        body = json.dumps({"job_id": job_id, "draft_id": draft_id})
+        ch.basic_publish(
+            exchange="", routing_key=TEXT_JOB_QUEUE, body=body.encode("utf-8"),
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+    finally:
+        conn.close()
+
+
+def consume_text_jobs(callback: Callable[[int, int], None]) -> None:
+    """阻塞消费：每条消息调 callback(job_id, draft_id)；成功返回才 ack。"""
+    conn = _connect()
+    try:
+        ch = conn.channel()
+        ch.queue_declare(queue=TEXT_JOB_QUEUE, durable=True)
+        ch.basic_qos(prefetch_count=1)
+
+        def _handle(ch, method, _properties, body):
+            msg = json.loads(body.decode("utf-8"))
+            try:
+                callback(int(msg["job_id"]), int(msg["draft_id"]))
+            except Exception:
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            else:
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+
+        ch.basic_consume(queue=TEXT_JOB_QUEUE, on_message_callback=_handle)
         ch.start_consuming()
     finally:
         conn.close()

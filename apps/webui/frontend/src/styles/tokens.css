@@ -11,6 +11,7 @@
   --c-danger:#ef4444;  --c-danger-bg:#fef2f2;
   --c-info:#3b82f6;    --c-info-bg:#eff6ff;
   --c-warn:#b45309;    --c-warn-bg:#fffbeb;
+  --c-warn-amber:#f59e0b; /* 趋势图「加购」橙、原型琥珀强调 */
   /* 间距 */
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
   /* 圆角 + 阴影 */

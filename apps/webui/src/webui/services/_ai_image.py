@@ -63,7 +63,9 @@ class AiImageMixin:
         raise ValueError("源图必须是 http(s) URL 或 /media/ 本地图")
 
     def ai_generate_image(self, draft_id: int, *, mode: str = "text2img", prompt: str = "",
-                          source_url: str | None = None, size: str | None = None,
+                          source_url: str | None = None,
+                          reference_urls: list[str] | None = None,
+                          size: str | None = None,
                           as_main: bool = False) -> dict:
         """Agnes 生成商品图：text2img(营销图) / img2img(白底主图等，保构图改场景)。
         生成结果下载到本地 /media/（不依赖 Agnes URL 存活期），挂进 draft.images；
@@ -78,27 +80,31 @@ class AiImageMixin:
             raise ValueError("提示词不能为空")
         m = str(mode or "text2img").strip().lower()
         settings = self.store.get_settings()
+        image_inputs: list[str] = []
         sources = None
         if m == "img2img":
             if not str(source_url or "").strip():
                 raise ValueError("图生图需要选择一张源图")
-            sources = [self._resolve_image_input(str(source_url))]
+            refs = [str(u or "").strip() for u in (reference_urls or []) if str(u or "").strip()]
+            image_inputs = [str(source_url)] + [u for u in refs if u != str(source_url)]
+            sources = [self._resolve_image_input(u) for u in image_inputs]
         # 出图引擎 admin 可切：ai_image.engine == gptimage → 走 gen_image；默认 agnes
         from webui.settings_migrate import ai_config  # noqa: PLC0415
         imgcfg = ai_config(settings, "image")
         if imgcfg["engine"] == "gptimage":
             from ozon_common.gen_image import create_image, edit_image, images_from_response  # noqa: PLC0415
             gcfg = self._gen_image_cfg(settings)
-            tmp = None
+            tmp_paths: list[str] = []
             try:
                 if str(source_url or "").strip():       # img2img：源图落临时文件给 edit
-                    tmp = self._local_image_path(str(source_url))
-                    resp = edit_image(gcfg, p, [tmp], size=size or _GEN_SIZE, output_format="png")
+                    tmp_paths = [self._local_image_path(u) for u in image_inputs]
+                    resp = edit_image(gcfg, p, tmp_paths, size=size or _GEN_SIZE, output_format="png")
                 else:                                    # text2img
                     resp = create_image(gcfg, p, size=size or _GEN_SIZE, output_format="png")
             finally:
-                if tmp and os.path.exists(tmp):
-                    os.remove(tmp)
+                for tmp in tmp_paths:
+                    if tmp and os.path.exists(tmp):
+                        os.remove(tmp)
             picked = images_from_response(resp)
             if not picked:
                 raise RuntimeError("gptimage 未返回图片")
@@ -243,6 +249,10 @@ class AiImageMixin:
             sr = loads_json(sr, {})
         sr = dict(sr or {})
         sr["rich_content_json"] = rc
+        wf = sr.get("workflow_status") if isinstance(sr.get("workflow_status"), dict) else {}
+        wf = dict(wf or {})
+        wf["rich"] = {"status": "done"}
+        sr["workflow_status"] = wf
         updated = self.store.update_draft(draft_id, {"source_raw": sr})
         return {"ok": True, "draft": updated, "blocks": len(rc["content"])}
 

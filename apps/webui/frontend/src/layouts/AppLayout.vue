@@ -10,6 +10,7 @@ const store = useAppStore()
 const collapsed = ref(false)
 const user = ref(getUser())
 const balance = ref(null)
+const ready = ref(false)   // loadState 完成(当前店已解析)后才渲染子路由
 const isAdmin = computed(() => user.value && user.value.role === 'admin')
 
 async function loadWallet() {
@@ -17,7 +18,10 @@ async function loadWallet() {
     if (acc.balance != null) balance.value = acc.balance } catch (e) { /* ignore */ }
 }
 onMounted(async () => {
-  await store.loadState(); store.loadDrafts(); loadWallet()
+  // 先解析当前店,再放行子路由——否则子页面(Vue 子 mounted 早于父)会先发一条不带店的请求
+  await store.loadState()
+  ready.value = true
+  loadWallet()
   if (!user.value) { try { const r = await api.me(); user.value = r.user; setAuth(getToken(), r.user) } catch (e) { /* 401→logout */ } }
 })
 </script>
@@ -26,7 +30,7 @@ onMounted(async () => {
     <AppSidebar class="app__sb" />
     <div class="app__main">
       <AppTopBar :balance="balance" :username="user && user.username" :is-admin="isAdmin" @toggle="collapsed = !collapsed" />
-      <main class="app__content"><router-view /></main>
+      <main class="app__content"><router-view v-if="ready" /></main>
     </div>
   </div>
 </template>

@@ -147,6 +147,7 @@ class OzonSellerClientTest(unittest.TestCase):
         client.ship_fbs({"posting_number": "123-1", "packages": []})
         client.get_fbs_package_label(["123-1"])
         client.cancel_fbs_posting("123-1", cancel_reason_id=352)
+        client.finance_cash_flow_statement({"page": 1, "page_size": 1})
 
         self.assertEqual(
             [call["url"].removeprefix("https://api-seller.ozon.ru") for call in transport.calls],
@@ -158,6 +159,7 @@ class OzonSellerClientTest(unittest.TestCase):
                 "/v2/posting/fbs/ship",
                 "/v2/posting/fbs/package-label",
                 "/v2/posting/fbs/cancel",
+                "/v1/finance/cash-flow-statement/list",
             ],
         )
 

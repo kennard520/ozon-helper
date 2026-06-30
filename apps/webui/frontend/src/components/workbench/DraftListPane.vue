@@ -240,7 +240,10 @@ function warehouseName(wid) {
 // 图片
 function firstImage(row) {
   const imgs = (row.local_images && row.local_images.length ? row.local_images : row.images) || []
-  return imgs.filter(Boolean)[0] || ''
+  const image = imgs.filter(Boolean)[0]
+  if (image) return image
+  const material = (row.materials || []).find((m) => m && (m.local_url || m.url))
+  return material ? (material.local_url || material.url || '') : ''
 }
 
 // 采购链接
@@ -287,7 +290,9 @@ defineExpose({
 
 <style scoped>
 .dlp {
-  width: 340px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   transition: width 0.3s ease;
@@ -358,6 +363,9 @@ defineExpose({
 .dlp-tabs-wrap {
   padding: 0 var(--sp-3);
   flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* 工具栏 */
@@ -368,8 +376,9 @@ defineExpose({
   padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--c-border);
   flex-shrink: 0;
+  min-width: 0;
 }
-.dlp-tools .el-input { flex: 1; }
+.dlp-tools .el-input { flex: 1 1 auto; min-width: 0; }
 
 /* 批量条 */
 .dlp-batch {

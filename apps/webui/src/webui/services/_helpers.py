@@ -134,7 +134,7 @@ def _img_type_from_label(label: object) -> str:
 def step_flags(draft: dict) -> dict:
     """从草稿字段派生 7 步完成标志(等价前端 DraftDetail.wfDone，移到源头算)。
 
-    7 步: understand / category / copy / attrs / images / rich / publish
+    content 兼容新流水线的合并步骤: category + copy + attrs 全部完成。
     """
     d = draft or {}
     sr = d.get("source_raw") or {}
@@ -159,13 +159,19 @@ def step_flags(draft: dict) -> dict:
             return False
 
     # rich_content_json 是前端 richContentJson computed 实际读的键(DraftDetail.vue:1998)
-    rich = bool(sr.get("rich_content_json"))
+    workflow_status = sr.get("workflow_status") if isinstance(sr.get("workflow_status"), dict) else {}
+    rich_status = workflow_status.get("rich") if isinstance(workflow_status.get("rich"), dict) else {}
+    rich = bool(rich_status.get("status") == "done")
 
+    category_done = bool(d.get("category_id") and d.get("type_id"))
+    copy_done = bool(d.get("ozon_title") and d.get("description"))
+    attrs_done = any(_attr_done(a) for a in attrs)
     return {
         "understand": isinstance(und, dict) and bool(und),
-        "category": bool(d.get("category_id") and d.get("type_id")),
-        "copy": bool(d.get("ozon_title") and d.get("description")),
-        "attrs": any(_attr_done(a) for a in attrs),
+        "category": category_done,
+        "copy": copy_done,
+        "attrs": attrs_done,
+        "content": category_done and copy_done and attrs_done,
         "images": bool(d.get("images")) or bool(sr.get("image_types")),
         "rich": rich,
         "publish": bool(d.get("ozon_product_id")) or d.get("status") == "published",

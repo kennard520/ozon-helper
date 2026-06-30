@@ -44,17 +44,18 @@ describe('AttributesTab', () => {
     if (optBtn) await optBtn.trigger('click')
     await nextTick()
     // 用 component stub name 查找
-    expect(w.findAllComponents({ name: 'AttrField' }).length).toBe(3)
+    expect(w.findAllComponents({ name: 'AttrField' }).length).toBe(4)
     expect(w.text()).toContain('缺')   // missing banner 文案含「缺」
+    expect(w.text()).toContain('简介')
+    expect(w.text()).toContain('标签')
+    expect(w.text()).toContain('原产国 / 制造国')
   })
 
-  it('AI 填充按钮触发 aiFillAttributes', async () => {
+  it('tab 内不再放 AI 填充/保存按钮（操作在顶部流程区，改动自动保存）', async () => {
     const w = factory()
     await nextTick(); await Promise.resolve(); await Promise.resolve()
-    const btns = w.findAll('button')
-    const aiBtn = btns.find((b) => b.text().includes('AI'))
-    await aiBtn.trigger('click')
-    await Promise.resolve()
-    expect(api.aiFillAttributes).toHaveBeenCalledWith(7)
+    const labels = w.findAll('button').map((b) => b.text())
+    expect(labels.some((t) => t.includes('AI 填充'))).toBe(false)
+    expect(labels.some((t) => t === '保存')).toBe(false)
   })
 })

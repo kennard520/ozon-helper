@@ -110,10 +110,14 @@ class WarehouseRepo(BaseRepo):
         now = utc_now_iso()
         scid = str(store_client_id or "")
         self.s.execute(delete(DM).where(DM.c.store_client_id == scid))
+        seen: set[int] = set()
         for d in items or []:
             did = _to_int_or_none(d.get("delivery_method_id"))
             if did is None:
                 continue
+            if did in seen:
+                continue
+            seen.add(did)
             self.s.execute(
                 insert(DM).values(
                     delivery_method_id=did,
@@ -171,8 +175,15 @@ class WarehouseRepo(BaseRepo):
             q = q.where(DM.c.store_client_id == str(store_client_id or ""))
         rows = self.s.execute(q).all()
         out = []
+        seen: set[tuple[str, int]] = set()
         for r in rows:
             d = dict(r._mapping)
+            did = _to_int_or_none(d.get("delivery_method_id"))
+            key = (str(d.get("store_client_id") or ""), int(did or 0))
+            if did is not None and key in seen:
+                continue
+            if did is not None:
+                seen.add(key)
             d["is_express"] = bool(d.get("is_express"))
             out.append(d)
         return out

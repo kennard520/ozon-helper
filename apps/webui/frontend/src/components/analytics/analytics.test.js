@@ -34,6 +34,14 @@ describe('ConversionFunnel', () => {
     const w = mount(ConversionFunnel, { props: { grandTotal: { ...GT, exposure: 120000 } } })
     expect(w.text()).toContain('12.0万')
   })
+
+  it('断点（下单为0）红色高亮 + 备注', () => {
+    const gt = { ...GT, exposure: 12000, sessions: 800, cart: 120, ordered_units: 0 }
+    const w = mount(ConversionFunnel, { props: { grandTotal: gt } })
+    expect(w.text()).toContain('无成交')
+    expect(w.find('.funnel__step.is-break').exists()).toBe(true)
+    expect(w.text()).toContain('找到断点')
+  })
 })
 
 describe('KpiCards', () => {
@@ -43,6 +51,24 @@ describe('KpiCards', () => {
     expect(w.text()).toContain('总访问')
     expect(w.text()).toContain('加购转化')
     expect(w.text()).toContain('GMV')
+  })
+
+  it('GMV 用 ₽（卢布）不用 ¥', () => {
+    const w = mount(KpiCards, { props: { grandTotal: GT } })
+    expect(w.text()).toContain('₽')
+    expect(w.text()).not.toContain('¥')
+  })
+
+  it('GMV/下单 为 0 时危险态', () => {
+    const gt = { ...GT, revenue: 0, ordered_units: 0 }
+    const w = mount(KpiCards, { props: { grandTotal: gt } })
+    expect(w.find('.s-stat__v.is-danger').exists()).toBe(true)
+  })
+
+  it('加购转化极低时危险态', () => {
+    const gt = { ...GT, conv_cart_pct: 0 }
+    const w = mount(KpiCards, { props: { grandTotal: gt } })
+    expect(w.find('.s-stat__v.is-danger').exists()).toBe(true)
   })
 
   it('null 时显示占位', () => {
@@ -69,21 +95,47 @@ describe('ProductTable', () => {
     expect(w.text()).toContain('0曝光')
   })
 
-  it('「仅看问题商品」筛选', async () => {
+  it('「仅看问题商品」筛选（按钮，含计数）', async () => {
     const w = mount(ProductTable, { props: { rows } })
-    const checkbox = w.find('input[type="checkbox"]')
-    await checkbox.setValue(true)
+    const btn = w.find('.pt__problem-btn')
+    expect(btn.text()).toContain('1') // 1 个问题商品
+    await btn.trigger('click')
     // 只有 row 102 有 diagnostics
     expect(w.text()).toContain('商品B')
     expect(w.text()).not.toContain('商品A')
   })
 
-  it('点击行 emit open-draft', async () => {
+  it('列表头排序：点击曝光列在 desc↔asc 循环', async () => {
+    const w = mount(ProductTable, { props: { rows } })
+    const headers = w.findAll('.pt__th-sort')
+    // 默认按曝光降序：商品A(500) 在 商品B(0) 之前
+    let bodyText = w.findAll('tbody tr')[0].text()
+    expect(bodyText).toContain('商品A')
+    // 找到「曝光」表头点击 → 切到 asc
+    const expHeader = headers.find(h => h.text().includes('曝光'))
+    await expHeader.trigger('click')
+    bodyText = w.findAll('tbody tr')[0].text()
+    expect(bodyText).toContain('商品B') // asc：0 在前
+  })
+
+  it('没有商品链接时点击行不会打开草稿', async () => {
     const w = mount(ProductTable, { props: { rows } })
     const trs = w.findAll('tbody tr')
     await trs[0].trigger('click')
-    expect(w.emitted('open-draft')).toBeTruthy()
-    expect(w.emitted('open-draft')[0][0].sku).toBe(101)
+    expect(w.emitted('open-draft')).toBeFalsy()
+    expect(w.find('.pt__title-link').exists()).toBe(false)
+  })
+
+  it('有商品链接时商品名称跳转 Ozon 详情', () => {
+    const w = mount(ProductTable, {
+      props: {
+        rows: [{ ...rows[0], product_url: 'https://www.ozon.ru/product/101/' }],
+      },
+    })
+    const link = w.find('.pt__title-link')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe('https://www.ozon.ru/product/101/')
+    expect(link.attributes('target')).toBe('_blank')
   })
 })
 
@@ -141,6 +193,23 @@ describe('KeywordInsight', () => {
     expect(w.text()).toContain('玻璃杯')
   })
 
+  it('显示搜索词实际查询日期', () => {
+    const w = mount(KeywordInsight, {
+      props: { bySku, dateFrom: '2026-06-01', dateTo: '2026-06-27', dateAdjusted: true },
+    })
+    expect(w.text()).toContain('2026-06-01 ~ 2026-06-27')
+    expect(w.text()).toContain('T+3')
+  })
+
+  it('每行末尾渲染判定标签 + GMV 用 ₽', () => {
+    const w = mount(KeywordInsight, { props: { bySku } })
+    // 玻璃杯有订单 → 已覆盖；红茶杯高搜索零订单 → 污染词
+    expect(w.text()).toContain('已覆盖')
+    expect(w.text()).toContain('污染词')
+    expect(w.text()).toContain('₽')
+    expect(w.text()).not.toContain('¥')
+  })
+
   it('空时显示提示', () => {
     const w = mount(KeywordInsight, { props: { bySku: {} } })
     expect(w.text()).toContain('暂无搜索词数据')
@@ -153,16 +222,25 @@ describe('DiagnosticBanner', () => {
     expect(w.text()).toContain('降级')
   })
 
-  it('全部商品无曝光时显示洞察', () => {
+  it('全部商品无曝光时显示核心诊断卡', () => {
     const gt = { ...GT, sku_with_traffic: 0 }
     const w = mount(DiagnosticBanner, { props: { grandTotal: gt, degraded: false } })
-    expect(w.text()).toContain('无曝光')
+    expect(w.text()).toContain('零曝光')
+    expect(w.find('.db').exists()).toBe(true)
   })
 
-  it('正常数据时不渲染 alert', () => {
+  it('核心诊断卡内嵌具体数字 + 排查清单', () => {
+    const gt = { ...GT, sku_with_traffic: 0 }
+    const w = mount(DiagnosticBanner, { props: { grandTotal: gt, degraded: false } })
+    expect(w.text()).toContain('会话率')
+    expect(w.text()).toContain('排查清单')
+    expect(w.text()).toContain('搜索词洞察')
+  })
+
+  it('正常数据时不渲染核心诊断卡', () => {
     const gt = { ...GT, sku_with_traffic: 3, ordered_units: 10, conv_cart_pct: 15 }
     const w = mount(DiagnosticBanner, { props: { grandTotal: gt, degraded: false } })
-    // 没有 warn/danger alert
+    expect(w.find('.db').exists()).toBe(false)
     expect(w.find('.s-alert').exists()).toBe(false)
   })
 })

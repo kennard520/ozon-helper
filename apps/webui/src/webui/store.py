@@ -496,13 +496,15 @@ class Store:
     # ---------- draft_images 一对多表 ----------
 
     def add_draft_image(self, draft_id: int, url: str, *, type: str = "",
-                        source: str = "generated") -> int:
+                        source: str = "generated", in_gallery: int | None = None,
+                        local_url: str = "") -> int:
         """直接插入一行 draft_images（position=当前最大+1），避免读改写 images_json 全数组。
         返回新行 id。"""
         from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo  # noqa: PLC0415
         return _in_scope(
             lambda: DraftImageRepo().add_draft_image(
-                draft_id, url, type=type, source=source
+                draft_id, url, type=type, source=source,
+                in_gallery=in_gallery, local_url=local_url,
             )
         )
 

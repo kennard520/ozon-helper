@@ -95,9 +95,10 @@ from webui.services._ext import ExtMixin  # noqa: E402
 from webui.services._genjob import GenJobMixin  # noqa: E402
 from webui.services._pricing import PricingMixin  # noqa: E402
 from webui.services._warehouse import WarehouseMixin  # noqa: E402
+from webui.services._textjob import TextJobMixin  # noqa: E402
 
 
-class App(AuthMixin, SettingsMixin, CategoryMixin, DraftMixin, PublishMixin, AiCardMixin, AiImageMixin, AiVideoMixin, GalleryMixin, ExtMixin, GenJobMixin, PricingMixin, WarehouseMixin):
+class App(AuthMixin, SettingsMixin, CategoryMixin, DraftMixin, PublishMixin, AiCardMixin, AiImageMixin, AiVideoMixin, GalleryMixin, ExtMixin, GenJobMixin, PricingMixin, WarehouseMixin, TextJobMixin):
     def __init__(self) -> None:
         self.store = Store()
         self._cand_lock = threading.Lock()   # 候选区读-改-写串行化(图集并发出图时防丢候选)

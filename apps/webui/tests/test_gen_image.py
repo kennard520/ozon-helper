@@ -128,6 +128,10 @@ class PromptTest(unittest.TestCase):
         self.assertIn("REMOVE", LOCALIZE_PROMPT)      # 剔除非产品内容
         self.assertIn("OEM", LOCALIZE_PROMPT)
         self.assertIn("product-relevant", LOCALIZE_PROMPT)
+        self.assertIn("factory audit", LOCALIZE_PROMPT)
+        self.assertIn("complete certifications", LOCALIZE_PROMPT)
+        self.assertIn("CE/FCC/RoHS", LOCALIZE_PROMPT)
+        self.assertIn("fast/lightning shipping", LOCALIZE_PROMPT)
 
     def test_infographic_prompt_embeds_russian_and_forbids_other_text(self) -> None:
         p = build_infographic_prompt(role="尺寸图", heading="Размеры", bullets=["36 см", "15 л"])

@@ -24,6 +24,8 @@ function barH(v) { return Math.max(2, Math.round((v / maxView.value) * 80)) }
 </script>
 <template>
   <div class="tt">
+    <div class="tt__title">流量趋势</div>
+    <div class="tt__subtitle">按天看曝光 / 访问 / 加购的走势，定位流量与转化的拐点</div>
     <div v-if="byDay.length === 0" class="tt__empty">暂无流量趋势数据</div>
     <div v-else class="tt__chart">
       <div class="tt__legend">
@@ -46,19 +48,22 @@ function barH(v) { return Math.max(2, Math.round((v / maxView.value) * 80)) }
 </template>
 <style scoped>
 .tt { }
+.tt__title { font-size: var(--fs-lg); font-weight: 700; color: var(--c-text); margin-bottom: 2px; }
+.tt__subtitle { font-size: var(--fs-xs); color: var(--c-text-3); margin-bottom: var(--sp-3); }
 .tt__empty { color: var(--c-text-4); font-size: var(--fs-sm); padding: var(--sp-4) 0; }
 .tt__legend { display: flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--c-text-3); margin-bottom: var(--sp-3); }
 .tt__dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+/* 原型配色：曝光紫 / 访问浅紫 / 加购橙 */
 .tt__dot--view { background: var(--c-primary); }
-.tt__dot--session { background: var(--c-info, #3b82f6); }
-.tt__dot--cart { background: var(--c-success, #10b981); }
+.tt__dot--session { background: var(--c-primary-hover); }
+.tt__dot--cart { background: var(--c-warn-amber, #f59e0b); }
 .tt__chart { overflow-x: auto; }
 .tt__bars { display: flex; align-items: flex-end; gap: 2px; min-height: 100px; padding-bottom: 24px; position: relative; }
 .tt__bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 20px; }
 .tt__bars-inner { display: flex; align-items: flex-end; gap: 1px; }
 .tt__bar { width: 6px; border-radius: 2px 2px 0 0; transition: height 0.2s; }
 .tt__bar--view { background: var(--c-primary); }
-.tt__bar--session { background: var(--c-info, #3b82f6); }
-.tt__bar--cart { background: var(--c-success, #10b981); }
+.tt__bar--session { background: var(--c-primary-hover); }
+.tt__bar--cart { background: var(--c-warn-amber, #f59e0b); }
 .tt__day-label { font-size: 10px; color: var(--c-text-4); margin-top: 4px; white-space: nowrap; }
 </style>

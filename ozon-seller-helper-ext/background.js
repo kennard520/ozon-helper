@@ -147,7 +147,8 @@ function _extOf(ct, url) {
 async function uploadMediaOss(urls) {
   const base = await discoverBase()
   if (!base) return { map: {}, failed: urls || [], error: 'no backend' }
-  const jwt = await getJwt()
+  const jwt = await getValidJwt(base)
+  if (!jwt) return { map: {}, failed: urls || [], error: 'login required' }
   const list = Array.from(new Set((urls || []).filter(Boolean)))
   const map = {}
   const failed = []
@@ -179,7 +180,10 @@ async function uploadMediaOss(urls) {
       headers: Object.assign({ 'Content-Type': 'application/json' }, jwt ? { Authorization: 'Bearer ' + jwt } : {}),
       body: JSON.stringify({ items: dl.map((d) => ({ key: d.key, content_type: d.ct })) })
     }, 30000)
-    if (!pr.ok) return { map, failed: list, error: 'presign ' + pr.status }
+    if (!pr.ok) {
+      if (pr.status === 401 || pr.status === 403) await clearJwt()
+      return { map, failed: list, error: 'presign ' + pr.status }
+    }
     results = ((await pr.json()) || {}).results || []
   } catch (e) { return { map, failed: list, error: String(e) } }
   const byKey = {}
@@ -214,7 +218,9 @@ async function rehostPending() {
   try {
     const base = await discoverBase()
     if (!base) return
-    const auth = self.OzonHelperBridge.authHeader(await getJwt())
+    const jwt = await getValidJwt(base)
+    if (!jwt) return
+    const auth = self.OzonHelperBridge.authHeader(jwt)
     const r = await _fetchT(base + '/api/ext/pending-media-drafts', { headers: { ...auth } }, 15000)
     if (!r.ok) return
     const drafts = ((await r.json().catch(() => ({}))) || {}).drafts || []
@@ -251,6 +257,48 @@ async function getJwt() {
   }
 }
 
+async function clearJwt() {
+  try {
+    await chrome.storage.local.remove(['ozon_jwt', 'ozon_user'])
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+async function verifyStoredAuth(base) {
+  let st = {}
+  try {
+    st = await chrome.storage.local.get(['ozon_jwt', 'ozon_user'])
+  } catch (e) {
+    st = {}
+  }
+  const jwt = (st && st.ozon_jwt) || ''
+  if (!jwt) return { loggedIn: false, user: null, token: '' }
+  if (!base) return { loggedIn: true, user: (st && st.ozon_user) || null, token: jwt }
+  try {
+    const r = await _fetchT(base + '/api/auth/me', {
+      headers: self.OzonHelperBridge.authHeader(jwt)
+    }, 10000)
+    const data = await r.json().catch(() => ({}))
+    if (r.ok && data && data.user) {
+      await chrome.storage.local.set({ ozon_user: data.user })
+      return { loggedIn: true, user: data.user, token: jwt }
+    }
+    if (r.status === 401 || r.status === 403) {
+      await clearJwt()
+      return { loggedIn: false, user: null, token: '', expired: true }
+    }
+  } catch (e) {
+    return { loggedIn: true, user: (st && st.ozon_user) || null, token: jwt, unchecked: true }
+  }
+  return { loggedIn: true, user: (st && st.ozon_user) || null, token: jwt, unchecked: true }
+}
+
+async function getValidJwt(base) {
+  const auth = await verifyStoredAuth(base)
+  return auth.token || ''
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   ;(async () => {
     // 登录：拿用户名密码换 JWT 存起来
@@ -275,12 +323,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return
     }
     if (msg && msg.type === 'authStatus') {
-      const st = await chrome.storage.local.get(['ozon_jwt', 'ozon_user'])
-      sendResponse({ ok: true, data: { loggedIn: !!(st && st.ozon_jwt), user: (st && st.ozon_user) || null } })
+      const base = await discoverBase()
+      const auth = await verifyStoredAuth(base)
+      sendResponse({ ok: true, data: { loggedIn: !!auth.loggedIn, user: auth.user || null, expired: !!auth.expired } })
       return
     }
     if (msg && msg.type === 'logout') {
-      await chrome.storage.local.remove(['ozon_jwt', 'ozon_user'])
+      await clearJwt()
       sendResponse({ ok: true })
       return
     }
@@ -340,7 +389,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return
       }
       const id = msg.payload && msg.payload.draftId
-      const jwt = await getJwt()
+      const jwt = await getValidJwt(base)
       const params = []
       if (jwt) params.push('token=' + encodeURIComponent(jwt))
       if (msg.type === 'openEditor' && id != null) params.push('edit=' + encodeURIComponent(id))
@@ -359,7 +408,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: false, error: 'no backend' })
       return
     }
-    const opts = { method: req.method, headers: { ...self.OzonHelperBridge.authHeader(await getJwt()) } }
+    const jwt = await getValidJwt(base)
+    const requiresAuth = !['ping', 'snapshot', 'snapshots'].includes(msg && msg.type)
+    if (requiresAuth && !jwt) {
+      sendResponse({ ok: false, status: 401, error: 'login required' })
+      return
+    }
+    const opts = { method: req.method, headers: { ...self.OzonHelperBridge.authHeader(jwt) } }
     if (req.body) {
       opts.headers['Content-Type'] = 'application/json'
       opts.body = req.body

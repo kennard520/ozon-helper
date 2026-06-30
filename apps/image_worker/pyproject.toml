@@ -5,10 +5,12 @@ description = "Ozon AI 出图 worker(消费 RabbitMQ → 出图 → OSS)"
 requires-python = ">=3.10"
 dependencies = [
     "ozon-common",
+    "ozon-api",
 ]
 
 [project.scripts]
 ozon-worker = "image_worker.worker:main"
+ozon-text-worker = "image_worker.text_worker:main_text"
 
 [build-system]
 requires = ["hatchling"]

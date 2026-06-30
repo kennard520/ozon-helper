@@ -42,6 +42,27 @@ class WarehouseMixin:
             "warehouses": self._warehouses_with_delivery(scid),
         }
 
+    def store_stats(self, store_client_id: str | None = None) -> dict:
+        from webui.ozon_client_adapter import (  # noqa: PLC0415
+            count_ozon_products,
+            fetch_finance_balance,
+        )
+        settings = self._settings_for_store(store_client_id)
+        scid = str(settings.get("ozon_client_id") or "")
+        product_count = count_ozon_products(settings)
+        balance = {"amount": None, "currency_code": ""}
+        balance_error = ""
+        try:
+            balance = fetch_finance_balance(settings)
+        except Exception as exc:  # noqa: BLE001
+            balance_error = str(exc)
+        return {
+            "store_client_id": scid,
+            "product_count": product_count,
+            "balance": balance,
+            "balance_error": balance_error,
+        }
+
     def set_default_warehouse(self, warehouse_id: int, store_client_id: str | None = None) -> dict:
         scid = self._scid_of(store_client_id)
         self.store.set_default_warehouse(int(warehouse_id), scid)

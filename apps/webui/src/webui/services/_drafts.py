@@ -9,11 +9,17 @@ class DraftMixin:
     def list_drafts(self, *, status: str = "all", page: int = 1, page_size: int = 20,
                     store_client_id: str | None = None) -> dict:
         """草稿绑定店：store_client_id 非 None 时只返回该店草稿（计数同）。
-        没传 store_client_id → 回退用户默认店(settings.ozon_client_id)，只查这一个店；
-        否则"不带店=全店混列"会和前端"带当前店"的请求结果打架(草稿忽有忽无)。
-        没配默认店才退回不过滤(兼容)。"""
+        没传 store_client_id → 回退默认店：先 settings.ozon_client_id，再 ozon_stores 里 is_default/第一个店。
+        绝不"不带店=全店混列"（会和前端"带当前店"的请求结果打架，草稿忽有忽无）；
+        只有完全没配任何店时才退回不过滤(单店/旧数据兼容)。"""
         if store_client_id is None:
-            default_store = str((self.store.get_settings() or {}).get("ozon_client_id") or "")
+            s = self.store.get_settings() or {}
+            default_store = str(s.get("ozon_client_id") or "")
+            if not default_store:
+                stores = s.get("ozon_stores") or []
+                if stores:
+                    dft = next((x for x in stores if x.get("is_default")), stores[0])
+                    default_store = str(dft.get("client_id") or "")
             store_client_id = default_store or None
         scid = None if store_client_id is None else str(store_client_id or "")
         # 列表按变体组聚合：同组只出一行(代表)，Tab 计数同口径——避免数字对不上/同组跨页重复
@@ -176,10 +182,17 @@ class DraftMixin:
                 dsr = loads_json(dsr, {})
             dsr = dsr or {}
             flags = step_flags(d)
+            preview_image = (list(d.get("images") or [])[:1] or [""])[0]
+            if not preview_image:
+                preview_image = next(
+                    (str(m.get("local_url") or m.get("url") or "") for m in (d.get("materials") or [])
+                     if str(m.get("local_url") or m.get("url") or "")),
+                    "",
+                )
             out.append({"id": d.get("id"),
                         "spec": str(dsr.get("spec_attrs") or dsr.get("variant_label") or "").strip(),
                         "price": d.get("price"), "status": d.get("status"),
-                        "image": (list(d.get("images") or [])[:1] or [""])[0],
+                        "image": preview_image,
                         "current": d.get("id") == draft_id,
                         "steps": flags,
                         "done": sum(1 for v in flags.values() if v)})

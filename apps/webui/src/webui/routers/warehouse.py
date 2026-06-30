@@ -29,6 +29,14 @@ def warehouses_sync(store_client_id: str | None = None) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/api/stores/stats")
+def store_stats(store_client_id: str | None = None) -> dict:
+    try:
+        return app_instance.APP.store_stats(store_client_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/api/warehouses/default")
 def warehouses_default(body: DefaultWarehouseIn, store_client_id: str | None = None) -> dict:
     return app_instance.APP.set_default_warehouse(body.warehouse_id, store_client_id)

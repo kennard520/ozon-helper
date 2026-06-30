@@ -211,6 +211,63 @@ def test_rebuild_procurement_preserves_state():
             eng.dispose()
 
 
+def test_list_procurement_joins_draft_title():
+    """list_procurement 按 offer_id+店 JOIN drafts 补 title/posting_status；
+    ozon_title 优先，空回退 source_title，查不到草稿则空串。"""
+    from sqlalchemy import insert as _insert
+
+    from ozon_common.dal.schema import drafts as _DR
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        eng = _bind(tmp)
+        try:
+            scid = "storeT"
+            # 草稿1：ozon_title 有值；草稿2：ozon_title 空 → 回退 source_title
+            with S.session_scope():
+                base = dict(
+                    user_id=1, source_platform="1688", source_url="u",
+                    source_title="源标题", ozon_title="", description="d",
+                    category_id="1", price="10", old_price="10", stock=1,
+                    images_json="[]", attributes_json="{}", status="draft",
+                    validation_errors_json="[]", purchase_url="",
+                    type_id="", brand_name="", supplier="", source="",
+                    media_status="done", variant_group="",
+                    created_at="2026-06-28T00:00:00",
+                    updated_at="2026-06-28T00:00:00", store_client_id=scid,
+                )
+                S.current_session().execute(
+                    _insert(_DR).values({**base, "source_url": "u1", "offer_id": "SKU-1",
+                                         "ozon_title": "俄语标题1", "source_title": "源1"})
+                )
+                S.current_session().execute(
+                    _insert(_DR).values({**base, "source_url": "u2", "offer_id": "SKU-2",
+                                         "ozon_title": "", "source_title": "源2"})
+                )
+            postings_data = [{
+                "posting_number": "PN-T1", "status": "awaiting_packaging",
+                "products": [{"offer_id": "SKU-1", "quantity": 2},
+                             {"offer_id": "SKU-2", "quantity": 1},
+                             {"offer_id": "NO-DRAFT", "quantity": 1}],
+                "raw": {},
+            }]
+            with S.session_scope():
+                OrderRepo().upsert_postings(postings_data, store_client_id=scid)
+                OrderRepo().rebuild_procurement(store_client_id=scid)
+
+            with S.session_scope():
+                rows = OrderRepo().list_procurement(store_client_id=scid)
+
+            by_offer = {r["offer_id"]: r for r in rows}
+            assert by_offer["SKU-1"]["title"] == "俄语标题1"
+            assert by_offer["SKU-2"]["title"] == "源2"  # ozon_title 空 → source_title
+            assert by_offer["NO-DRAFT"]["title"] == ""   # 无草稿 → 空串
+            assert by_offer["SKU-1"]["posting_status"] == "awaiting_packaging"
+            # 行数不被 JOIN 放大（每个采购行恰好一行）
+            assert len(rows) == 3
+        finally:
+            eng.dispose()
+
+
 def test_list_procurement_store_filter():
     """list_procurement 按店过滤。"""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

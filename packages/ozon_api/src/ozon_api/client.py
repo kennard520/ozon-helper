@@ -371,6 +371,9 @@ class OzonSellerClient:
         return self.request("/v3/product/list",
                             {"filter": filt, "last_id": last_id, "limit": int(limit)})
 
+    def finance_cash_flow_statement(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.request("/v1/finance/cash-flow-statement/list", payload)
+
     def get_products_info(self, *, offer_ids: list[str] | None = None,
                           product_ids: list[int] | None = None) -> dict[str, Any]:
         if offer_ids:
