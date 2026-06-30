@@ -64,6 +64,54 @@ class AiImageServiceTest(unittest.TestCase):
                 media_mod.MEDIA_ROOT = orig_root
                 importlib.reload(svc)
 
+    def test_multiple_ai_images_append_without_overwriting(self):
+        import webui.agnes as agnes_mod
+        import webui.media as media_mod
+        import webui.store as store_mod
+        orig_db, orig_root = store_mod.DEFAULT_DB, media_mod.MEDIA_ROOT
+        orig_gen = agnes_mod.generate_image
+        with tempfile.TemporaryDirectory() as tmp:
+            media_mod.MEDIA_ROOT = Path(tmp) / "images"
+            svc, app = _make_app(tmp)
+            orig_dl = svc._download_bytes
+            try:
+                d = _new_draft(app, "https://x/multi")
+                app.store.add_draft_image(d["id"], "https://a/base.jpg",
+                                          type="main", source="generated")
+                calls = []
+
+                def fake_gen(settings, prompt, *, size="1024x768", source_images=None):
+                    calls.append(list(source_images or []))
+                    return f"https://cdn.agnes/gen-{len(calls)}.png"
+
+                agnes_mod.generate_image = fake_gen
+                svc._download_bytes = lambda url, timeout=120: url.encode()
+                first = app.ai_generate_image(
+                    d["id"], mode="img2img", prompt="localize",
+                    source_url="https://cdn.source/one.jpg",
+                )
+                second = app.ai_generate_image(
+                    d["id"], mode="img2img", prompt="localize",
+                    source_url="https://cdn.source/two.jpg",
+                )
+
+                self.assertTrue(first["image"].startswith("/media/draft-%d/" % d["id"]))
+                self.assertTrue(second["image"].startswith("/media/draft-%d/" % d["id"]))
+                self.assertNotEqual(first["image"], second["image"])
+                imgs = second["draft"]["images"]
+                self.assertEqual(imgs[0], "https://a/base.jpg")
+                self.assertIn(first["image"], imgs)
+                self.assertIn(second["image"], imgs)
+                self.assertEqual(len([u for u in imgs if u.startswith("/media/")]), 2)
+                self.assertEqual(calls, [["https://cdn.source/one.jpg"], ["https://cdn.source/two.jpg"]])
+            finally:
+                agnes_mod.generate_image = orig_gen
+                svc._download_bytes = orig_dl
+                app.store.close(); gc.collect()
+                store_mod.DEFAULT_DB = orig_db
+                media_mod.MEDIA_ROOT = orig_root
+                importlib.reload(svc)
+
     def test_img2img_as_main_with_local_source_becomes_data_uri(self):
         import webui.agnes as agnes_mod
         import webui.media as media_mod

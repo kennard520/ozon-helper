@@ -193,7 +193,8 @@ async function generate() {
   try {
     const res = mode.value === 'img2img' ? await runImg2Img(id) : await runText2Img(id)
     if (res === 'aborted') return
-    ElMessage.success('已生成并加入图集')
+    const count = Number(res && res.count) || 1
+    ElMessage.success(count > 1 ? `已生成 ${count} 张并加入图集` : '已生成并加入图集')
     emit('generated')
   } catch (e) {
     ElMessage.warning(`生成失败：${e && e.message ? e.message : e}`)
@@ -228,6 +229,7 @@ async function runImg2Img(id) {
   p = withReferencePrompt(p)
 
   let last = null
+  let count = 0
   for (let i = 0; i < selSources.value.length; i += 1) {
     last = await api.aiImage(id, {
       mode: 'img2img',
@@ -237,19 +239,21 @@ async function runImg2Img(id) {
       size: size.value,
       as_main: asMain.value && i === 0,
     })
+    count += 1
   }
-  return last
+  return { last, count }
 }
 
 async function runText2Img(id) {
   let p = promptText.value
   if (!p) p = quickOp.value === 'poster' ? POSTER_PROMPT : ''
-  return api.aiImage(id, {
+  const last = await api.aiImage(id, {
     mode: 'text2img',
     prompt: p,
     size: size.value,
     as_main: asMain.value,
   })
+  return { last, count: 1 }
 }
 
 watch(open, (v) => {

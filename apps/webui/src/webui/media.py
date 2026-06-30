@@ -93,11 +93,12 @@ def save_upload(key: str, filename: str, data: bytes) -> str:
     """存上传文件到 data/images/<key>/，返回 /media/<key>/<safe> 路径。"""
     import re
     import time
+    import uuid
     dest = MEDIA_ROOT / _safe(key)
     dest.mkdir(parents=True, exist_ok=True)
     ext = (filename.rsplit(".", 1)[-1] if "." in filename else "bin").lower()
     ext = re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
-    name = f"up-{int(time.time()*1000)}.{ext}"
+    name = f"up-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}.{ext}"
     (dest / name).write_bytes(data)
     return f"/media/{_safe(key)}/{name}"
 

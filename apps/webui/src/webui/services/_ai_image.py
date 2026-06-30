@@ -121,20 +121,23 @@ class AiImageMixin:
             raise RuntimeError(f"生成图过大({len(data) // 1024 // 1024}MB > 20MB)")
         local = _media.save_upload(f"draft-{draft_id}", fname, data)
         # 生图可能阻塞数分钟——写前重读草稿，别用进入时的旧快照盖掉期间的用户编辑/并发生成
-        cur = self.store.get_draft(draft_id)
-        if cur is None:
-            raise KeyError(f"draft {draft_id} not found")
-        images = list(cur.get("images") or [])
-        patch: dict = {"images": images}
         if as_main:
+            cur = self.store.get_draft(draft_id)
+            if cur is None:
+                raise KeyError(f"draft {draft_id} not found")
+            images = list(cur.get("images") or [])
+            patch: dict = {"images": images}
             images.insert(0, local)
             # images↔local_images 是按下标配对的平行数组（前端 localMap），头插必须同步补位
             locs = list(cur.get("local_images") or [])
             if locs:
                 patch["local_images"] = ["", *locs]
+            updated = self.store.update_draft(draft_id, patch)
         else:
-            images.append(local)
-        updated = self.store.update_draft(draft_id, patch)
+            self.store.add_draft_image(draft_id, local, source="generated")
+            updated = self.store.get_draft(draft_id)
+            if updated is None:
+                raise KeyError(f"draft {draft_id} not found")
         return {"ok": True, "draft": updated, "image": local, "remote_url": remote_url}
 
     def _image_bytes(self, src: str) -> bytes:
