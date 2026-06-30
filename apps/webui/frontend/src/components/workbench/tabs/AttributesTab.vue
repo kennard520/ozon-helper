@@ -114,6 +114,7 @@ function onDescriptionChange() {
           :model-value="tagText"
           placeholder="多个标签用逗号分隔"
           :class="{ 'is-missing': missingSet.has('标签') }"
+          @input="onTagsChange"
           @change="onTagsChange"
         />
       </div>

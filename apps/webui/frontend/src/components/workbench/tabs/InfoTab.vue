@@ -3,14 +3,11 @@ import { computed } from 'vue'
 import { ElInput, ElInputNumber } from 'element-plus'
 import CategorySelect from '../../../components/CategorySelect.vue'
 import BrandSelect from '../../../components/BrandSelect.vue'
-import { SButton } from '../../../ui/index.js'
 
 const props = defineProps({
   form: { type: Object, required: true },
   draft: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['save'])
-
 const categoryModel = computed({
   get: () => ({ cat: props.form.category_id, type: props.form.type_id }),
   set: (v) => {
@@ -82,10 +79,6 @@ const brandModel = computed({
         </div>
       </div>
     </div>
-
-    <div class="tab-actions">
-      <SButton variant="primary" @click="emit('save')">保存</SButton>
-    </div>
   </div>
 </template>
 
@@ -117,5 +110,4 @@ const brandModel = computed({
 }
 .dims { display: flex; align-items: center; gap: 8px; }
 .dims__x { color: var(--c-text-3, #8a94a3); flex: 0 0 auto; }
-.tab-actions { display: flex; justify-content: flex-end; }
 </style>

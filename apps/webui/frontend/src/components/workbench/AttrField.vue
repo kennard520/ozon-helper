@@ -58,7 +58,7 @@ function onText(v) {
     >
       <ElOption v-for="o in options" :key="o.id" :label="o.value" :value="o.id" />
     </ElSelect>
-    <ElInput v-else :model-value="textVal" placeholder="填写" @change="onText" />
+    <ElInput v-else :model-value="textVal" placeholder="填写" @input="onText" @change="onText" />
   </div>
 </template>
 

@@ -42,7 +42,7 @@ describe('AttrField', () => {
 
   it('自由文本输入 → emit [{value}]', async () => {
     const w = factory(textDef)
-    w.findComponent({ name: 'ElInput' }).vm.$emit('change', '手填值')
+    w.findComponent({ name: 'ElInput' }).vm.$emit('input', '手填值')
     await w.vm.$nextTick()
     const ev = w.emitted('update:modelValue')
     expect(ev[ev.length - 1][0]).toEqual([{ value: '手填值' }])

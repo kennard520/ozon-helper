@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useWorkbenchStore, variantColorName } from '../../stores/workbench.js'
 import { useDraftForm } from '../../composables/useDraftForm.js'
-import { STabs } from '../../ui/index.js'
+import { SButton, STabs } from '../../ui/index.js'
 import InfoTab from './tabs/InfoTab.vue'
 import PurchaseTab from './tabs/PurchaseTab.vue'
 import VideoTab from './tabs/VideoTab.vue'
@@ -14,6 +14,7 @@ const wb = useWorkbenchStore()
 const fm = useDraftForm(computed(() => wb.currentVariantId))
 const draftSafe = computed(() => fm.draft.value || {})
 const active = ref('info')
+const saving = ref(false)
 
 const SYS_ATTR_IDS = new Set([9048, 23171, 85])
 const ready = computed(() => {
@@ -49,6 +50,17 @@ async function refreshDetail() {
   await fm.load()
   await wb.reload()
 }
+
+async function saveDetail() {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await fm.save()
+    await fm.load()
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -59,6 +71,9 @@ async function refreshDetail() {
         <span class="dt-head__scope">{{ scopeText }}</span>
       </div>
       <div class="dt-actions">
+        <SButton size="sm" variant="primary" :loading="saving" :disabled="detailLoading" @click="saveDetail">
+          保存
+        </SButton>
         <button class="dt-refresh" :disabled="detailLoading" @click="refreshDetail">
           {{ detailLoading ? '刷新中...' : '刷新' }}
         </button>
@@ -67,8 +82,8 @@ async function refreshDetail() {
 
     <STabs :items="TABS" :active-key="active" @change="(k) => active = k" />
     <div class="dt__body">
-      <InfoTab v-if="active === 'info'" :form="fm.form" :draft="draftSafe" @save="fm.save" />
-      <PurchaseTab v-else-if="active === 'purchase'" :form="fm.form" @save="fm.save" />
+      <InfoTab v-if="active === 'info'" :form="fm.form" :draft="draftSafe" />
+      <PurchaseTab v-else-if="active === 'purchase'" :form="fm.form" />
       <VideoTab v-else-if="active === 'video'" :draft="draftSafe" @save="fm.save" />
       <RichTextTab v-else-if="active === 'richtext'" :draft="draftSafe" @saved="fm.load" />
       <AttributesTab v-else-if="active === 'attrs'" :draft="draftSafe" :form="fm.form" @saved="fm.load" @save-info="fm.save" />

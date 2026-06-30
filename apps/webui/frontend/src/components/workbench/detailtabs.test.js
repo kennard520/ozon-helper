@@ -96,7 +96,20 @@ describe('DetailTabs', () => {
     expect(w.text()).toContain('雾灰 350ml')
     expect(w.text()).toContain('1/2')
     expect(w.find('.dt-refresh').exists()).toBe(true)
+    expect(w.find('.dt-actions').text()).toContain('保存')
     expect(w.find('.dt-pager').exists()).toBe(false)
+  })
+
+  it('顶部保存按钮在任意 tab 都能保存当前表单', async () => {
+    const wb = useWorkbenchStore()
+    wb.currentVariantId = 7
+    const w = mount(DetailTabs)
+    await tick()
+    const tab = w.findAll('.s-tabs__item').find(t => t.text().includes('特征'))
+    await tab.trigger('click')
+    await w.find('.dt-actions .s-btn').trigger('click')
+    await tick()
+    expect(api.patchDraft).toHaveBeenCalled()
   })
 
   it('点击刷新会重新加载详情并刷新工作台', async () => {

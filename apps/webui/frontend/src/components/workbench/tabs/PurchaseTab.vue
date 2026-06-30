@@ -1,11 +1,9 @@
 <script setup>
 import { ElInput, ElInputNumber, ElFormItem, ElForm } from 'element-plus'
-import { SButton } from '../../../ui/index.js'
 
 const props = defineProps({
   form: { type: Object, required: true },
 })
-const emit = defineEmits(['save'])
 </script>
 
 <template>
@@ -45,22 +43,11 @@ const emit = defineEmits(['save'])
         />
       </ElFormItem>
     </ElForm>
-
-    <div class="tab-actions">
-      <SButton variant="primary" @click="emit('save')">保存</SButton>
-    </div>
   </div>
 </template>
 
 <style scoped>
 .purchase-tab {
   padding: var(--space-4, 16px);
-}
-.purchase-form {
-  margin-bottom: var(--space-4, 16px);
-}
-.tab-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 </style>
