@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 NO_BRAND = "Нет бренда"
@@ -17,6 +18,12 @@ _SYS_NAV = ("You navigate the Ozon category tree to classify a product. Given a 
             "function belongs elsewhere: e.g. an automatic pet feeder with a camera is still a feeder "
             "(classify under feeding/tableware), NOT under pet gadgets. Output only JSON "
             "{\"index\": int} (0-based). No explanation.")
+
+_SYS_NAV_LEAF = ("You classify an Ozon product by choosing the SINGLE best final leaf category "
+                 "from a numbered candidate list. Each option is a full category path ending in "
+                 "the final product type. Judge by the product's PRIMARY purpose - what it "
+                 "fundamentally is and does - not by secondary features, marketing claims, or "
+                 "included accessories. Output only JSON {\"index\": int} (0-based). No explanation.")
 
 
 def _extract_json(text: str) -> Any:
@@ -48,7 +55,80 @@ def _parse_index(text: str, n: int) -> int | None:
         return None
 
 
-def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) -> dict | None:
+def _flatten_type_options(roots: list) -> list[dict]:
+    out: list[dict] = []
+
+    def walk(nodes: list, path: list[str], cur_cat: int | None = None) -> None:
+        for node in nodes or []:
+            name = _node_name(node)
+            next_path = [*path, name] if name else path
+            cat = node.get("description_category_id") or cur_cat
+            if node.get("type_id"):
+                if not node.get("disabled") and cat:
+                    out.append({
+                        "description_category_id": int(cat),
+                        "type_id": int(node["type_id"]),
+                        "path": next_path,
+                    })
+                continue
+            walk(node.get("children") or [], next_path, cat)
+
+    walk(roots or [], [])
+    return out
+
+
+def _category_candidate_score(option: dict, profile: str) -> int:
+    text = str(profile or "").lower()
+    path = " / ".join(str(x) for x in option.get("path") or []).lower()
+    if not text or not path:
+        return 0
+    score = 0
+    for token in re.findall(r"[a-zа-яё0-9]+|[\u4e00-\u9fff]{2,}", text):
+        if len(token) < 2:
+            continue
+        if token in path:
+            score += min(len(token), 12)
+    for name in option.get("path") or []:
+        name = str(name).strip().lower()
+        if len(name) >= 2 and name in text:
+            score += min(len(name) * 3, 30)
+    return score
+
+
+def navigate_category_once(roots: list, chat, profile: str, *, candidate_limit: int = 240) -> dict | None:
+    """Pick the final type with a single AI call from locally shortlisted leaf categories."""
+    leaves = _flatten_type_options(roots)
+    if not leaves:
+        return None
+    scored = [(_category_candidate_score(opt, profile), i, opt) for i, opt in enumerate(leaves)]
+    best_score = max(score for score, _, _ in scored)
+    if len(leaves) > candidate_limit and best_score <= 0:
+        return None
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    candidates = [opt for _, _, opt in scored[:candidate_limit]]
+    options = [
+        {"index": i, "path": " / ".join(opt.get("path") or [])}
+        for i, opt in enumerate(candidates)
+    ]
+    user = ("Final category candidates (pick the best matching final leaf index):\n"
+            + json.dumps(options, ensure_ascii=False)
+            + "\n\nProduct:\n" + (profile or ""))
+    idx = _parse_index(chat(_SYS_NAV_LEAF, user), len(candidates))
+    if idx is None:
+        idx = _parse_index(chat(_SYS_NAV_LEAF, user), len(candidates))
+    if idx is None:
+        return None
+    chosen = candidates[idx]
+    return {
+        "description_category_id": int(chosen["description_category_id"]),
+        "type_id": int(chosen["type_id"]),
+        "path": list(chosen.get("path") or []),
+        "category_fallback": False,
+        "category_one_shot": True,
+    }
+
+
+def _navigate_category_drilldown(roots: list, chat, profile: str, *, max_depth: int = 6) -> dict | None:
     """从根逐层让 AI 选，下钻到末级类型。
     返回 {description_category_id, type_id, path, category_fallback} 或 None(树空/无可选)。"""
     current = roots or []
@@ -76,6 +156,13 @@ def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) ->
         path.append(_node_name(chosen))
         current = chosen.get("children") or []
     return None
+
+
+def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) -> dict | None:
+    nav = navigate_category_once(roots, chat, profile)
+    if nav:
+        return nav
+    return _navigate_category_drilldown(roots, chat, profile, max_depth=max_depth)
 
 
 def category_override_from_profile(roots: list, profile: str) -> dict | None:
