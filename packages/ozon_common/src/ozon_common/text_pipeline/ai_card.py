@@ -78,6 +78,48 @@ def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) ->
     return None
 
 
+def category_override_from_profile(roots: list, profile: str) -> dict | None:
+    """Deterministic category overrides for high-signal product words.
+
+    Some apparel leaves are visually/textually close for the navigator. If the
+    profile explicitly says "socks" or "gloves", trust that strong product noun
+    and find the matching Ozon leaf in the loaded category tree.
+    """
+    text = str(profile or "").lower()
+    rules = [
+        (("袜", "袜子", "短袜", "中筒袜", "носк", "носки", "sock", "socks"), ("袜子", "носки", "socks")),
+        (("手套", "перчат", "glove", "gloves"), ("手套", "перчатки", "gloves")),
+    ]
+    target_names: tuple[str, ...] | None = None
+    for keywords, names in rules:
+        if any(k in text for k in keywords):
+            target_names = tuple(n.lower() for n in names)
+            break
+    if not target_names:
+        return None
+
+    def _walk(nodes: list, path: list[str], cur_cat: int | None = None) -> dict | None:
+        for node in nodes or []:
+            n = _node_name(node)
+            next_path = [*path, n] if n else path
+            cat = node.get("description_category_id") or cur_cat
+            node_name = n.lower()
+            if node.get("type_id") and any(t == node_name or t in node_name for t in target_names):
+                return {
+                    "description_category_id": int(cat),
+                    "type_id": int(node["type_id"]),
+                    "path": next_path,
+                    "category_fallback": False,
+                    "category_override": True,
+                }
+            found = _walk(node.get("children") or [], next_path, cat)
+            if found:
+                return found
+        return None
+
+    return _walk(roots or [], [])
+
+
 def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None = None) -> str:
     """拼商品 profile 喂文案 AI。understanding(理解层事实)非空时并入——把"看图理解"的
     品类/材质/规格/卖点/场景/包装喂给文案,让简介基于图上卖点写(解决纯文本太薄)。"""

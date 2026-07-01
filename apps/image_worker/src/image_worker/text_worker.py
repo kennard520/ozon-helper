@@ -27,6 +27,7 @@ from ozon_common.settings import ai_config
 from ozon_common.text_pipeline.ai_card import (
     NO_BRAND,
     build_profile,
+    category_override_from_profile,
     clean_hashtags,
     navigate_category,
 )
@@ -307,7 +308,12 @@ def _run_category(draft_id: int) -> dict:
     settings = _settings(user_id)
     raw = dict(draft.get("source_raw") or {})
     profile = build_profile(raw, understanding=raw.get("understanding"))
-    nav = navigate_category(_category_roots(settings), lambda s, u: _chat(settings, s, u), profile)
+    roots = _category_roots(settings)
+    nav = category_override_from_profile(roots, profile)
+    if nav:
+        log.info("[category draft=%s] deterministic override path=%s", draft_id, " / ".join(nav.get("path") or []))
+    else:
+        nav = navigate_category(roots, lambda s, u: _chat(settings, s, u), profile)
     if not nav or not nav.get("type_id"):
         return {"ok": False, "matched": False, "note": "AI 没识别出类别"}
     cat, typ = int(nav["description_category_id"]), int(nav["type_id"])

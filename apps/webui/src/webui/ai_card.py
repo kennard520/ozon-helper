@@ -7,6 +7,7 @@ from ozon_common.text_pipeline.ai_card import (  # noqa: F401
     _extract_json,
     _node_name,
     _parse_index,
+    category_override_from_profile,
     navigate_category,
     build_profile,
     assemble_attributes,
