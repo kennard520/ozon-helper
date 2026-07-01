@@ -272,7 +272,7 @@ class CategoryMixin:
         **特征是按类别来的**，故这是「特征值识别(auto_map)」的前置步骤。
         复用 navigate_category(只做类别下钻)，比「智能草案」轻——不生成文案/属性。
         没看图理解(understanding)就先自动跑一遍——靠外观判类目的品类(纯文本太薄)会更准。"""
-        from webui.ai_card import build_profile, category_override_from_profile, navigate_category  # noqa: PLC0415
+        from webui.ai_card import build_profile, navigate_category  # noqa: PLC0415
         from webui.drafts import loads_json  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
@@ -297,15 +297,7 @@ class CategoryMixin:
         settings = self.store.get_settings()
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
         roots = self._category_roots_zh(settings)
-        nav = category_override_from_profile(roots, profile)
-        if nav:
-            import logging  # noqa: PLC0415
-            logging.getLogger("ozon.app").info(
-                "[recognize_category] draft=%s deterministic override path=%s",
-                draft_id, " / ".join(nav.get("path") or []),
-            )
-        else:
-            nav = navigate_category(roots, self._card_chat(settings, draft), profile)
+        nav = navigate_category(roots, self._card_chat(settings, draft), profile)
         if not nav or not nav.get("type_id"):
             return {"ok": False, "matched": False,
                     "note": "AI 没识别出类别，请手动选类目或用「智能草案」"}
