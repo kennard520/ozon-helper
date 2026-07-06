@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import webui.store as _store_mod
+
+_ORIG_DEFAULT_DB = _store_mod.DEFAULT_DB
+
 _OSS_SETTINGS = {"oss_endpoint": "e", "oss_bucket": "b",
                  "oss_access_key_id": "ak", "oss_access_key_secret": "sk"}
 
@@ -20,6 +24,31 @@ class _FakeOss:
 def _stub_oss(svc):
     """让 publish 的 OSS rehost 走假 OSS（发布前媒体托管校验通过）。"""
     svc.OssClient = lambda settings, **kw: _FakeOss()
+
+
+class _FailingOss:
+    def configured(self): return True
+    def upload_remote(self, url):
+        raise RuntimeError("upload failed")
+
+
+def _stub_failing_oss(svc):
+    svc.OssClient = lambda settings, **kw: _FailingOss()
+
+
+class _ProxyHttpOss:
+    def configured(self): return True
+    def upload_remote(self, url):
+        return "http://8.152.196.119:8585/oss/ozon-media/" + str(url).rsplit("/", 1)[-1]
+
+
+def _stub_proxy_http_oss(svc):
+    svc.OssClient = lambda settings, **kw: _ProxyHttpOss()
+
+
+def _close_app(app) -> None:
+    app.store.close()
+    _store_mod.DEFAULT_DB = _ORIG_DEFAULT_DB
 
 
 def _make_app(tmp: str):
@@ -93,7 +122,7 @@ class PublishPreviewOkTest(unittest.TestCase):
             # category_id / type_id 要能读出来（整数或字符串，不为空）
             self.assertTrue(s["category_id"])
             self.assertTrue(s["type_id"])
-            app.store.close()
+            _close_app(app)
 
     def test_preview_with_video_reports_has_video_true(self) -> None:
         """草稿有视频 URL → summary.has_video == True。"""
@@ -104,12 +133,12 @@ class PublishPreviewOkTest(unittest.TestCase):
             result = app.publish_preview(draft["id"])
             self.assertTrue(result["ok"])
             self.assertTrue(result["summary"]["has_video"])
-            app.store.close()
+            _close_app(app)
 
 
 class PublishPreviewSideEffectFreeTest(unittest.TestCase):
     def test_preview_does_not_write_status_on_error(self) -> None:
-        """有错误（无汇率）时 preview 不把草稿 status 改成 invalid。"""
+        """技术性错误（RUB 无汇率）时 preview 不把草稿 status 改成 invalid。"""
         with tempfile.TemporaryDirectory() as tmp:
             import webui.store as store_mod
 
@@ -118,9 +147,9 @@ class PublishPreviewSideEffectFreeTest(unittest.TestCase):
 
             importlib.reload(svc)
             app = svc.App()
-            # 有 API key 但故意不配 rub_cny → 汇率拦截
+            # RUB 合同币种故意不配 rub_cny → 汇率拦截
             app.store.save_settings(
-                {"ozon_client_id": "X", "ozon_api_key": "K", "contract_currency": "CNY"}
+                {"ozon_client_id": "X", "ozon_api_key": "K", "contract_currency": "RUB"}
             )
             app._category_attrs = lambda c, t: []
             draft = _draft(app)
@@ -136,7 +165,7 @@ class PublishPreviewSideEffectFreeTest(unittest.TestCase):
             refreshed = app.store.get_draft(draft["id"])
             self.assertEqual(refreshed.get("status"), original_status,
                              "preview must not persist status changes to the draft")
-            app.store.close()
+            _close_app(app)
 
     def test_preview_does_not_call_publish_items(self) -> None:
         """preview 不应调用 publish_items（外部写）。"""
@@ -160,7 +189,7 @@ class PublishPreviewSideEffectFreeTest(unittest.TestCase):
                 self.assertEqual(called["n"], 0, "publish_items must NOT be called during preview")
             finally:
                 svc.publish_items = orig
-                app.store.close()
+                _close_app(app)
 
 
 class PublishAfterRefactorTest(unittest.TestCase):
@@ -180,7 +209,7 @@ class PublishAfterRefactorTest(unittest.TestCase):
         _stub_oss(svc)
         return app
 
-    def test_publish_still_blocks_on_missing_rate(self) -> None:
+    def test_publish_still_blocks_on_missing_rub_rate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             import webui.store as store_mod
 
@@ -189,9 +218,9 @@ class PublishAfterRefactorTest(unittest.TestCase):
 
             importlib.reload(svc)
             app = svc.App()
-            # 配 OSS（让 OSS 硬拦先过），故意不配 rub_cny → 汇率拦截
+            # 配 OSS（让 OSS 硬拦先过），RUB 合同币种故意不配 rub_cny → 汇率拦截
             app.store.save_settings(
-                {"ozon_client_id": "X", "ozon_api_key": "K", "contract_currency": "CNY", **_OSS_SETTINGS}
+                {"ozon_client_id": "X", "ozon_api_key": "K", "contract_currency": "RUB", **_OSS_SETTINGS}
             )
             _stub_oss(svc)
             app._category_attrs = lambda c, t: []
@@ -201,7 +230,10 @@ class PublishAfterRefactorTest(unittest.TestCase):
             self.assertTrue(any("汇率" in e for e in r["errors"]))
             # publish 应写 status=invalid
             self.assertEqual(r["draft"]["status"], "invalid")
-            app.store.close()
+            task = next(t for t in app.store.latest_task_runs_for_draft(draft["id"]) if t["task_type"] == "publish")
+            self.assertEqual(task["status"], "failed")
+            self.assertTrue(task["error"])
+            _close_app(app)
 
     def test_publish_still_calls_publish_items_on_success(self) -> None:
         import webui.app_service as svc
@@ -229,12 +261,113 @@ class PublishAfterRefactorTest(unittest.TestCase):
                 self.assertEqual(item["currency_code"], "CNY")
             finally:
                 svc.publish_items = orig
-                app.store.close()
+                _close_app(app)
+
+    def test_publish_stops_when_media_rehost_fails(self) -> None:
+        import webui.app_service as svc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            app._category_attrs = lambda c, t: []
+            draft = _draft(app)
+            _stub_failing_oss(svc)
+
+            called = {"n": 0}
+            orig = svc.publish_items
+
+            def fake_publish(settings, items):
+                called["n"] += 1
+                return {"result": {"task_id": 0}}
+
+            svc.publish_items = fake_publish
+            try:
+                r = app.publish(draft["id"])
+                self.assertFalse(r["published"])
+                self.assertEqual(called["n"], 0)
+                self.assertTrue(any("OSS" in e for e in r["errors"]))
+                self.assertEqual(r["draft"]["status"], "invalid")
+            finally:
+                svc.publish_items = orig
+                _close_app(app)
+
+    def test_publish_stops_when_final_media_url_is_not_https(self) -> None:
+        import webui.app_service as svc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            app._category_attrs = lambda c, t: []
+            draft = _draft(app)
+            _stub_proxy_http_oss(svc)
+
+            called = {"n": 0}
+            orig = svc.publish_items
+
+            def fake_publish(settings, items):
+                called["n"] += 1
+                return {"result": {"task_id": 0}}
+
+            svc.publish_items = fake_publish
+            try:
+                r = app.publish(draft["id"])
+                self.assertFalse(r["published"])
+                self.assertEqual(called["n"], 0)
+                self.assertTrue(any("HTTPS" in e or "URL" in e for e in r["errors"]))
+                self.assertEqual(r["draft"]["status"], "invalid")
+            finally:
+                svc.publish_items = orig
+                _close_app(app)
+
+    def test_publish_allows_validation_risks_and_sends_to_ozon(self) -> None:
+        import webui.app_service as svc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            app._category_attrs = lambda c, t: []
+            draft = _draft(app, ozon_title="English title without Cyrillic")
+
+            preview = app.publish_preview(draft["id"])
+            self.assertTrue(preview["ok"])
+            self.assertTrue(any("标题" in w or "title" in w.lower() for w in preview["warnings"]))
+            self.assertTrue(preview["checks"])
+
+            captured = {}
+            orig = svc.publish_items
+            def fake_publish(settings, items):
+                captured["items"] = items
+                return {"result": {"task_id": 0}}
+            svc.publish_items = fake_publish
+            try:
+                r = app.publish(draft["id"])
+                self.assertIn("items", captured)
+                self.assertTrue(any("标题" in w or "title" in w.lower() for w in r.get("warnings", [])))
+            finally:
+                svc.publish_items = orig
+                _close_app(app)
+
+
+    def test_publish_task_failed_when_ozon_rejects(self) -> None:
+        import webui.app_service as svc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            app._category_attrs = lambda c, t: []
+            draft = _draft(app)
+            orig = svc.publish_items
+            svc.publish_items = lambda settings, items: (_ for _ in ()).throw(RuntimeError("bad media url"))
+            try:
+                r = app.publish(draft["id"])
+                self.assertFalse(r["published"])
+                task = next(t for t in app.store.latest_task_runs_for_draft(draft["id"]) if t["task_type"] == "publish")
+                self.assertEqual(task["status"], "failed")
+                self.assertIn("bad media url", task["error"])
+            finally:
+                svc.publish_items = orig
+                _close_app(app)
 
 
 class PublishPreviewRouteTest(unittest.TestCase):
     def test_route_returns_404_for_missing_draft(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             import webui.store as store_mod
 
             store_mod.DEFAULT_DB = Path(tmp) / "rt.db"
@@ -245,13 +378,13 @@ class PublishPreviewRouteTest(unittest.TestCase):
             importlib.reload(main_mod)
             from fastapi.testclient import TestClient
 
-            client = TestClient(main_mod.app)
-            r = client.get("/api/drafts/9999/publish-preview")
+            with TestClient(main_mod.app) as client:
+                r = client.get("/api/drafts/9999/publish-preview")
             self.assertEqual(r.status_code, 404)
-            main_mod.APP.store.close()
+            _close_app(main_mod.APP)
 
     def test_route_returns_200_for_valid_draft(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             import webui.store as store_mod
 
             store_mod.DEFAULT_DB = Path(tmp) / "rt2.db"
@@ -267,13 +400,13 @@ class PublishPreviewRouteTest(unittest.TestCase):
             )
             main_mod.APP._category_attrs = lambda c, t: []
             draft = _draft(main_mod.APP)
-            client = TestClient(main_mod.app)
-            r = client.get(f"/api/drafts/{draft['id']}/publish-preview")
+            with TestClient(main_mod.app) as client:
+                r = client.get(f"/api/drafts/{draft['id']}/publish-preview")
             self.assertEqual(r.status_code, 200)
             data = r.json()
             self.assertIn("ok", data)
             self.assertIn("summary", data)
-            main_mod.APP.store.close()
+            _close_app(main_mod.APP)
 
 
 class MissingAttrIsWarningTest(unittest.TestCase):
@@ -302,7 +435,7 @@ class MissingAttrIsWarningTest(unittest.TestCase):
             self.assertEqual(result["errors"], [])
             self.assertTrue(any("Бренд" in w for w in result["warnings"]))
             self.assertIsNotNone(result["summary"])
-            app.store.close()
+            _close_app(app)
 
     def test_publish_proceeds_despite_missing_attr(self) -> None:
         import webui.app_service as svc
@@ -318,4 +451,4 @@ class MissingAttrIsWarningTest(unittest.TestCase):
                 self.assertTrue(any("Бренд" in w for w in r.get("warnings", [])))
             finally:
                 svc.publish_items = orig
-                app.store.close()
+                _close_app(app)

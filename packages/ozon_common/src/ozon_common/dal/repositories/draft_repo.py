@@ -512,7 +512,14 @@ class DraftRepo(BaseRepo):
             )
         ).all()
         by_url = {str(r.url): r for r in rows}
-        target = [str(u) for u in images]
+        target = []
+        seen: set[str] = set()
+        for u in images:
+            url = str(u or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            target.append(url)
         target_set = set(target)
         if not gallery:
             base = (
@@ -572,6 +579,15 @@ class DraftRepo(BaseRepo):
         # 图片从 draft_images 一对多表读;列表场景由调用方预加载(批量),单行场景回退单查
         # all_imgs = 全部图(materials);images/image_types 只取图集(in_gallery=1)
         all_imgs = images if images is not None else self._load_draft_images(m["id"])
+        by_gallery_url: dict[str, dict[str, Any]] = {}
+        for r in all_imgs:
+            url = str(r.get("url") or "").strip()
+            if not url:
+                continue
+            prev = by_gallery_url.get(url)
+            if prev is None or (not prev.get("in_gallery") and r.get("in_gallery")):
+                by_gallery_url[url] = r
+        all_imgs = sorted(by_gallery_url.values(), key=lambda r: int(r.get("position") or 0))
         gallery = [r for r in all_imgs if r.get("in_gallery", 1)]
         images_list = [r["url"] for r in gallery]
         image_types = {r["url"]: r["type"] for r in gallery if r["type"]}

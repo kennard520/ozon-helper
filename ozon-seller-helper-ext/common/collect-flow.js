@@ -1,5 +1,6 @@
 // 就地采 → 建草稿 → 开编辑器（content script 全局 OzonHelperCollect；依赖 OzonHelperProduct/OzonHelperBridge）
 ;(function (root) {
+  const COLLECT_SCHEMA_VERSION = '2026-07-01'
   // 用商品真实 slug 路径拉 page-json（纯 id 路径 Ozon 会 301，page-json 拿不到 widgetStates）
   function _productPath(productUrl, pid) {
     try {
@@ -90,7 +91,7 @@
     if (extra) Object.assign(data, extra)
     if (rate > 0) data = OzonHelperProduct.applyRubToCny(data, rate) // 卢布→人民币，后端统一 CNY
     // 计划三：不再同步传媒体——直接推原始链接(采集秒回)，媒体由 background 后台异步传 OSS
-    const r = await OzonHelperBridge.bgCall('collectParsed', { url, data })
+    const r = await OzonHelperBridge.bgCall('collectParsed', { schema_version: COLLECT_SCHEMA_VERSION, url, data })
     if (r && r.ok) OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传，不等结果
     return { ok: !!(r && r.ok), data: r && r.data }
   }
@@ -126,7 +127,8 @@
     if (!rt.ok) { if (onStatus) onStatus('连不上后端服务器，请检查网络或联系管理员', false); return }
     if (!rt.rate) { if (onStatus) onStatus('未配置汇率:先在 webui 设置填 RUB/CNY', false); return }
     // 1) card.json → 解析正文(标题/描述/属性/图/克重尺寸)
-    const cr = await OzonHelperBridge.bgCall('wbResolveCard', { nm })
+    const cardUrl = OzonHelperWb.loadedCardJsonUrl ? OzonHelperWb.loadedCardJsonUrl(nm) : null
+    const cr = await OzonHelperBridge.bgCall('wbResolveCard', { nm, cardUrl })
     if (!cr || !cr.ok || !cr.data || !cr.data.card) {
       if (onStatus) onStatus('WB 商品数据采不到(card.json)', false)
       return
@@ -142,7 +144,7 @@
       if (wp.feedbacks != null) data.source_raw.feedbacks = wp.feedbacks
     }
     // 3) 推送（计划三：不再同步传媒体，推原始链接秒回，媒体由 background 后台异步传 OSS）
-    const r = await OzonHelperBridge.bgCall('collectParsed', { url, data })
+    const r = await OzonHelperBridge.bgCall('collectParsed', { schema_version: COLLECT_SCHEMA_VERSION, url, data })
     if (r && r.ok) {
       OzonHelperBridge.bgCall('rehostPending')   // 踢后台补传，不等结果
       if (onStatus) onStatus(wp ? '已采集 ✓' : '已采集(价格没取到,请手填)', true)
@@ -195,7 +197,16 @@
     const base = OzonHelperParse1688.parse1688Base(data, detailHtml, attrHtml, url)
     if (!base.title) { if (onStatus) onStatus('未识别到 1688 商品（标题为空）', false); return }
     const group = OzonHelperParse1688.extractOfferId(url)
-    const variants = OzonHelperParse1688.expandSkus(data, base, packHtml)
+    const parsedVariants = OzonHelperParse1688.expandSkus(data, base, packHtml)
+    const domRows = OzonHelperParse1688.parseSkuRowsFromDom(document)
+    const variants = OzonHelperParse1688.mergeSkuDomRows(parsedVariants, domRows, base)
+    const collectError = (r) => {
+      if (!r) return ''
+      if (r.error) return r.error
+      if (r.data && r.data.detail) return r.data.detail
+      if (r.status) return 'HTTP ' + r.status
+      return ''
+    }
     let firstDraftId = null
     let autoPublish = false
     let ok = 0
@@ -204,10 +215,10 @@
       if (onStatus) onStatus('采集 ' + (i + 1) + '/' + variants.length + '…', true)
       const cd = variants[i]
       if (group) cd.variant_group = group
-      const skuId = cd.source_raw && cd.source_raw.sku_id
+      const skuId = cd.source_raw && (cd.source_raw.sku_id || cd.source_raw.spec_id || cd.source_raw.spec_attrs)
       const variantUrl = OzonHelperParse1688.variantSourceUrl(url, skuId)  // 唯一化，防后端按 source_url 去重收敛
       try {
-        const r = await OzonHelperBridge.bgCall('collectParsed', { url: variantUrl, data: cd })
+        const r = await OzonHelperBridge.bgCall('collectParsed', { schema_version: COLLECT_SCHEMA_VERSION, url: variantUrl, data: cd })
         if (r && r.ok) {
           ok++
           if (firstDraftId == null) {
@@ -215,7 +226,10 @@
             firstDraftId = Array.isArray(created) && created[0] ? created[0].id : null
             autoPublish = !!(r.data && r.data.auto_publish)
           }
-        } else if (r && r.error) { lastErr = r.error }
+        } else {
+          const spec = (cd.source_raw && cd.source_raw.spec_attrs) || cd.variant_label || ('#' + (i + 1))
+          lastErr = spec + ': ' + (collectError(r) || '提交失败')
+        }
       } catch (e) { lastErr = (e && e.message) || lastErr }
     }
     if (!ok) { if (onStatus) onStatus('采集失败:' + (lastErr || '连不上后端服务器，请检查网络或联系管理员'), false); return }

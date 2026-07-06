@@ -79,6 +79,55 @@ class ExtBridgeTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_update_draft_media_rejects_missing_oss_object(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                from webui.drafts import create_draft_from_url
+                import webui.services._ext as ext_mod
+
+                source_url = "https://example.com/original.jpg"
+                d = create_draft_from_url(
+                    "https://detail.1688.com/offer/666.html",
+                    scraped={"images": [source_url]},
+                )
+                saved = self._main.APP.store.insert_draft(d)
+                self._main.APP.store.add_draft_image(
+                    saved["id"],
+                    source_url,
+                    source="generated",
+                    in_gallery=1,
+                )
+
+                class FakeOss:
+                    public_base = "http://8.152.196.119:8585/oss"
+                    bucket_name = "ozon-helper"
+                    endpoint = "oss-cn-beijing.aliyuncs.com"
+                    def configured(self): return True
+                    def object_exists(self, key): return False
+
+                orig = ext_mod.OssClient
+                ext_mod.OssClient = lambda settings: FakeOss()
+                try:
+                    resp = client.post(
+                        "/api/ext/update-draft-media",
+                        json={
+                            "draft_id": saved["id"],
+                            "media_map": {
+                                source_url: "http://8.152.196.119:8585/oss/ozon-media/missing.jpg"
+                            },
+                        },
+                    )
+                finally:
+                    ext_mod.OssClient = orig
+
+                self.assertEqual(resp.status_code, 400)
+                draft = self._main.APP.store.get_draft(saved["id"])
+                self.assertIn(source_url, draft["images"])
+                self.assertNotIn("http://8.152.196.119:8585/oss/ozon-media/missing.jpg", draft["images"])
+            finally:
+                self._main.APP.store.close()
+
     # 注：/api/ext/collect（服务器端重抓）已停用——采集全走插件 collect-parsed，故相关用例删除。
 
     def test_collect_parsed_auto_maps_when_category_present(self):
@@ -138,6 +187,7 @@ class ExtBridgeTest(unittest.TestCase):
             client = self._client(tmp)
             try:
                 payload = {
+                    "schema_version": "2026-07-01",
                     "url": "https://www.wildberries.ru/catalog/123456789/detail.aspx",
                     "data": {
                         "source_platform": "wb",
@@ -158,6 +208,7 @@ class ExtBridgeTest(unittest.TestCase):
                 self.assertEqual(d["weight_g"], 500)
                 self.assertEqual(d["source_raw"]["options"][0]["value"], "чёрный")
                 self.assertEqual(d["source_raw"]["brand_name"], "NoName")
+                self.assertEqual(d["source_raw"]["collect_schema_version"], "2026-07-01")
             finally:
                 self._main.APP.store.close()
 

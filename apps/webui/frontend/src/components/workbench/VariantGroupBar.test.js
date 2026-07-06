@@ -76,7 +76,7 @@ describe('VariantGroupBar', () => {
     await del.trigger('click')
     await flushPromises()
     expect(ElMessageBox.confirm).toHaveBeenCalled()
-    expect(api.deleteDraft).toHaveBeenCalledWith(2)
+    expect(api.deleteDraft).toHaveBeenCalledWith(2, { scope: 'single' })
     expect(w.emitted('variant-deleted')).toBeTruthy()
     expect(w.emitted('variant-deleted')[0]).toEqual([2])
   })

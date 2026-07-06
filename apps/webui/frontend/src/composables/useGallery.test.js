@@ -80,8 +80,7 @@ describe('useGallery', () => {
     const g = useGallery(mkDraft(), { onChange })
     await g.upload({ name: 'x.jpg' })
     expect(api.uploadMedia).toHaveBeenCalled()
-    const patch = api.patchDraft.mock.calls[0][1]
-    expect(patch.images).toEqual(['http://g/1.jpg', 'http://g/2.jpg', 'http://up/new.jpg'])
+    expect(api.patchDraft).not.toHaveBeenCalled()
     expect(onChange).toHaveBeenCalled()
   })
 

@@ -12,11 +12,37 @@ class AppServiceImportTest(unittest.TestCase):
 
 
 class ApiGetTest(unittest.TestCase):
+    def setUp(self) -> None:
+        import importlib  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        import webui.store as store_mod  # noqa: PLC0415
+        self._tmp = tempfile.TemporaryDirectory()
+        self._orig_db = store_mod.DEFAULT_DB
+        store_mod.DEFAULT_DB = Path(self._tmp.name) / "get.db"
+        import webui.app_service as svc  # noqa: PLC0415
+        importlib.reload(svc)
+        import webui.main as main_mod  # noqa: PLC0415
+        importlib.reload(main_mod)
+        self._main_mod = main_mod
+
+    def tearDown(self) -> None:
+        import importlib  # noqa: PLC0415
+
+        import webui.store as store_mod  # noqa: PLC0415
+        self._main_mod.APP.store.close()
+        store_mod.DEFAULT_DB = self._orig_db
+        import webui.app_service as svc  # noqa: PLC0415
+        importlib.reload(svc)
+        import webui.main as main_mod  # noqa: PLC0415
+        importlib.reload(main_mod)
+        self._tmp.cleanup()
+
     def _client(self):
         from fastapi.testclient import TestClient  # noqa: PLC0415
 
-        from webui.main import app  # noqa: PLC0415
-        return TestClient(app)
+        return TestClient(self._main_mod.app)
 
     def test_state_endpoint(self) -> None:
         resp = self._client().get("/api/state")
@@ -40,12 +66,23 @@ class ApiWriteTest(unittest.TestCase):
 
         import webui.store as store_mod  # noqa: PLC0415
         # 把默认 DB 指到临时文件
+        self._orig_db = getattr(self, "_orig_db", store_mod.DEFAULT_DB)
         store_mod.DEFAULT_DB = Path(tmp) / "api.db"
         import webui.app_service as svc  # noqa: PLC0415
         importlib.reload(svc)
         import webui.main as main_mod  # noqa: PLC0415
         importlib.reload(main_mod)
         return TestClient(main_mod.app)
+
+    def _restore_app(self) -> None:
+        import importlib  # noqa: PLC0415
+
+        import webui.store as store_mod  # noqa: PLC0415
+        store_mod.DEFAULT_DB = self._orig_db
+        import webui.app_service as svc  # noqa: PLC0415
+        importlib.reload(svc)
+        import webui.main as main_mod  # noqa: PLC0415
+        importlib.reload(main_mod)
 
     def test_settings_roundtrip(self) -> None:
         import tempfile  # noqa: PLC0415
@@ -59,6 +96,7 @@ class ApiWriteTest(unittest.TestCase):
                 self.assertEqual(resp.json()["settings"]["ozon_client_id"], "C-1")
             finally:
                 main_mod.APP.store.close()  # 关连接，否则 Windows 删不掉临时库
+                self._restore_app()
 
     def test_patch_draft(self) -> None:
         import tempfile  # noqa: PLC0415
@@ -76,6 +114,7 @@ class ApiWriteTest(unittest.TestCase):
                 self.assertEqual(resp.json()["draft"]["purchase_note"], "厂家B")
             finally:
                 main_mod.APP.store.close()
+                self._restore_app()
 
 
 class MediaRouteTest(unittest.TestCase):
@@ -107,10 +146,21 @@ class PublishLocalizationGuardTest(unittest.TestCase):
         from pathlib import Path  # noqa: PLC0415
 
         import webui.store as store_mod  # noqa: PLC0415
+        self._orig_db = getattr(self, "_orig_db", store_mod.DEFAULT_DB)
         store_mod.DEFAULT_DB = Path(tmp) / "guard.db"
         import webui.app_service as svc  # noqa: PLC0415
         importlib.reload(svc)
         return svc.App()
+
+    def _restore_app(self) -> None:
+        import importlib  # noqa: PLC0415
+
+        import webui.store as store_mod  # noqa: PLC0415
+        store_mod.DEFAULT_DB = self._orig_db
+        import webui.app_service as svc  # noqa: PLC0415
+        importlib.reload(svc)
+        import webui.main as main_mod  # noqa: PLC0415
+        importlib.reload(main_mod)
 
     def _valid_1688_draft(self) -> dict:
         from webui.drafts import create_draft_from_url  # noqa: PLC0415
@@ -125,13 +175,14 @@ class PublishLocalizationGuardTest(unittest.TestCase):
         })
         return d
 
-    def test_chinese_1688_draft_blocked(self) -> None:
+    def test_chinese_1688_draft_warns_but_can_continue(self) -> None:
         import tempfile  # noqa: PLC0415
         with tempfile.TemporaryDirectory() as tmp:
             app = self._app(tmp)
             try:
-                # 配 OSS+汇率（让 OSS 硬拦先过），用假 OSS 不依赖网络；中文未本地化应仍拦
+                # 配 OSS+汇率（让 OSS 硬拦先过），用假 OSS 不依赖网络；未本地化只提示但允许继续发
                 import webui.app_service as svc  # noqa: PLC0415
+                import webui.services._publish as publish_mod  # noqa: PLC0415
                 app.store.save_settings({"rub_cny": 0.0927, "contract_currency": "CNY",
                                          "oss_endpoint": "e", "oss_bucket": "b",
                                          "oss_access_key_id": "ak", "oss_access_key_secret": "sk"})
@@ -139,15 +190,28 @@ class PublishLocalizationGuardTest(unittest.TestCase):
                     "F", (), {"configured": lambda self: True,
                               "upload_remote": lambda self, u: "https://oss/x.jpg"})()
                 app._category_attrs = lambda c, t: []  # 跳过类目必填校验(网络依赖)
+                published_items = []
+                orig_publish_items = svc.publish_items
+                orig_get_import_info = publish_mod.get_import_info
+                orig_sleep = publish_mod.time.sleep
+                svc.publish_items = lambda settings, items: (published_items.extend(items) or {"result": {"task_id": 123}})
+                publish_mod.get_import_info = lambda settings, task_id: {"result": {"items": [{"status": "imported", "errors": []}]}}
+                publish_mod.time.sleep = lambda seconds: None
                 inserted = app.store.insert_draft(self._valid_1688_draft())
                 # 把 store 校验后的字段补成有效（insert 会按 validate 标 invalid，update 修正）
                 d = app.store.update_draft(inserted["id"], self._valid_1688_draft())
                 result = app.publish(d["id"])
-                self.assertFalse(result["published"])
-                self.assertTrue(any("未本地化" in e for e in result["errors"]),
-                                msg=f"errors={result['errors']}")
+                self.assertTrue(result["published"], msg=result)
+                self.assertFalse(result["errors"], msg=result["errors"])
+                self.assertTrue(any("1688" in w and "Ozon" in w for w in result["warnings"]),
+                                msg=f"warnings={result['warnings']}")
+                self.assertEqual(len(published_items), 1)
             finally:
+                svc.publish_items = orig_publish_items
+                publish_mod.get_import_info = orig_get_import_info
+                publish_mod.time.sleep = orig_sleep
                 app.store.close()  # 关连接，否则 Windows 删不掉临时库
+                self._restore_app()
 
 
 class FrontendServeTest(unittest.TestCase):

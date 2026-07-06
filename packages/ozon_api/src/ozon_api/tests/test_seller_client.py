@@ -127,6 +127,18 @@ class OzonSellerClientTest(unittest.TestCase):
             "cursor": "CUR1",
         })
 
+    def test_list_delivery_methods_can_include_status_filter(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.list_delivery_methods(warehouse_ids=[42], status=["ACTIVE"])
+
+        self.assertEqual(transport.calls[0]["json"], {
+            "filter": {"warehouse_ids": ["42"], "status": ["ACTIVE"]},
+            "limit": 100,
+            "sort_dir": "ASC",
+        })
+
     def test_list_delivery_methods_omits_empty_cursor(self) -> None:
         transport = FakeTransport()
         client = OzonSellerClient("123", "secret", transport=transport)

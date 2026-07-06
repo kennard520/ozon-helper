@@ -34,9 +34,9 @@ async def update_draft(draft_id: int, request: Request) -> dict:
 
 
 @router.delete("/api/drafts/{draft_id}")
-def delete_draft(draft_id: int) -> dict:
+def delete_draft(draft_id: int, scope: str = "auto") -> dict:
     try:
-        return app_instance.APP.delete(draft_id)
+        return app_instance.APP.delete(draft_id, scope=scope)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -57,6 +57,67 @@ def variant_group_siblings(draft_id: int) -> dict:
     """该草稿所属变体组的兄弟变体清单(轻量)，供编辑器展示。"""
     try:
         return app_instance.APP.variant_group_siblings(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/api/drafts/{draft_id}/pipeline")
+def draft_pipeline(draft_id: int) -> dict:
+    try:
+        return app_instance.APP.draft_pipeline(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/api/drafts/{draft_id}/pipeline/next")
+def draft_pipeline_next(draft_id: int) -> dict:
+    try:
+        return app_instance.APP.pipeline_next(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/drafts/{draft_id}/pipeline/retry")
+async def draft_pipeline_retry(draft_id: int, request: Request) -> dict:
+    body = await request.json()
+    try:
+        return app_instance.APP.pipeline_retry(draft_id, str((body or {}).get("step_id") or ""))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/drafts/{draft_id}/pipeline/skip")
+async def draft_pipeline_skip(draft_id: int, request: Request) -> dict:
+    body = await request.json()
+    try:
+        return app_instance.APP.pipeline_skip(
+            draft_id,
+            str((body or {}).get("step_id") or ""),
+            str((body or {}).get("reason") or ""),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/drafts/{draft_id}/pipeline/cancel")
+async def draft_pipeline_cancel(draft_id: int, request: Request) -> dict:
+    body = await request.json()
+    try:
+        return app_instance.APP.pipeline_cancel(
+            draft_id,
+            str((body or {}).get("step_id") or ""),
+            str((body or {}).get("reason") or ""),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001

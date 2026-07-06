@@ -52,12 +52,7 @@ export function useGallery(draftRef, { onChange } = {}) {
 
   async function upload(file) {
     const r = await api.uploadMedia(did(), file, 'image')
-    const url = r && r.url
-    if (!url) return
-    const d = draftRef.value || {}
-    const imgs = Array.isArray(d.images) ? d.images.slice() : []
-    imgs.push(url)
-    await api.patchDraft(did(), { images: imgs })
+    if (!r || !r.url) return
     return fire()
   }
 

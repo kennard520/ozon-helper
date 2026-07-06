@@ -16,6 +16,7 @@ from ozon_common.dal.engine import engine_for
 from ozon_common.dal.repositories.draft_image_repo import DraftImageRepo
 from ozon_common.dal.repositories.gen_job_repo import GenJobRepo
 from ozon_common.dal.repositories.settings_repo import SettingsRepo
+from ozon_common.dal.repositories.task_run_repo import TaskRunRepo
 from ozon_common.dal.session import bind_engine, session_scope
 from ozon_common.gen_image import (
     LOCALIZE_PROMPT,
@@ -37,6 +38,34 @@ GEN_CONCURRENCY = int(os.environ.get("GEN_CONCURRENCY") or 10)
 _GEN_SIZE = "1024x1536"
 _GEN_MAX_RETRIES = 3
 _USER_ID = 1  # worker 固定读取 admin 用户 settings
+
+
+def _sync_gen_task(job_id: int, *, status: str | None = None, error: str | None = None, result: dict | None = None) -> None:
+    repo = GenJobRepo()
+    job = repo.get_gen_job(job_id)
+    if job is None:
+        return
+    counts = repo.count_gen_job_images_by_status(job_id)
+    done = int(counts.get("done", 0))
+    failed = int(counts.get("failed", 0))
+    total = int(job.get("total") or job.get("target") or 0)
+    TaskRunRepo().upsert_external(
+        job["draft_id"],
+        "ai_image",
+        "gen_jobs",
+        job["id"],
+        job.get("user_id"),
+        status=status or str(job.get("status") or "running"),
+        progress_current=done + failed,
+        progress_total=total,
+        error=error if error is not None else job.get("error"),
+        result={"succeeded": done, "failed": failed, **(result or {})},
+    )
+
+
+def _gen_task_cancelled(job_id: int) -> bool:
+    run = TaskRunRepo().get_by_external("ai_image", "gen_jobs", job_id)
+    return bool(run and str(run.get("status") or "") in {"cancel_requested", "cancelled"})
 
 
 def _build_slot_prompt(slot: dict) -> str:
@@ -177,6 +206,12 @@ def _design_image_plan(draft: dict, target: int, settings: dict) -> list[dict]:
 def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> None:
     try:
         log.info(f"[job {job_id}] start, draft={draft_id}, target={target}, mode={mode}")
+        with session_scope():
+            if _gen_task_cancelled(job_id):
+                GenJobRepo().update_gen_job(job_id, {"status": "cancelled", "error": "cancelled"})
+                _sync_gen_task(job_id, status="cancelled", error="cancelled", result={"phase": "cancelled"})
+                log.info(f"[job {job_id}] cancelled before start")
+                return
 
         # 读取 settings + draft（只读，单 scope）
         with session_scope():
@@ -196,6 +231,11 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
         done_slots = {str(i["slot_id"]) for i in existing_images if i["status"] == "done"}
 
         # 1. 设计/读取图集计划
+        if _gen_task_cancelled(job_id):
+            with session_scope():
+                GenJobRepo().update_gen_job(job_id, {"status": "cancelled", "error": "cancelled"})
+                _sync_gen_task(job_id, status="cancelled", error="cancelled", result={"phase": "cancelled"})
+            return
         if mode in ("custom", "batch"):
             # 槽位已在 API 侧创建，跳过设计
             if not existing_images:
@@ -203,14 +243,17 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
         elif not existing_images:
             with session_scope():
                 GenJobRepo().set_gen_job_status(job_id, "designing")
+                _sync_gen_task(job_id, status="designing", result={"phase": "design"})
             images = list(draft.get("images") or [])
             if not images:
                 raise RuntimeError("草稿没有图片，无法出图")
             plan = _design_image_plan(draft, target, settings)
             with session_scope():
                 GenJobRepo().update_gen_job(job_id, {"total": len(plan)})
+                _sync_gen_task(job_id, status="designing", result={"phase": "design", "planned": len(plan)})
             with session_scope():
                 GenJobRepo().create_gen_job_images(job_id, plan)
+                _sync_gen_task(job_id, status="designing", result={"phase": "design", "planned": len(plan)})
 
         with session_scope():
             plan_images = GenJobRepo().get_gen_job_images(job_id)
@@ -219,6 +262,7 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
 
         with session_scope():
             GenJobRepo().set_gen_job_status(job_id, "running")
+            _sync_gen_task(job_id, status="running", result={"phase": "generate"})
 
         # 2. 读取 slot 元信息
         sr = draft.get("source_raw") or {}
@@ -235,8 +279,11 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
         def _process_one(t: tuple) -> dict:
             image_id, slot_id, label = t
             try:
+                if _gen_task_cancelled(job_id):
+                    return {"id": image_id, "ok": False, "cancelled": True}
                 with session_scope():
                     GenJobRepo().set_gen_job_image_status(image_id, "running")
+                    _sync_gen_task(job_id, status="running", result={"phase": "generate", "slot_id": slot_id})
                 slot = _find_slot_meta(slot_id)
                 surl = str(slot.get("source_url") or "")
                 ref_url = str(slot.get("ref_url") or "")
@@ -268,12 +315,14 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
                     DraftImageRepo().add_draft_image(draft_id, oss_url, type=_img_type_from_label(label), source="generated")
                 with session_scope():
                     GenJobRepo().set_gen_job_image_status(image_id, "done", url=oss_url)
+                    _sync_gen_task(job_id, status="running", result={"phase": "generate", "slot_id": slot_id})
                 return {"id": image_id, "ok": True, "url": oss_url}
             except Exception as exc:
                 tb = traceback.format_exc()
                 log.error(f"[job {job_id}] slot {slot_id} failed: {exc}\\n{tb[-500:]}")
                 with session_scope():
                     GenJobRepo().set_gen_job_image_status(image_id, "failed", error=str(exc)[:500])
+                    _sync_gen_task(job_id, status="running", result={"phase": "generate", "slot_id": slot_id})
                 return {"id": image_id, "ok": False, "error": str(exc)}
 
         pending = [(pi["id"], pi["slot_id"], pi["label"]) for pi in plan_images
@@ -289,19 +338,27 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
 
         # 4. 汇总
         with session_scope():
+            if _gen_task_cancelled(job_id):
+                GenJobRepo().update_gen_job(job_id, {"status": "cancelled", "error": "cancelled"})
+                _sync_gen_task(job_id, status="cancelled", error="cancelled", result={"phase": "cancelled"})
+                log.info(f"[job {job_id}] cancelled")
+                return
             counts = GenJobRepo().count_gen_job_images_by_status(job_id)
         succeeded = counts.get("done", 0)
         failed = counts.get("failed", 0)
         final_status = "done" if succeeded > 0 else "failed"
         with session_scope():
             GenJobRepo().update_gen_job(job_id, {"status": final_status, "succeeded": succeeded, "failed": failed})
+            _sync_gen_task(job_id, status=final_status, result={"phase": "done"})
         log.info(f"[job {job_id}] {final_status}: {succeeded} ok / {failed} fail")
 
     except Exception as exc:
         log.exception(f"[job {job_id}] fatal: {exc}")
         try:
             with session_scope():
-                GenJobRepo().update_gen_job(job_id, {"status": "failed", "error": str(exc)[:500]})
+                status = "cancelled" if _gen_task_cancelled(job_id) else "failed"
+                GenJobRepo().update_gen_job(job_id, {"status": status, "error": str(exc)[:500]})
+                _sync_gen_task(job_id, status=status, error=str(exc)[:500], result={"phase": "fatal"})
         except Exception:
             pass
         raise

@@ -57,6 +57,13 @@ def translate_draft(draft_id: int) -> dict:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
+        tasks = app_instance.APP.store.latest_task_runs_for_draft(draft_id)
+        task = next((t for t in tasks if t.get("task_type") == "translate"), None)
+        if task:
+            app_instance.APP.store.update_task_run(
+                task["id"],
+                {"status": "failed", "error": str(exc)[:500], "progress_current": 0, "result": {"phase": "failed"}},
+            )
         raise HTTPException(status_code=400, detail=str(exc))
 
 

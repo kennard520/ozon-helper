@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useWorkbenchStore, variantColorName } from '../../stores/workbench.js'
 import { useDraftForm } from '../../composables/useDraftForm.js'
 import { SButton, STabs } from '../../ui/index.js'
@@ -45,6 +45,26 @@ const curPos = computed(() => (wb.currentVariantIndex >= 0 ? wb.currentVariantIn
 const total = computed(() => wb.variantCount)
 const scopeText = computed(() => `正在编辑 ${curSpec.value}（${curPos.value}/${total.value}）`)
 const detailLoading = computed(() => !!fm.loading.value)
+
+function tabForFocus(target) {
+  const action = String((target && target.fix_action) || '')
+  const step = String((target && target.step) || '')
+  const field = String((target && target.field) || '')
+  if (step === 'media' || action.includes('image') || field === 'images') return 'images'
+  if (step === 'attributes' || step === 'attribute_mapping' || step === 'category_recognition' || action.includes('category') || action.includes('attr')) return 'attrs'
+  if (step === 'rich_content' || action.includes('rich')) return 'richtext'
+  if (field === 'video_url' || action.includes('video')) return 'video'
+  if (field.includes('purchase') || action.includes('purchase')) return 'purchase'
+  return 'info'
+}
+
+watch(() => wb.focusTarget, async (target) => {
+  if (!target) return
+  active.value = tabForFocus(target)
+  await nextTick()
+  const body = document.querySelector('.dt__body')
+  if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}, { deep: true })
 
 async function refreshDetail() {
   await fm.load()

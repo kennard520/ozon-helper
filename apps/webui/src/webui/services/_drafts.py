@@ -147,17 +147,33 @@ class DraftMixin:
                 errors.append({"id": did, "error": str(exc)})
         return {"updated": updated, "errors": errors}
 
-    def delete(self, draft_id: int) -> dict:
+    def delete(self, draft_id: int, scope: str = "auto") -> dict:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
         # 删除草稿只清理本地工作台记录，不级联下架/删除 Ozon 线上商品。
         # 线上商品的下架、归档、删除必须走单独的显式操作，避免误删已发布商品。
-        self.store.delete_draft(draft_id)
+        scope_norm = str(scope or "auto").strip().lower()
+        deleted_ids = [int(draft_id)]
+        from webui.drafts import loads_json  # noqa: PLC0415
+        sr = draft.get("source_raw")
+        if isinstance(sr, str):
+            sr = loads_json(sr, {})
+        group = str((sr or {}).get("variant_group") or "").strip()
+        if group and scope_norm in {"group", "auto", ""}:
+            siblings = self.store.list_drafts_by_variant_group(group)
+            sibling_ids = [int(d["id"]) for d in siblings]
+            is_group_rep = bool(sibling_ids) and int(draft_id) == max(sibling_ids)
+            if scope_norm == "group" or is_group_rep:
+                deleted_ids = sibling_ids
+        for did in deleted_ids:
+            self.store.delete_draft(did)
         # 不再回传全量 drafts（list_drafts 会把全部草稿全字段序列化，又慢又大；前端删除后自行 removeDraft/重拉分页）
         return {
             "deleted": True,
             "id": draft_id,
+            "ids": deleted_ids,
+            "scope": "group" if len(deleted_ids) > 1 else "single",
             "ozon_deleted": False,
             "ozon_response": None,
             "ozon_error": None,

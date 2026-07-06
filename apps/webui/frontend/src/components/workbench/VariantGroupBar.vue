@@ -67,7 +67,7 @@ async function onSelect(v) {
 async function onDelete(v) {
   try {
     await ElMessageBox.confirm('删除该变体草稿？', '删除', { type: 'warning' })
-    await api.deleteDraft(v.id)
+    await api.deleteDraft(v.id, { scope: 'single' })
     emit('variant-deleted', v.id)
   } catch {
     // 取消忽略

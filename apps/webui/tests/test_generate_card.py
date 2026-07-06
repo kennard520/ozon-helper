@@ -11,8 +11,8 @@ TREE = [
 
 class GenerateCardNavTest(unittest.TestCase):
     def test_uses_category_roots_navigation(self):
-        # 序列：2 次类目下钻 + 文案(标题/描述/标签) + 属性(尺寸/毛重)
-        seq = ['{"index":0}', '{"index":0}',
+        # 序列：1 次类目选择 + 文案(标题/描述/标签) + 属性(尺寸/毛重)
+        seq = ['{"index":0}',
                '{"ozon_title":"Сумка кожаная","description":"опис","hashtags":["сумка","#кожа"]}',
                '{"attributes":[],"weight_g":300,"length_cm":20,"width_cm":15,"height_cm":8}']
         st = {"i": 0}

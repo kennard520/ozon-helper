@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../api.js', () => ({ api: {
+  listDrafts: vi.fn().mockResolvedValue({ drafts: [], total: 0, counts: {} }),
   listWarehouses: vi.fn().mockResolvedValue({ warehouses: [] }),
-  deleteDraft: vi.fn().mockResolvedValue({}),
+  deleteDraft: vi.fn().mockResolvedValue({ ids: [7] }),
   batchUpdateDrafts: vi.fn().mockResolvedValue({ updated: [1], errors: [] }),
 } }))
 vi.mock('element-plus', () => ({
@@ -26,12 +27,12 @@ describe('useDraftBatchOps', () => {
     expect(typeof ops.loadWarehouses).toBe('function')
     expect(ops.warehouses).toBeDefined()
   })
-  it('doDelete 确认后调 api.deleteDraft + removeDraft', async () => {
+  it('doDelete 确认后按组调 api.deleteDraft + removeDraft', async () => {
     const store = useAppStore()
     store.drafts = [{ id: 7 }]
     const ops = useDraftBatchOps(store)
     await ops.doDelete([{ id: 7 }])
-    expect(api.deleteDraft).toHaveBeenCalledWith(7)
+    expect(api.deleteDraft).toHaveBeenCalledWith(7, { scope: 'group' })
     expect(store.drafts.find(d => d.id === 7)).toBeFalsy()
   })
 })

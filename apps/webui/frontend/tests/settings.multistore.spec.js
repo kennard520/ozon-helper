@@ -9,73 +9,41 @@ import { useAppStore } from '../src/stores/app.js'
 beforeEach(() => setActivePinia(createPinia()))
 afterEach(() => vi.restoreAllMocks())
 
-describe('Settings.vue 店铺管理', () => {
-  it('渲染已有店铺：name、client_id 末4位、已配', async () => {
+describe('Settings.vue', () => {
+  it('renders current settings sections', async () => {
     const store = useAppStore()
     store.settings = {
-      ozon_client_id: '111',
-      ozon_stores: [{ name: '店2', client_id: '2222', is_default: true, api_key_saved: true }],
+      rub_cny: 0.09,
+      contract_currency: 'CNY',
+      ai_platforms: [{ name: 'GPTPlus5', base: 'https://example.test/v1', key_saved: true }],
     }
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
-    await w.vm.$nextTick()
+    await flushPromises()
     const text = w.text()
-    expect(text).toContain('店2')
-    expect(text).toMatch(/2{3,4}/)  // 末4位包含 '2222'
-    expect(text).toContain('已配')
+    expect(text).toContain('System Settings')
+    expect(text).toContain('AI')
+    expect(text).toContain('realFBS')
   })
 
-  it('点添加按钮调用 api.saveSettings，包含新店且首店设默认', async () => {
+  it('save sends base preferences and AI platform config', async () => {
     const store = useAppStore()
-    store.settings = { ozon_client_id: '', ozon_stores: [] }
+    store.settings = { rub_cny: 0.1, contract_currency: 'CNY', ai_platforms: [] }
     const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({
-      settings: {
-        ozon_stores: [{ name: '店A', client_id: '333', is_default: true, api_key_saved: true }],
-      },
-      status: {}, paths: {},
+      settings: { rub_cny: 0.11, contract_currency: 'RUB', ai_platforms: [] },
+      status: {},
+      paths: {},
     })
     const w = mount(Settings, { global: { plugins: [ElementPlus] } })
     await flushPromises()
-    w.vm.newStore.name = '店A'
-    w.vm.newStore.client_id = '333'
-    w.vm.newStore.api_key = 'SK-A'
-    await w.vm.addStore()
-    await flushPromises()
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ozon_stores: expect.arrayContaining([
-          expect.objectContaining({ name: '店A', client_id: '333', api_key: 'SK-A', is_default: true }),
-        ]),
-      }),
-    )
-    expect(w.vm.newStore.name).toBe('')  // 添加后清空输入框
-  })
-
-  it('设为默认：调用 saveSettings，目标店 is_default=true 其余 false', async () => {
-    const store = useAppStore()
-    store.settings = { ozon_stores: [
-      { name: 'A', client_id: '1', is_default: true, api_key_saved: true },
-      { name: 'B', client_id: '2', is_default: false, api_key_saved: true } ] }
-    const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: store.settings, status: {}, paths: {} })
-    const w = mount(Settings, { global: { plugins: [ElementPlus] } })
-    await flushPromises()
-    await w.vm.setDefaultStore('2')
-    await flushPromises()
-    const sent = spy.mock.calls.at(-1)[0].ozon_stores
-    expect(sent.find(s => s.client_id === '2').is_default).toBe(true)
-    expect(sent.find(s => s.client_id === '1').is_default).toBe(false)
-  })
-
-  it('删除店铺：发送剩余列表(不含被删)', async () => {
-    const store = useAppStore()
-    store.settings = { ozon_stores: [
-      { name: 'A', client_id: '1', is_default: true, api_key_saved: true },
-      { name: 'B', client_id: '2', is_default: false, api_key_saved: true } ] }
-    const spy = vi.spyOn(api, 'saveSettings').mockResolvedValue({ settings: store.settings, status: {}, paths: {} })
-    const w = mount(Settings, { global: { plugins: [ElementPlus] } })
-    await flushPromises()
-    await w.vm.removeStore('1')
-    await flushPromises()
-    const sent = spy.mock.calls.at(-1)[0].ozon_stores
-    expect(sent.map(s => s.client_id)).toEqual(['2'])
+    w.vm.form.contract_currency = 'RUB'
+    w.vm.form.rub_cny = 0.11
+    w.vm.aiPlatforms.push({ name: 'P1', base: 'https://ai.test/v1', key: 'KEY', key_saved: false })
+    await w.vm.save()
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
+      contract_currency: 'RUB',
+      rub_cny: 0.11,
+      ai_platforms: [expect.objectContaining({ name: 'P1', base: 'https://ai.test/v1', key: 'KEY' })],
+    }))
+    expect(store.settings.contract_currency).toBe('RUB')
   })
 })

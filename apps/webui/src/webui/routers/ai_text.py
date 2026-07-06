@@ -8,11 +8,39 @@ from webui.models import AiProposalPatchIn
 router = APIRouter()
 
 
+def _run_tracked(draft_id: int, task_type: str, fn):
+    if app_instance.APP.store.get_draft(draft_id) is None:
+        raise KeyError(f"draft {draft_id} not found")
+    run = app_instance.APP.store.create_task_run(
+        draft_id,
+        task_type,
+        status="running",
+        progress_total=1,
+        source="webui",
+        result={"phase": "start"},
+    )
+    try:
+        result = fn()
+    except Exception as exc:
+        app_instance.APP.store.update_task_run(
+            run["id"],
+            {"status": "failed", "error": str(exc)[:500], "progress_current": 0, "result": {"phase": "failed"}},
+        )
+        raise
+    app_instance.APP.store.update_task_run(
+        run["id"],
+        {"status": "done", "progress_current": 1, "result": {"phase": "done"}},
+    )
+    if isinstance(result, dict):
+        result.setdefault("task_run_id", run["id"])
+    return result
+
+
 @router.post("/api/drafts/{draft_id}/recognize-category")
 def recognize_category(draft_id: int) -> dict:
     """AI 识别类别(类别识别)，写入草稿。特征值识别(auto-map)的前置。"""
     try:
-        return app_instance.APP.recognize_category(draft_id)
+        return _run_tracked(draft_id, "category_recognition", lambda: app_instance.APP.recognize_category(draft_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -22,7 +50,7 @@ def recognize_category(draft_id: int) -> dict:
 @router.post("/api/drafts/{draft_id}/auto-map")
 def auto_map(draft_id: int) -> dict:
     try:
-        return app_instance.APP.auto_map_attributes(draft_id)
+        return _run_tracked(draft_id, "attribute_mapping", lambda: app_instance.APP.auto_map_attributes(draft_id))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -31,7 +59,7 @@ def auto_map(draft_id: int) -> dict:
 def ai_fill_attributes(draft_id: int) -> dict:
     """AI 按草稿当前类目填属性(比 auto_map 按名硬对强，适合 1688 中文参数)。"""
     try:
-        return app_instance.APP.ai_fill_attributes(draft_id)
+        return _run_tracked(draft_id, "attribute_ai_fill", lambda: app_instance.APP.ai_fill_attributes(draft_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -79,7 +107,11 @@ def make_infographic(draft_id: int, body: dict) -> dict:
 def make_rich_content(draft_id: int, body: dict | None = None) -> dict:
     """把草稿图拼成 Ozon 富文本(billboard 大图序列)，存草稿（发布时随属性 11254 上架）。"""
     try:
-        return app_instance.APP.make_rich_content(draft_id, image_indexes=(body or {}).get("image_indexes"))
+        return _run_tracked(
+            draft_id,
+            "rich_content",
+            lambda: app_instance.APP.make_rich_content(draft_id, image_indexes=(body or {}).get("image_indexes")),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:  # noqa: BLE001

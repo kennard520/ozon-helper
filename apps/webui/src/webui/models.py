@@ -151,6 +151,7 @@ class ExtCollectIn(BaseModel):
 
 
 class ExtCollectParsedIn(BaseModel):
+    schema_version: str | None = None
     url: str
     data: dict | None = None
 

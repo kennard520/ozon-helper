@@ -1,151 +1,226 @@
 <script setup>
+import { computed } from 'vue'
 import { useWorkbenchStore, variantColor, variantColorName } from '../../stores/workbench.js'
 import { useAppStore } from '../../stores/app.js'
 import { usePipeline } from '../../composables/usePipeline.js'
 import SButton from '../../ui/SButton.vue'
 import SBadge from '../../ui/SBadge.vue'
 
+const emit = defineEmits(['publish-one'])
+
 const wb = useWorkbenchStore()
 const store = useAppStore()
 const pipe = usePipeline(wb, store)
 
-const emit = defineEmits(['publish-one'])
+const CARDS = [
+  {
+    id: 'content',
+    no: 1,
+    title: 'AI 生成内容',
+    eta: '~2min（后台）',
+    backend: ['ai_text'],
+    action: '运行',
+  },
+  {
+    id: 'images',
+    no: 2,
+    title: '图集/出图',
+    eta: '~2-3min',
+    backend: ['ai_image', 'media'],
+    action: '运行',
+  },
+  {
+    id: 'rich',
+    no: 3,
+    title: '富文本',
+    eta: '即时',
+    backend: ['rich_content'],
+    action: '运行',
+  },
+  {
+    id: 'publish',
+    no: 4,
+    title: '发布',
+    eta: '~30s',
+    backend: ['preflight', 'publish'],
+    action: '发布',
+  },
+]
 
-function stepState(stepId) {
-  if (pipe.stepStatus[stepId] === 'running') return 'running'
-  if (pipe.stepStatus[stepId] === 'submitted') return 'submitted'
-  if (pipe.stepLocked(stepId)) return 'locked'
-  if (wb.currentStepDone(stepId)) return 'done'
+const currentName = computed(() => {
+  const v = wb.currentVariant
+  return v ? (v.spec || variantColorName(v) || '当前变体') : ''
+})
+
+function backendSteps(card) {
+  const steps = (pipe.pipeline.value && pipe.pipeline.value.steps) || []
+  return steps.filter((step) => card.backend.includes(step.id))
+}
+
+function cardState(card) {
+  const serverSteps = backendSteps(card)
+  const local = pipe.stepStatus[card.id]
+  const statuses = serverSteps.map((s) => String(s.status || ''))
+
+  if (local === 'running' || local === 'submitted' || statuses.some((s) => s === 'running' || s === 'submitted')) return 'running'
+  if (statuses.some((s) => s === 'failed')) return 'failed'
+  if (statuses.some((s) => s === 'blocked')) return 'locked'
+  if (card.id === 'publish' && hasPublishRisk(serverSteps)) return 'warning'
+  if (wb.currentStepDone(card.id) || (serverSteps.length && statuses.every((s) => s === 'done' || s === 'skipped'))) return 'done'
+  if (pipe.stepLocked(card.id)) return 'locked'
   return 'idle'
 }
 
-function isLocked(stepId) {
-  return stepId !== 'publish' && pipe.stepLocked(stepId)
+function hasPublishRisk(serverSteps) {
+  return serverSteps.some((step) => {
+    const status = String(step.status || '')
+    return status === 'warning' || (step.checks && step.checks.length) || (step.errors && step.errors.length)
+  })
 }
 
-function isPollingStep(stepId) {
-  if (stepId !== 'content') return false
-  if (pipe.stepStatus.content === 'submitted') return true
-  const status = pipe.textJob.value && pipe.textJob.value.status
-  return !!status && status !== 'done' && status !== 'failed'
-}
-
-function statusText(step) {
-  if (isLocked(step.id)) return '待前置步骤'
-  if (step.id === 'content' && pipe.stepStatus[step.id] === 'submitted') return '生成中（已提交，轮询中）'
-  if (step.id === 'content' && pipe.textJob.value && pipe.textJob.value.status === 'running') {
-    return `生成中（${pipe.textJob.value.current_step || '后台'}）`
-  }
-  if (step.id === 'content' && pipe.textJob.value && pipe.textJob.value.status === 'failed') return '生成失败'
-  if (wb.currentStepDone(step.id)) return '已完成 ✓'
+function statusText(card) {
+  const state = cardState(card)
+  if (state === 'done') return '已完成'
+  if (state === 'running') return card.id === 'content' && pipe.textJob.value && pipe.textJob.value.current_step
+    ? `生成中：${pipe.textJob.value.current_step}`
+    : '进行中'
+  if (state === 'failed') return '失败'
+  if (state === 'locked') return '待前置'
+  if (state === 'warning') return '有风险'
   return '未开始'
 }
 
-function statusVariant(step) {
-  if (step.id === 'content' && pipe.textJob.value && pipe.textJob.value.status === 'failed') return 'danger'
-  if (wb.currentStepDone(step.id)) return 'success'
+function statusVariant(card) {
+  const state = cardState(card)
+  if (state === 'done') return 'success'
+  if (state === 'failed' || state === 'locked') return 'danger'
+  if (state === 'warning') return 'warn'
+  if (state === 'running') return 'primary'
   return 'neutral'
+}
+
+function failureReason(card) {
+  if (card.id === 'content' && pipe.textJob.value && pipe.textJob.value.status === 'failed') {
+    return pipe.textJob.value.error || 'AI 生成失败'
+  }
+  const step = backendSteps(card).find((s) => (s.errors && s.errors.length) || s.error)
+  if (!step) return ''
+  return step.error || step.errors[0]
+}
+
+function riskMessages(card) {
+  if (card.id !== 'publish') return []
+  const messages = []
+  for (const step of backendSteps(card)) {
+    for (const check of step.checks || []) {
+      messages.push(check.message || check.label)
+    }
+    for (const error of step.errors || []) messages.push(error)
+  }
+  return messages.filter(Boolean).slice(0, 3)
+}
+
+function isRunning(card) {
+  return cardState(card) === 'running'
+}
+
+function isLocked(card) {
+  if (card.id === 'publish') return pipe.stepLocked(card.id)
+  return pipe.stepLocked(card.id)
+}
+
+function runCard(card) {
+  if (card.id === 'publish') {
+    emit('publish-one')
+    return
+  }
+  pipe.runStep(card.id)
 }
 </script>
 
 <template>
   <div class="pp-wrap">
-    <div class="pp-header">
-      <div class="pp-header__titles">
+    <header class="pp-head">
+      <div>
         <h2 class="pp-title">AI 智能上架工作台</h2>
-        <p class="pp-subtitle">选择变体 → 跑流水线 → 合并发布</p>
+        <p class="pp-subtitle">只保留四个主操作；细分任务在后台自动完成。</p>
       </div>
-    </div>
+      <div v-if="wb.currentVariant" class="pp-variant">
+        <span class="pp-variant__dot" :style="{ background: variantColor(wb.currentVariant) }"></span>
+        <span>{{ currentName }}</span>
+      </div>
+    </header>
 
-    <div class="pp-ctx" :class="{ 'pp-ctx--empty': !wb.currentVariant }">
-      <template v-if="wb.currentVariant">
-        <span class="pp-ctx__dot" :style="{ background: variantColor(wb.currentVariant) }"></span>
-        <span class="pp-ctx__text">正在操作:{{ wb.currentVariant.spec || variantColorName(wb.currentVariant) || '当前变体' }}</span>
-      </template>
-      <template v-else>
-        <span class="pp-ctx__text">请在上方选择一个变体</span>
-      </template>
-    </div>
+    <div v-if="!wb.currentVariant" class="pp-empty">请先在上方选择一个变体</div>
 
-    <div class="pp-steps">
+    <section v-else class="pp-cards">
       <div
-        v-for="(step, i) in pipe.WF"
-        :key="step.id"
-        class="pp-step"
-        :class="[`pp-step--${stepState(step.id)}`]"
+        v-for="card in CARDS"
+        :key="card.id"
+        class="pp-card"
+        :class="`pp-card--${cardState(card)}`"
       >
-        <span v-if="isPollingStep(step.id)" class="pp-step__spinner" aria-label="轮询状态"></span>
-        <div class="pp-step__meta">
-          <span class="pp-step__num" :class="`pp-step__num--${stepState(step.id)}`">
-            <template v-if="stepState(step.id) === 'done'">✓</template>
-            <template v-else-if="stepState(step.id) === 'locked'">!</template>
-            <template v-else>{{ i + 1 }}</template>
-          </span>
-          <div class="pp-step__info">
-            <span class="pp-step__label">{{ step.label }}</span>
-            <span class="pp-step__eta">{{ step.eta }}</span>
+        <div class="pp-card__main">
+          <span class="pp-card__num">{{ card.no }}</span>
+          <div class="pp-card__text">
+            <strong>{{ card.title }}</strong>
+            <span>{{ card.eta }}</span>
           </div>
         </div>
 
-        <div class="pp-step__foot">
-          <div class="pp-step__progress">
-            <SBadge :variant="statusVariant(step)">{{ statusText(step) }}</SBadge>
-          </div>
+        <div class="pp-card__bottom">
+          <SBadge :variant="statusVariant(card)">{{ statusText(card) }}</SBadge>
+          <SButton
+            variant="ghost"
+            size="sm"
+            :loading="isRunning(card)"
+            :disabled="!!pipe.batchRunningOp.value || isLocked(card)"
+            @click="runCard(card)"
+          >{{ card.action }}</SButton>
+        </div>
 
-          <div class="pp-step__action">
-            <SButton
-              v-if="step.id === 'publish'"
-              variant="ghost"
-              size="sm"
-              :disabled="!!pipe.batchRunningOp.value"
-              @click="emit('publish-one')"
-            >发布</SButton>
-            <SButton
-              v-else
-              variant="ghost"
-              size="sm"
-              :loading="pipe.stepStatus[step.id] === 'running'"
-              :disabled="!!pipe.batchRunningOp.value || isLocked(step.id)"
-              @click="pipe.runStep(step.id)"
-            >{{ isLocked(step.id) ? '锁定' : (wb.currentStepDone(step.id) ? '重跑' : '运行') }}</SButton>
-          </div>
+        <p v-if="failureReason(card)" class="pp-card__reason">{{ failureReason(card) }}</p>
+        <div v-if="riskMessages(card).length" class="pp-risks">
+          <button
+            v-for="(msg, idx) in riskMessages(card)"
+            :key="idx"
+            class="pp-risk"
+            type="button"
+          >{{ msg }}</button>
         </div>
       </div>
-    </div>
-    <div v-if="pipe.textJob.value && pipe.textJob.value.status === 'failed' && pipe.textJob.value.error" class="pp-error">
-      {{ pipe.textJob.value.error }}
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.pp-wrap{display:flex;flex-direction:column;gap:var(--sp-4)}
-.pp-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap}
-.pp-header__titles{display:flex;flex-direction:column;gap:2px}
-.pp-title{font-size:var(--fs-lg);font-weight:700;color:var(--c-text-1);margin:0}
-.pp-subtitle{font-size:var(--fs-sm);color:var(--c-text-3);margin:0}
-.pp-ctx{display:flex;align-items:center;gap:var(--sp-3);background:var(--c-primary-50);border:1px solid var(--c-primary-200);border-radius:var(--r-sm);padding:8px 14px}
-.pp-ctx__dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 1px rgba(0,0,0,.08) inset}
-.pp-ctx__text{font-size:var(--fs-sm);color:var(--c-text-2)}
-.pp-ctx--empty{background:var(--c-bg);border-color:var(--c-border)}
-.pp-ctx--empty .pp-ctx__text{color:var(--c-text-4)}
-.pp-steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-2)}
-.pp-step{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:var(--sp-2);padding:10px 12px;border-radius:var(--r-md);border:1px solid var(--c-border);background:#fff;transition:background .15s}
-.pp-step__spinner{position:absolute;top:8px;right:8px;width:16px;height:16px;border-radius:50%;border:2px solid var(--c-primary-100,#dce8ff);border-top-color:var(--c-primary,#2563eb);animation:pp-spin .8s linear infinite}
-@keyframes pp-spin{to{transform:rotate(360deg)}}
-.pp-step--running,.pp-step--submitted{background:var(--c-primary-50,#f0f5ff);border-color:var(--c-primary-200,#bfcfff)}
-.pp-step--locked{background:var(--c-bg);border-color:var(--c-border)}
-.pp-step--locked .pp-step__label{color:var(--c-text-3)}
-.pp-step__meta{display:flex;align-items:center;gap:var(--sp-3);min-width:0}
-.pp-step__num{width:22px;height:22px;border-radius:50%;background:var(--c-primary-100,#dce8ff);color:var(--c-primary);font-size:var(--fs-xs);font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid transparent;transition:background .15s,color .15s,border-color .15s}
-.pp-step__num--done{background:var(--c-success-bg);color:var(--c-success)}
-.pp-step__num--running,.pp-step__num--submitted{background:var(--c-primary);color:var(--c-white);animation:pp-pulse 1.2s ease-in-out infinite}
-.pp-step__num--locked{background:var(--c-bg);color:var(--c-text-4);border-color:var(--c-border)}
-@keyframes pp-pulse{0%,100%{box-shadow:0 0 0 0 var(--c-primary-200)}50%{box-shadow:0 0 0 5px transparent}}
-.pp-step__info{display:flex;flex-direction:column;gap:1px;min-width:0}
-.pp-step__label{font-size:var(--fs-md);font-weight:600;color:var(--c-text-1)}
-.pp-step__eta{font-size:var(--fs-xs);color:var(--c-text-3)}
-.pp-step__progress,.pp-step__action{flex-shrink:0}
-.pp-step__foot{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-top:auto}
-.pp-error{border:1px solid var(--c-danger,#dc2626);background:#fff5f5;color:var(--c-danger,#dc2626);border-radius:var(--r-sm);padding:8px 12px;font-size:var(--fs-sm);overflow-wrap:anywhere}
+.pp-wrap{display:flex;flex-direction:column;gap:12px}
+.pp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pp-title{margin:0;font-size:var(--fs-lg);font-weight:700;color:var(--c-text-1)}
+.pp-subtitle{margin:2px 0 0;font-size:var(--fs-sm);color:var(--c-text-3)}
+.pp-variant{display:flex;align-items:center;gap:8px;max-width:42%;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--r-sm);background:#fff;font-size:var(--fs-sm);color:var(--c-text-2)}
+.pp-variant__dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.pp-empty{padding:12px;border:1px dashed var(--c-border);border-radius:var(--r-sm);color:var(--c-text-3);font-size:var(--fs-sm)}
+.pp-cards{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:12px}
+.pp-card{display:flex;flex-direction:column;gap:12px;min-height:112px;padding:14px 16px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
+.pp-card--running{border-color:var(--c-primary-200);background:var(--c-primary-50,#f0f5ff)}
+.pp-card--failed,.pp-card--locked{background:#fff5f5}
+.pp-card--warning{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.06)}
+.pp-card__main{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.pp-card__num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--c-primary-100,#efe7ff);color:var(--c-primary,#7c3aed);font-size:var(--fs-sm);font-weight:800}
+.pp-card__text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pp-card__text strong{font-size:var(--fs-md);color:var(--c-text-1);line-height:1.25}
+.pp-card__text span{font-size:var(--fs-sm);color:var(--c-text-3)}
+.pp-card__bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto}
+.pp-card__reason{margin:0;color:var(--c-danger,#dc2626);font-size:var(--fs-xs);line-height:1.4;overflow-wrap:anywhere}
+.pp-risks{display:flex;flex-wrap:wrap;gap:4px}
+.pp-risk{max-width:100%;padding:2px 6px;border:1px solid rgba(245,158,11,.35);border-radius:var(--r-sm);background:rgba(245,158,11,.1);color:var(--c-text-2);font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width: 1020px){
+  .pp-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width: 620px){
+  .pp-head{flex-direction:column}
+  .pp-variant{max-width:none;width:100%}
+  .pp-cards{grid-template-columns:1fr}
+}
 </style>

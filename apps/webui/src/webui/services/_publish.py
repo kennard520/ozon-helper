@@ -4,17 +4,27 @@ from __future__ import annotations
 import time
 
 import webui.media as _media
+from webui.draft_state import blocking_errors, build_draft_checks, warning_messages
 from webui.drafts import (
     NO_BRAND,
-    dimension_warnings,
     missing_required_attributes,
     to_ozon_import_item,
     utc_now_iso,
-    validate_draft,
 )
-from webui.media_rehost import needs_rehost, rehost_draft_media
+from webui.media_rehost import needs_rehost, rehost_draft_media, rewrite_item_media
 from webui.ozon_client_adapter import get_import_info
 from webui.services._helpers import _has_cjk, _to_int
+
+
+def _invalid_publish_media_urls(item: dict, settings: dict) -> list[str]:
+    """Return media URLs that would still be invalid for Ozon after final rewrite."""
+    rewritten = rewrite_item_media(item, settings)
+    bad: list[str] = []
+    for url in rewritten.get("images") or []:
+        u = str(url or "").strip()
+        if u and not u.lower().startswith("https://"):
+            bad.append(u)
+    return bad
 
 
 class PublishMixin:
@@ -40,6 +50,14 @@ class PublishMixin:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
+        run = self.store.create_task_run(
+            draft_id,
+            "translate",
+            status="running",
+            progress_total=1,
+            source="webui",
+            result={"phase": "start"},
+        )
         settings = self.store.get_settings()
         from webui.settings_migrate import ai_config, migrate_ai  # noqa: PLC0415
         _tm = migrate_ai(settings)["translate_mode"]
@@ -52,13 +70,18 @@ class PublishMixin:
         updated = self.store.update_draft(draft_id, {"ozon_title": title, "description": desc})
         still = _has_cjk(title) or _has_cjk(desc)
         note = "" if not still else "仍含中文：manual 引擎只占位，请配置 remote 引擎或手动翻译"
+        self.store.update_task_run(
+            run["id"],
+            {"status": "done", "progress_current": 1, "result": {"phase": "done", "engine": engine.name, "still_cjk": still}},
+        )
         return {"draft": updated, "engine": engine.name, "still_cjk": still, "note": note}
 
-    def _validate_and_build_item(self, draft: dict, store_settings: dict | None = None) -> tuple[list[str], dict | None]:
+    def _validate_and_build_item(self, draft: dict, store_settings: dict | None = None) -> tuple[list[str], list[str], dict | None]:
         """共享校验 + item 构建逻辑（publish 与 publish_preview 共用）。
 
-        返回 (errors, item)：
-        - errors: 阻断性错误列表（同 publish 的拦截规则）；非空时 item 为 None
+        返回 (errors, warnings, item)：
+        - errors: 技术性阻断错误列表；非空时 item 为 None
+        - warnings: 发布前风险提示；不阻断用户继续发布
         - item: to_ozon_import_item 产出 + 币种换算后的 import item（pre-media-swap）
 
         注意：
@@ -67,13 +90,14 @@ class PublishMixin:
         - 返回的 item 仍使用 draft 里的原始 media URL（未上传替换），仅供预览；
           publish 会在校验通过后自行完成 upload + swap
         """
-        errors: list[str] = list(validate_draft(draft))
-        warnings: list[str] = list(dimension_warnings(draft))   # 克重/尺寸缺失=软警告，不拦发布
-        # 1688 来源若标题/描述仍含中文，说明还没本地化（功能③的 AI 中译俄）——拦截
+        checks = build_draft_checks(draft)
+        warnings: list[str] = [*blocking_errors(checks), *warning_messages(checks)]
+        technical_errors: list[str] = []
+        # 1688 来源若标题/描述仍含中文，说明还没本地化（功能③的 AI 中译俄）——提示但允许继续
         if draft.get("source_platform") == "1688" and (
             _has_cjk(draft.get("ozon_title")) or _has_cjk(draft.get("description"))
         ):
-            errors.append("1688 商品未本地化（标题/描述仍含中文），请先翻译成俄语再发布")
+            warnings.append("1688 商品未本地化（标题/描述仍含中文），Ozon 可能拒绝")
         # 类目必填属性：缺了只警告、不阻断——发到 Ozon 后在后台补(Ozon 卡片好编辑)
         cat, typ = str(draft.get("category_id") or "").strip(), str(draft.get("type_id") or "").strip()
         if cat and typ:
@@ -84,16 +108,19 @@ class PublishMixin:
             except ValueError:
                 pass  # 未配置 API key 等：不阻断
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"类目必填属性校验失败，无法确认是否缺失（请重试）：{exc}")
+                warnings.append(f"类目必填属性校验失败，无法确认是否缺失（可继续发布）：{exc}")
         # 合同货币汇率校验
         settings = store_settings if store_settings is not None else self.store.get_settings()
         currency = str(settings.get("contract_currency") or "CNY").upper()
-        if not settings.get("rub_cny"):
-            errors.append("未配置 RUB/CNY 汇率，无法换算合同币价格，请先在设置里填写汇率")
-        if errors:
-            return errors, warnings, None
+        if currency == "RUB" and not settings.get("rub_cny"):
+            technical_errors.append("未配置 RUB/CNY 汇率，无法换算合同币价格，请先在设置里填写汇率")
+        if technical_errors:
+            return technical_errors, warnings, None
         # 构建 item（用原始 URL，不做 upload/swap）
-        item = to_ozon_import_item(draft)
+        try:
+            item = to_ozon_import_item(draft, validate=False)
+        except Exception as exc:  # noqa: BLE001
+            return [f"发布 payload 构建失败：{exc}"], warnings, None
         # 内部 price/old_price 统一为 CNY 人民币。
         if currency == "RUB":
             # 合同币种=卢布 → CNY 换算成 RUB（rub_cny = CNY/RUB）
@@ -114,8 +141,9 @@ class PublishMixin:
             raise KeyError(f"draft {draft_id} not found")
         target_store = str(draft.get("store_client_id") or "") or store_client_id
         errors, warnings, item = self._validate_and_build_item(draft, self._settings_for_store(target_store))
+        checks = self.publish_preflight(draft_id)["checks"]
         if errors:
-            return {"ok": False, "errors": errors, "warnings": warnings, "summary": None}
+            return {"ok": False, "errors": errors, "warnings": warnings, "checks": checks, "summary": None}
         # 构建摘要（item 已含换算后价格）
         images = item.get("images") or []
         attributes = item.get("attributes") or []
@@ -139,12 +167,12 @@ class PublishMixin:
             "attributes_count": len(attributes),
             "has_video": has_video,
         }
-        return {"ok": True, "errors": [], "warnings": warnings, "summary": summary}
+        return {"ok": True, "errors": [], "warnings": warnings, "checks": checks, "summary": summary}
 
     def publish_preflight(self, draft_id: int) -> dict:
         """发布前核对清单：error=硬拦(不让发) / warn=建议 / verify=看图识别需人工核对 / passed=已就绪。
         硬拦复用 validate_draft;软项=尺寸密度警告 + 理解层标'图片识别'的数字 + 标题长度/图片数。"""
-        from webui.drafts import dimension_warnings, loads_json, validate_draft  # noqa: PLC0415
+        from webui.drafts import loads_json  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
@@ -156,24 +184,46 @@ class PublishMixin:
         conf = und.get("confidence") if isinstance(und.get("confidence"), dict) else {}
         specs = und.get("specs") if isinstance(und.get("specs"), dict) else {}
 
-        checks: list = []
-        for e in validate_draft(draft):                       # 🔴 硬拦
-            checks.append({"severity": "error", "label": e})
-        for w in dimension_warnings(draft):                    # 🟡 尺寸/密度建议
-            checks.append({"severity": "warn", "label": w})
+        checks: list = [c.as_dict() for c in build_draft_checks(draft)]
         for key, c in conf.items():                            # 🟡 看图识别·待核对的数字(只列 specs 里有值的)
             if str(c) == "图片识别" and str(key).startswith("specs."):
                 field = str(key).split(".", 1)[1]
                 val = specs.get(field, "")
                 if str(val).strip():
-                    checks.append({"severity": "verify",
-                                   "label": f"核对 {field}: {val}（看图识别,易错,发布前请确认）"})
+                    msg = f"核对 {field}: {val}（看图识别,易错,发布前请确认）"
+                    checks.append({
+                        "severity": "verify",
+                        "label": msg,
+                        "message": msg,
+                        "code": "vision_verify",
+                        "field": field,
+                        "step": "details",
+                        "fix_action": "review_specs",
+                    })
         title = str(draft.get("ozon_title") or "")
         if len(title) > 150:
-            checks.append({"severity": "warn", "label": f"标题偏长({len(title)} 字),建议精简到 150 内"})
+            msg = f"标题偏长({len(title)} 字),建议精简到 150 内"
+            checks.append({
+                "severity": "warn",
+                "label": msg,
+                "message": msg,
+                "code": "title_too_long",
+                "field": "ozon_title",
+                "step": "content",
+                "fix_action": "edit_title",
+            })
         imgs = draft.get("images") or []
         if len(imgs) < 3:
-            checks.append({"severity": "warn", "label": f"图片偏少({len(imgs)} 张),Ozon 建议多张主图/细节"})
+            msg = f"图片偏少({len(imgs)} 张),Ozon 建议多张主图/细节"
+            checks.append({
+                "severity": "warn",
+                "label": msg,
+                "message": msg,
+                "code": "few_images",
+                "field": "images",
+                "step": "media",
+                "fix_action": "add_images",
+            })
 
         passed: list = []
         if title and not any("标题" in c["label"] for c in checks if c["severity"] == "error"):
@@ -188,16 +238,29 @@ class PublishMixin:
         if (draft.get("weight_g") or 0) and (draft.get("length_mm") or 0):
             passed.append("尺寸/重量已填 ✓")
 
-        blocking = sum(1 for c in checks if c["severity"] == "error")
+        blocking = 1 if str(draft.get("media_status") or "done") == "pending" else 0
+        risks = [c for c in checks if c.get("severity") in {"error", "warn", "verify"}]
         return {"ok": True, "checks": checks, "passed": passed,
-                "blocking": blocking, "can_publish": blocking == 0}
+                "risks": risks, "blocking": blocking, "can_publish": blocking == 0}
 
     def publish(self, draft_id: int, store_client_id: str | None = None) -> dict:
         import webui.app_service as _app_svc  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
+        publish_run = self.store.create_task_run(
+            draft_id,
+            "publish",
+            status="running",
+            progress_total=3,
+            source="webui",
+            result={"phase": "start"},
+        )
         if str(draft.get("media_status") or "done") == "pending":
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": "媒体还在上传，请稍候再发布", "progress_current": 0},
+            )
             raise ValueError("图片还在上传，请稍候再发布")
         # 草稿绑定店：优先发到草稿自带店；旧草稿(无 store_client_id)回退入参/默认店
         target_store = str(draft.get("store_client_id") or "") or store_client_id
@@ -212,6 +275,10 @@ class PublishMixin:
             if not oss.configured():
                 errs = ["有非 Ozon 来源的图片/视频需托管：请用插件把媒体传到你的 Ozon 店铺，或在设置里配置阿里云 OSS"]
                 updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+                self.store.update_task_run(
+                    publish_run["id"],
+                    {"status": "failed", "error": errs[0], "progress_current": 1, "result": {"phase": "media"}},
+                )
                 return {"published": False, "draft": updated, "errors": errs}
             draft, rehost_stats = rehost_draft_media(draft, oss.upload_remote)
             # OSS URL 持久化回草稿（再发幂等；展示也变 OSS 图）
@@ -221,25 +288,69 @@ class PublishMixin:
         errors, warnings, item = self._validate_and_build_item(draft, store_settings)
         if errors:
             updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errors})
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": errors[0], "progress_current": 1, "result": {"phase": "preflight", "errors": errors}},
+            )
             return {"published": False, "draft": updated, "errors": errors, "warnings": warnings}
         if rehost_stats.get("failed"):
-            warnings = [*warnings, f"{rehost_stats['failed']} 个媒体未能上传到 OSS，已沿用原链接（Ozon 可能抓不到）"]
+            errs = [f"{rehost_stats['failed']} 个媒体未能上传到 OSS，已停止发布，避免把无效图片 URL 提交给 Ozon"]
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": errs[0], "progress_current": 1, "result": {"phase": "media", "rehost": rehost_stats}},
+            )
+            return {"published": False, "draft": updated, "errors": errs, "warnings": [*warnings, *errs], "rehost": rehost_stats}
+        bad_urls = _invalid_publish_media_urls(item, store_settings)
+        if bad_urls:
+            shown = bad_urls[0]
+            more = f" 等 {len(bad_urls)} 个" if len(bad_urls) > 1 else ""
+            errs = [f"图片 URL 不是 Ozon 可抓取的 HTTPS 公网地址{more}：{shown}。请重新上传图片或检查 OSS 公网地址配置"]
+            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": errs[0], "progress_current": 1, "result": {"phase": "media", "bad_urls": bad_urls[:5]}},
+            )
+            return {"published": False, "draft": updated, "errors": errs, "warnings": warnings, "rehost": rehost_stats}
         # 发布扣费（publish_fee>0 才扣；余额不足直接拦下不发布）
         fee = self.publish_fee()
         if fee > 0 and not self.store.deduct(fee, biz_no=f"publish:{draft_id}", remark="发布商品"):
             errs = ["余额不足，请先充值后再发布"]
             updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": errs})
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": errs[0], "progress_current": 1, "result": {"phase": "billing"}},
+            )
             return {"published": False, "draft": updated, "errors": errs, "warnings": warnings}
+        self.store.update_draft(draft_id, {"status": "publishing", "validation_errors": []})
+        self.store.update_task_run(
+            publish_run["id"],
+            {"status": "running", "progress_current": 1, "result": {"phase": "ozon_submit"}},
+        )
         try:
             response = _app_svc.publish_items(store_settings, [item])
         except Exception as exc:  # noqa: BLE001  Ozon 报错(如图片URL无效)别透成 500，落库+回前端
             if fee > 0:  # 调用失败把刚扣的费退回，不白扣
                 self.store.refund(fee, biz_no=f"publish-refund:{draft_id}", remark="发布失败退款")
             msg = f"Ozon 拒收: {exc}"
-            updated = self.store.update_draft(draft_id, {"status": "invalid", "validation_errors": [msg]})
+            updated = self.store.update_draft(draft_id, {"status": "failed", "validation_errors": [msg]})
+            self.store.update_task_run(
+                publish_run["id"],
+                {"status": "failed", "error": msg, "progress_current": 2, "result": {"phase": "ozon_submit"}},
+            )
             return {"published": False, "draft": updated, "errors": [msg], "warnings": warnings}
         self.store.save_settings({"last_publish_store": str(store_settings.get("ozon_client_id") or "")})
         task_id = ((response.get("result") or {}).get("task_id"))
+        self.store.update_task_run(
+            publish_run["id"],
+            {
+                "status": "running",
+                "progress_current": 2,
+                "source": "ozon_import",
+                "external_id": task_id,
+                "result": {"phase": "ozon_poll", "task_id": task_id, "import": response},
+            },
+        )
         poll: dict = {}
         final_status = "draft"
         item_errors: list[str] = []
@@ -285,6 +396,24 @@ class PublishMixin:
         })
         if fee > 0 and final_status == "failed":   # Ozon 校验没过、卡片不可售 → 退发布费
             self.store.refund(fee, biz_no=f"publish-refund:{draft_id}", remark="发布未成功(Ozon 校验)退款")
+        task_status = "done" if final_status == "published" else final_status
+        if final_status == "draft" and poll.get("warning"):
+            task_status = "running"
+        self.store.update_task_run(
+            publish_run["id"],
+            {
+                "status": task_status,
+                "progress_current": 3 if task_status in {"done", "failed", "skipped"} else 2,
+                "error": (item_errors[0] if item_errors else poll.get("error")),
+                "result": {
+                    "phase": "done" if task_status in {"done", "failed", "skipped"} else "ozon_poll",
+                    "task_id": task_id,
+                    "import": response,
+                    "poll": poll,
+                    "warnings": warnings,
+                },
+            },
+        )
         return {"published": final_status == "published", "draft": updated, "response": response,
                 "poll": poll, "task_id": task_id, "warnings": warnings, "rehost": rehost_stats,
                 "errors": item_errors}
@@ -297,10 +426,12 @@ class PublishMixin:
             list_ozon_products,
             ozon_to_draft,
         )
+        run = self.store.create_task_run(None, "ozon_product_pull", status="running", source="webui", result={"phase": "start", "visibility": visibility})
         errors: list = []
         try:
             listing = list_ozon_products(self.store.get_settings(), visibility)
         except Exception as exc:  # noqa: BLE001
+            self.store.update_task_run(run["id"], {"status": "failed", "error": str(exc)[:500], "result": {"phase": "list_products", "visibility": visibility}})
             return {"pulled": 0, "drafts": self.store.list_drafts(), "errors": [str(exc)]}
         offer_ids = [str(it.get("offer_id")) for it in listing if it.get("offer_id")]
         info = get_ozon_info(self.store.get_settings(), offer_ids) if offer_ids else {}
@@ -331,6 +462,7 @@ class PublishMixin:
             else:
                 self.store.insert_draft(self._normalize_ozon_draft(d, oid))
             pulled += 1
+        self.store.update_task_run(run["id"], {"status": "done", "progress_current": 1, "progress_total": 1, "error": (errors[0] if errors else None), "result": {"phase": "done", "visibility": visibility, "pulled": pulled, "warnings": errors}})
         return {"pulled": pulled, "drafts": self.store.list_drafts(), "errors": errors}
 
     @staticmethod
@@ -481,6 +613,27 @@ class PublishMixin:
         if not drafts:
             raise ValueError("该分组没有草稿")
         store_settings = self._settings_for_store(store_client_id)
+        oss = _app_svc.OssClient(store_settings, local_reader=_media.read_media_bytes)
+        rehost_totals = {"uploaded": 0, "failed": 0}
+        rehosted_drafts: list[dict] = []
+        for d in drafts:
+            if needs_rehost(d):
+                if not oss.configured():
+                    raise ValueError("整组发布包含本地/非 Ozon 图片，需要先配置 OSS 或先把媒体上传成公网链接")
+                nd, stats = rehost_draft_media(d, oss.upload_remote)
+                rehost_totals["uploaded"] += int(stats.get("uploaded") or 0)
+                rehost_totals["failed"] += int(stats.get("failed") or 0)
+                if stats.get("failed"):
+                    raise ValueError(f"草稿 {d.get('id')} 有 {stats['failed']} 个媒体上传 OSS 失败，已停止发布")
+                self.store.update_draft(d["id"], {
+                    "images": nd.get("images") or [],
+                    "video_url": nd.get("video_url") or "",
+                    "source_raw": nd.get("source_raw") or {},
+                })
+                rehosted_drafts.append(nd)
+            else:
+                rehosted_drafts.append(d)
+        drafts = rehosted_drafts
         # 类目取第一条（同组同类目）
         first = drafts[0]
         cat = int(str(first.get("category_id") or "0") or 0)
@@ -553,12 +706,19 @@ class PublishMixin:
         else:
             for it in items:
                 it["currency_code"] = currency
+        for idx, it in enumerate(items, start=1):
+            bad_urls = _invalid_publish_media_urls(it, store_settings)
+            if bad_urls:
+                shown = bad_urls[0]
+                more = f" 等 {len(bad_urls)} 个" if len(bad_urls) > 1 else ""
+                raise ValueError(f"第 {idx} 个商品图片 URL 不是 Ozon 可抓取的 HTTPS 公网地址{more}：{shown}")
         response = _app_svc.publish_items(store_settings, items)
         return {
             "published": True,
             "count": len(items),
             "variant_group": variant_group,
             "model_name": mname,
+            "rehost": rehost_totals,
             "response": response,
         }
 

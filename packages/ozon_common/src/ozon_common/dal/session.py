@@ -18,6 +18,12 @@ def bind_engine(engine: Engine) -> None:
     _factory = sessionmaker(bind=engine, future=True, expire_on_commit=False)
 
 
+def unbind_engine() -> None:
+    """Clear the process-global sessionmaker after Store.close()."""
+    global _factory
+    _factory = None
+
+
 @contextmanager
 def session_scope():
     """开一个 Session、绑到 ContextVar,正常提交/异常回滚/最终关闭。"""

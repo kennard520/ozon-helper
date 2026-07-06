@@ -348,6 +348,32 @@ text_jobs = Table(
     Index("idx_text_jobs_draft", "user_id", "draft_id"),
 )
 
+task_runs = Table(
+    "task_runs", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, nullable=False, server_default="1"),
+    Column(
+        "draft_id", Integer,
+        ForeignKey("drafts.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("task_type", String(32), nullable=False),
+    Column("status", String(16), nullable=False, server_default="queued"),
+    Column("progress_current", Integer, nullable=False, server_default="0"),
+    Column("progress_total", Integer, nullable=False, server_default="0"),
+    Column("error", Text),
+    Column("result_json", _longtext()),
+    Column("source", String(32), nullable=False, server_default=""),
+    Column("external_id", String(64)),
+    Column("created_at", ISODateTime, nullable=False),
+    Column("updated_at", ISODateTime, nullable=False),
+    Column("started_at", ISODateTime),
+    Column("finished_at", ISODateTime),
+    Index("idx_task_runs_draft", "user_id", "draft_id"),
+    Index("idx_task_runs_external", "task_type", "source", "external_id"),
+    Index("idx_task_runs_status", "user_id", "status"),
+)
+
 gen_job_images = Table(
     "gen_job_images", metadata,
     Column("id", Integer, primary_key=True),

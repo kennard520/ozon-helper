@@ -17,9 +17,17 @@ const RUN_ONE = {
   rich: (id) => api.makeRichContent(id, {}),
 }
 
+const PIPELINE_STEP = {
+  content: 'ai_text',
+  images: 'ai_image',
+  rich: 'rich_content',
+  publish: 'publish',
+}
+
 export function usePipeline(workbench, store) {
   const statusByVariant = reactive({})
   const jobByVariant = reactive({})
+  const pipelineByVariant = reactive({})
   const pollTokens = reactive({})
   const stepStatus = {}
   let unmounted = false
@@ -36,9 +44,17 @@ export function usePipeline(workbench, store) {
     return id == null ? null : (jobByVariant[id] || null)
   })
 
+  const pipeline = computed(() => {
+    const id = workbench.currentVariantId
+    return id == null ? null : (pipelineByVariant[id] || null)
+  })
+
   const batchRunningOp = computed(() => {
     const id = workbench.currentVariantId
     if (id == null) return ''
+    const serverRunning = ((pipelineByVariant[id] && pipelineByVariant[id].steps) || [])
+      .find(s => s.status === 'running')
+    if (serverRunning) return serverRunning.id
     const statuses = statusByVariant[id] || {}
     const running = WF.find(s => statuses[s.id] === 'running' || statuses[s.id] === 'submitted')
     return running ? running.id : ''
@@ -65,12 +81,36 @@ export function usePipeline(workbench, store) {
   }
 
   function currentStepStatus(stepId) {
+    const server = serverStepFor(stepId)
+    if (server && server.status === 'running') return 'running'
+    if (server && server.status === 'failed') return 'failed'
+    if (server && server.status === 'done') return 'done'
+    if (server && server.status === 'skipped') return 'done'
+    if (server && server.status === 'blocked') return 'locked'
     return statusFor(workbench.currentVariantId, stepId)
+  }
+
+  function serverStepFor(stepId, variantId = workbench.currentVariantId) {
+    const backendId = PIPELINE_STEP[stepId] || stepId
+    const p = variantId == null ? null : pipelineByVariant[variantId]
+    return ((p && p.steps) || []).find(s => s.id === backendId) || null
   }
 
   function runningFor(variantId) {
     const statuses = statusByVariant[variantId] || {}
     return WF.some(s => statuses[s.id] === 'running' || statuses[s.id] === 'submitted')
+  }
+
+  async function loadPipeline(variantId = workbench.currentVariantId) {
+    if (variantId == null) return null
+    try {
+      const data = await api.draftPipeline(variantId)
+      pipelineByVariant[variantId] = data
+      return data
+    } catch (err) {
+      if (err && err.status === 404) pipelineByVariant[variantId] = null
+      return null
+    }
   }
 
   function isUnfinished(job) {
@@ -99,9 +139,11 @@ export function usePipeline(workbench, store) {
       jobByVariant[variantId] = job
       if (workbench && workbench.setVariantTask) workbench.setVariantTask(variantId, job)
       const status = String((job && job.status) || '').toLowerCase()
+      await loadPipeline(variantId)
       if (status === 'done') {
         await workbench.reload()
         if (store && store.loadDrafts) await store.loadDrafts()
+        await loadPipeline(variantId)
         break
       }
       if (status === 'failed') break
@@ -127,6 +169,7 @@ export function usePipeline(workbench, store) {
     if (status === 'done') {
       await workbench.reload()
       if (store && store.loadDrafts) await store.loadDrafts()
+      await loadPipeline(variantId)
       return
     }
     if (!isUnfinished(job)) return
@@ -140,6 +183,7 @@ export function usePipeline(workbench, store) {
 
   if (getCurrentInstance()) {
     watch(() => workbench.currentVariantId, (id) => {
+      loadPipeline(id)
       syncLatestTextJob(id)
     }, { immediate: true })
   }
@@ -152,6 +196,11 @@ export function usePipeline(workbench, store) {
   }
 
   function stepLocked(stepId) {
+    const server = serverStepFor(stepId)
+    if (server) {
+      if (server.status === 'blocked' || server.status === 'running') return true
+      return false
+    }
     const step = WF.find(s => s.id === stepId)
     if (!step || !step.dep.length) return false
     const v = workbench.currentVariant
@@ -160,7 +209,13 @@ export function usePipeline(workbench, store) {
   }
 
   async function runStep(stepId) {
-    if (stepId === 'publish' || !RUN_ONE[stepId]) return
+    const backendStep = PIPELINE_STEP[stepId]
+    if (backendStep) {
+      if (stepLocked(stepId)) return
+      await retryPipelineStep(backendStep)
+      return
+    }
+    if (!RUN_ONE[stepId]) return
     if (stepLocked(stepId)) return
     const id = workbench.currentVariantId
     if (id == null) return
@@ -172,16 +227,65 @@ export function usePipeline(workbench, store) {
         setStatus(id, stepId, 'submitted')
         jobByVariant[id] = result || null
         if (workbench && workbench.setVariantTask) workbench.setVariantTask(id, result || null)
+        await loadPipeline(id)
         const jobId = result && (result.job_id || result.id)
         await pollTextJob(id, jobId)
         return
       }
       await workbench.reload()
       if (store && store.loadDrafts) await store.loadDrafts()
+      await loadPipeline(id)
     } finally {
       setStatus(id, stepId, 'idle')
     }
   }
 
-  return { WF, stepStatus, batchRunningOp, textJob, wfDepOk, stepLocked, runStep, syncLatestTextJob }
+  async function refreshAfterPipelineAction(variantId) {
+    if (workbench && workbench.reload) await workbench.reload()
+    if (store && store.loadDrafts) await store.loadDrafts()
+    await loadPipeline(variantId)
+  }
+
+  async function retryPipelineStep(stepId) {
+    const id = workbench.currentVariantId
+    if (id == null) return
+    const result = await api.draftPipelineRetry(id, stepId)
+    const jobId = result && (result.job_id || result.id)
+    if (stepId === 'ai_text' && jobId) {
+      jobByVariant[id] = result || null
+      await pollTextJob(id, jobId)
+      return
+    }
+    await refreshAfterPipelineAction(id)
+  }
+
+  async function skipPipelineStep(stepId, reason = '') {
+    const id = workbench.currentVariantId
+    if (id == null) return
+    await api.draftPipelineSkip(id, stepId, reason)
+    await refreshAfterPipelineAction(id)
+  }
+
+  async function cancelPipelineStep(stepId, reason = '') {
+    const id = workbench.currentVariantId
+    if (id == null) return
+    await api.draftPipelineCancel(id, stepId, reason)
+    await loadPipeline(id)
+  }
+
+  async function runNextPipelineStep() {
+    const p = pipeline.value
+    const next = p && p.next
+    const stepId = next && next.step_id
+    if (!stepId) return
+    if (next.action === 'run' || next.action === 'retry') {
+      await retryPipelineStep(stepId)
+    }
+  }
+
+  return {
+    WF, stepStatus, batchRunningOp, textJob, pipeline, loadPipeline,
+    wfDepOk, stepLocked, runStep, syncLatestTextJob,
+    retryPipelineStep, skipPipelineStep, cancelPipelineStep, runNextPipelineStep,
+  }
 }

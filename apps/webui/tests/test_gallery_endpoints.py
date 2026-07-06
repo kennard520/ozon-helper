@@ -60,6 +60,36 @@ class GalleryEndpointsTest(unittest.TestCase):
                 main_mod.APP.store.close()
                 gc.collect()  # 释放 TestClient/连接句柄,否则 Windows 删不掉临时库
 
+    def test_upload_media_adds_one_gallery_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client, main_mod = self._client(tmp)
+            try:
+                app = main_mod.APP
+                from webui.drafts import create_draft_from_url  # noqa: PLC0415
+                d = app.store.insert_draft(
+                    create_draft_from_url("https://detail.1688.com/offer/555.html")
+                )
+                did = d["id"]
+
+                resp = client.post(
+                    f"/api/drafts/{did}/media",
+                    files={"file": ("a.png", b"fake-image", "image/png")},
+                    data={"kind": "image"},
+                )
+                self.assertEqual(resp.status_code, 200)
+                body = resp.json()
+                self.assertTrue(body["url"].startswith("/media/draft-"))
+                draft = app.store.get_draft(did)
+                self.assertEqual(draft["images"].count(body["url"]), 1)
+
+                img_id = app.store.add_draft_image(did, body["url"], source="uploaded", in_gallery=1)
+                draft2 = app.store.get_draft(did)
+                self.assertEqual(draft2["images"].count(body["url"]), 1)
+                self.assertEqual(img_id, body["image_id"])
+            finally:
+                main_mod.APP.store.close()
+                gc.collect()
+
     # ------------------------------------------------------------------
     # remove: 图集中移出后 images 不含,但 materials 仍在
     # ------------------------------------------------------------------

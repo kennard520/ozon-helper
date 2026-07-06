@@ -48,8 +48,25 @@ class DraftImageRepo(BaseRepo):
           - created_at 用 utc_now_iso()
           - in_gallery:默认按 source 推断(generated→1,其它→0)
         """
+        url = str(url or "").strip()
+        existing = self.s.execute(
+            select(DI.c.id, DI.c.type, DI.c.source, DI.c.in_gallery)
+            .where(DI.c.draft_id == int(draft_id), DI.c.url == url)
+            .order_by(DI.c.in_gallery.desc(), DI.c.position, DI.c.id)
+            .limit(1)
+        ).first()
         if in_gallery is None:
             in_gallery = 1 if source == "generated" else 0
+        if existing is not None:
+            values = {"in_gallery": max(int(existing.in_gallery or 0), int(in_gallery))}
+            if type and not existing.type:
+                values["type"] = str(type)
+            if source and not existing.source:
+                values["source"] = str(source)
+            if local_url:
+                values["local_url"] = str(local_url)
+            self.s.execute(update(DI).where(DI.c.id == int(existing.id)).values(**values))
+            return int(existing.id)
         nxt = (
             self.s.execute(
                 select(func.coalesce(func.max(DI.c.position), -1) + 1).where(
@@ -62,7 +79,7 @@ class DraftImageRepo(BaseRepo):
             insert(DI).values(
                 draft_id=int(draft_id),
                 position=int(nxt),
-                url=str(url),
+                url=url,
                 type=str(type or ""),
                 source=str(source),
                 in_gallery=int(in_gallery),

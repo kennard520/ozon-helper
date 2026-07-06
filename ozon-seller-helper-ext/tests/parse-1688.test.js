@@ -5,6 +5,7 @@ import OzonHelperMedia from '../common/media-upload.js'
 
 const { extractOfferId } = OzonHelperParse1688
 const { parseDetailImages } = OzonHelperParse1688
+const { parseSkuRowsFromDom, mergeSkuDomRows } = OzonHelperParse1688
 
 describe('extractOfferId', () => {
   it('从 detail.1688.com/offer/<id>.html 提取 offerId', () => {
@@ -209,9 +210,77 @@ describe('variantSourceUrl', () => {
     expect(variantSourceUrl('https://detail.1688.com/offer/795554901999.html', 5595723402563))
       .toBe('https://detail.1688.com/offer/795554901999.html#sku=5595723402563')
   })
+  it('spec text fallback is converted to a stable ascii fragment', () => {
+    const url = variantSourceUrl('https://detail.1688.com/offer/971518922897.html', '3pc火花塞套筒（卡装）')
+    expect(url).toMatch(/^https:\/\/detail\.1688\.com\/offer\/971518922897\.html#sku=spec-[a-z0-9]+$/)
+    expect(url).toBe(variantSourceUrl('https://detail.1688.com/offer/971518922897.html', '3pc火花塞套筒（卡装）'))
+  })
   it('无 skuId → 原样', () => {
     expect(variantSourceUrl('https://x/o.html', null)).toBe('https://x/o.html')
     expect(variantSourceUrl('https://x/o.html', '')).toBe('https://x/o.html')
+  })
+})
+
+describe('parseSkuRowsFromDom / mergeSkuDomRows', () => {
+  function cell(text) {
+    return { innerText: text, textContent: text }
+  }
+  function row(text, cells, img) {
+    return {
+      innerText: text,
+      textContent: text,
+      querySelectorAll(sel) {
+        if (sel === 'td, th, [role="cell"]') return cells.map(cell)
+        if (sel === 'img') return img ? [{ getAttribute: (name) => (name === 'src' ? img : '') }] : []
+        return []
+      }
+    }
+  }
+  function container(text) {
+    return {
+      innerText: text,
+      textContent: text,
+      querySelectorAll() { return [] }
+    }
+  }
+  it('uses visible 1688 sku rows to add variants missing from skuInfoMap', () => {
+    const doc = {
+      querySelectorAll() {
+        return [
+          row('产品规格 价格 | 库存(套) 进货数量', ['产品规格', '价格 | 库存(套)', '进货数量']),
+          row('3pc火花塞套筒（卡装） ¥5.7 | 123102 0 +', ['3pc火花塞套筒（卡装）', '¥5.7 | 123102', '0 +'], 'https://img.example/3pc.jpg'),
+          row('5pc火花塞套筒（卡装） ¥8.8 | 124962 0 +', ['5pc火花塞套筒（卡装）', '¥8.8 | 124962', '0 +'], 'https://img.example/5pc.jpg')
+        ]
+      }
+    }
+    const domRows = parseSkuRowsFromDom(doc)
+    expect(domRows).toHaveLength(2)
+    const base = { images: ['https://img.example/base.jpg'], source_raw: { price_display: '5.7-8.8' } }
+    const parsed = [{
+      price: '8.8',
+      variant_label: '5pc火花塞套筒（卡装）',
+      images: [],
+      source_raw: { sku_id: 6089030811095, spec_attrs: '5pc火花塞套筒（卡装）' }
+    }]
+    const merged = mergeSkuDomRows(parsed, domRows, base)
+    expect(merged.map((v) => v.source_raw.spec_attrs)).toEqual(['5pc火花塞套筒（卡装）', '3pc火花塞套筒（卡装）'])
+    expect(merged[1].price).toBe('5.7')
+    expect(merged[1].source_raw.stock).toBe(123102)
+  })
+  it('does not treat aggregate sku containers or promo blocks as extra variants', () => {
+    const doc = {
+      querySelectorAll() {
+        return [
+          container('产品规格 单个装 ¥5.7 | 123102 推荐代发 ¥8.8 铺货分销'),
+          row('单个装 ¥5.7 | 123102 0 +', ['单个装', '¥5.7 | 123102', '0 +'])
+        ]
+      }
+    }
+    const domRows = parseSkuRowsFromDom(doc)
+    expect(domRows).toHaveLength(1)
+    const base = { images: [], source_raw: { price_display: '5.7' } }
+    const parsed = [{ price: '5.7', variant_label: '单个装', images: [], source_raw: { sku_id: 1, spec_attrs: '单个装' } }]
+    expect(mergeSkuDomRows(parsed, domRows, base)).toHaveLength(1)
   })
 })
 

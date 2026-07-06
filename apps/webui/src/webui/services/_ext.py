@@ -1,6 +1,26 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
+from ozon_common.oss import OssClient
 from webui.services._helpers import _money_to_float, _to_int
+
+
+def _oss_key_from_public_url(url: str, oss: OssClient) -> str:
+    u = str(url or "").strip()
+    if not u:
+        return ""
+    if u.startswith("ozon-media/"):
+        return u
+    bases = [
+        str(getattr(oss, "public_base", "") or "").rstrip("/"),
+        f"https://{oss.bucket_name}.{oss.endpoint}".rstrip("/"),
+    ]
+    for base in [b for b in bases if b]:
+        if u.startswith(base + "/"):
+            return u[len(base) + 1:]
+    path = urlparse(u).path.lstrip("/")
+    return path if path.startswith("ozon-media/") else ""
 
 
 class ExtMixin:
@@ -41,6 +61,7 @@ class ExtMixin:
         url = str(payload.get("url") or "").strip()
         if not url:
             raise ValueError("url required")
+        schema_version = str(payload.get("schema_version") or "").strip()
         data = payload.get("data") or {}
         _has_media = bool((data.get("images") or [])) or bool(str(data.get("video_url") or "").strip())
         from webui.drafts import create_draft_from_url  # noqa: PLC0415
@@ -106,6 +127,8 @@ class ExtMixin:
         vg = data.get("variant_group") or ""
         sa = data.get("selected_aspects") or []
         sr_new: dict = {}
+        if schema_version:
+            sr_new["collect_schema_version"] = schema_version
         # 插件可直接带 source_raw（如 WB 的 options/brand_name，喂 auto-map/AI）
         incoming_sr = data.get("source_raw")
         if isinstance(incoming_sr, dict):
@@ -211,6 +234,17 @@ class ExtMixin:
         media_map = payload.get("media_map") or {}
         if not draft_id:
             raise ValueError("draft_id required")
+        oss = OssClient(self.store.get_settings())
+        missing: list[str] = []
+        if oss.configured():
+            for url in dict(media_map).values():
+                key = _oss_key_from_public_url(str(url or ""), oss)
+                if key and not oss.object_exists(key):
+                    missing.append(key)
+        if missing:
+            sample = missing[0]
+            more = f" 等 {len(missing)} 个" if len(missing) > 1 else ""
+            raise ValueError(f"OSS 媒体尚未上传完成或对象不存在：{sample}{more}，请稍后重试上传")
         self.store.apply_media_oss(draft_id, dict(media_map))
         self._maybe_auto_publish(draft_id)   # 媒体传完 → 开了 auto_publish 则后台发布
         return {"ok": True}

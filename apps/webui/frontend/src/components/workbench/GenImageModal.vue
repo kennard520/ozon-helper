@@ -178,7 +178,9 @@ async function genPrompt() {
 async function generate() {
   const id = props.draft.id
   if (id == null) return
-  if (mode.value === 'img2img' && !selSources.value.length) {
+  const sourceSnapshot = selSources.value.slice()
+  const referenceSnapshot = refUrls.value.slice()
+  if (mode.value === 'img2img' && !sourceSnapshot.length) {
     ElMessage.info('请先选择至少一张源图')
     return
   }
@@ -191,7 +193,7 @@ async function generate() {
   open.value = false
   ElMessage.info('已提交生成，可继续操作其它变体')
   try {
-    const res = mode.value === 'img2img' ? await runImg2Img(id) : await runText2Img(id)
+    const res = mode.value === 'img2img' ? await runImg2Img(id, sourceSnapshot, referenceSnapshot) : await runText2Img(id)
     if (res === 'aborted') return
     const count = Number(res && res.count) || 1
     ElMessage.success(count > 1 ? `已生成 ${count} 张并加入图集` : '已生成并加入图集')
@@ -203,7 +205,7 @@ async function generate() {
   }
 }
 
-async function runImg2Img(id) {
+async function runImg2Img(id, sourceUrls, referenceUrls) {
   if (quickOp.value === 'dimension' && !dimensionText()) {
     ElMessage.info('图文理解里没有识别到尺寸，先不做尺寸图')
     return 'aborted'
@@ -226,16 +228,16 @@ async function runImg2Img(id) {
     else if (op === 'dimension') p = DIMENSION_PROMPT_PREFIX + dimensionText() + '. Keep the product appearance identical, use a white or light neutral background, no extra marketing text, no watermark.'
     else if (op === 'regen') p = '按 Ozon 商品图规范重做这张图，产品外观保持一致，构图清晰，背景干净，无乱码文字。'
   }
-  p = withReferencePrompt(p)
+  p = referenceUrls.length ? `${p}\n\n${REF_PROMPT}` : p
 
   let last = null
   let count = 0
-  for (let i = 0; i < selSources.value.length; i += 1) {
+  for (let i = 0; i < sourceUrls.length; i += 1) {
     last = await api.aiImage(id, {
       mode: 'img2img',
       prompt: p,
-      source_url: selSources.value[i],
-      reference_urls: refUrls.value,
+      source_url: sourceUrls[i],
+      reference_urls: referenceUrls,
       size: size.value,
       as_main: asMain.value && i === 0,
     })

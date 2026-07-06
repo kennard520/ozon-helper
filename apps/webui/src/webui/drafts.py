@@ -364,10 +364,11 @@ def offer_id_for(draft: dict[str, Any]) -> str:
     return str(draft.get("source_offer_id") or f"manual-{draft.get('id')}")
 
 
-def to_ozon_import_item(draft: dict[str, Any]) -> dict[str, Any]:
-    errors = validate_draft(draft)
-    if errors:
-        raise ValueError("; ".join(errors))
+def to_ozon_import_item(draft: dict[str, Any], *, validate: bool = True) -> dict[str, Any]:
+    if validate:
+        errors = validate_draft(draft)
+        if errors:
+            raise ValueError("; ".join(errors))
     offer_id = offer_id_for(draft)
     # 只透传 Ozon 上架结构 [{id, values:[...]}]，采集的 {name,value} 非上架格式 → 丢掉
     raw_attrs = draft.get("attributes")

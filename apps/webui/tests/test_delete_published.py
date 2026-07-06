@@ -78,6 +78,68 @@ class TestDeleteDraft(unittest.TestCase):
         self.assertTrue(r["deleted"])
         self.assertEqual(called["n"], 0)
 
+    def test_delete_group_removes_all_local_variants_only(self):
+        called = {"n": 0}
+        def _spy(settings, offer_ids):
+            called["n"] += 1
+            return {}
+        self.svc.delete_products = _spy
+        d1 = self.app.store.insert_draft(_draft(
+            source_url="u1",
+            source_raw={"variant_group": "offer-1", "spec_attrs": "A"},
+        ))
+        d2 = self.app.store.insert_draft(_draft(
+            source_url="u2",
+            source_raw={"variant_group": "offer-1", "spec_attrs": "B"},
+        ))
+        d3 = self.app.store.insert_draft(_draft(
+            source_url="u3",
+            source_raw={"variant_group": "other", "spec_attrs": "C"},
+        ))
+
+        r = self.app.delete(d1["id"], scope="group")
+
+        self.assertTrue(r["deleted"])
+        self.assertEqual(set(r["ids"]), {d1["id"], d2["id"]})
+        self.assertIsNone(self.app.store.get_draft(d1["id"]))
+        self.assertIsNone(self.app.store.get_draft(d2["id"]))
+        self.assertIsNotNone(self.app.store.get_draft(d3["id"]))
+        self.assertEqual(called["n"], 0)
+
+    def test_delete_auto_group_rep_removes_group(self):
+        d1 = self.app.store.insert_draft(_draft(
+            source_url="auto-u1",
+            source_raw={"variant_group": "auto-offer", "spec_attrs": "A"},
+        ))
+        d2 = self.app.store.insert_draft(_draft(
+            source_url="auto-u2",
+            source_raw={"variant_group": "auto-offer", "spec_attrs": "B"},
+        ))
+
+        r = self.app.delete(d2["id"])
+
+        self.assertEqual(r["scope"], "group")
+        self.assertEqual(set(r["ids"]), {d1["id"], d2["id"]})
+        self.assertIsNone(self.app.store.get_draft(d1["id"]))
+        self.assertIsNone(self.app.store.get_draft(d2["id"]))
+
+    def test_delete_auto_non_rep_removes_single_variant(self):
+        d1 = self.app.store.insert_draft(_draft(
+            source_url="single-u1",
+            source_raw={"variant_group": "single-offer", "spec_attrs": "A"},
+        ))
+        d2 = self.app.store.insert_draft(_draft(
+            source_url="single-u2",
+            source_raw={"variant_group": "single-offer", "spec_attrs": "B"},
+        ))
+
+        r = self.app.delete(d1["id"])
+
+        self.assertEqual(r["scope"], "single")
+        self.assertEqual(r["ids"], [d1["id"]])
+        self.assertIsNone(self.app.store.get_draft(d1["id"]))
+        self.assertIsNotNone(self.app.store.get_draft(d2["id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api.js'
@@ -23,16 +23,45 @@ function isActive(w) {
   return String(w && w.status || '').toLowerCase() === 'created'
 }
 
+function displayNameOfDeliveryMethod(dm) {
+  return String(dm?.name || '').replace(/\s+(PUDO|Courier)$/i, '')
+}
+
+function deliveryMethodGroupKey(dm) {
+  const dropoff = String(dm?.dropoff_code || '').trim()
+  const provider = dm?.provider_id ?? ''
+  if (!dropoff || !provider) return dm.delivery_method_id ?? dm.id ?? `${dm.warehouse_id || ''}:${dm.name || ''}`
+  return [
+    dm.warehouse_id || '',
+    provider,
+    dropoff,
+    displayNameOfDeliveryMethod(dm).toLowerCase(),
+  ].join(':')
+}
+
 function deliveryMethodsOf(w) {
   const out = []
   const seen = new Set()
   for (const dm of (w.delivery_methods || [])) {
-    const key = dm.delivery_method_id ?? dm.id ?? `${dm.warehouse_id || ''}:${dm.name || ''}:${dm.dropoff_code || ''}`
-    if (seen.has(key)) continue
+    const key = deliveryMethodGroupKey(dm)
+    if (seen.has(key)) {
+      const existing = out.find(item => item._display_key === key)
+      if (existing) existing._variant_count = (existing._variant_count || 1) + 1
+      continue
+    }
     seen.add(key)
-    out.push(dm)
+    out.push({
+      ...dm,
+      _display_key: key,
+      _variant_count: 1,
+      display_name: displayNameOfDeliveryMethod(dm),
+    })
   }
   return out
+}
+
+function deliveryMethodTotal(list = warehouses.value) {
+  return (list || []).reduce((sum, w) => sum + deliveryMethodsOf(w).length, 0)
 }
 
 const visibleWarehouses = computed(() => warehouses.value.filter(w => showArchived.value || !isArchived(w)))
@@ -59,7 +88,7 @@ async function doSync() {
   try {
     const r = await api.syncWarehouses(store.currentStore)
     warehouses.value = r.warehouses || []
-    ElMessage.success(`同步成功，共 ${r.synced ?? 0} 个仓库 / ${r.delivery_methods ?? 0} 个配送方式`)
+    ElMessage.success(`同步成功，共 ${r.synced ?? 0} 个仓库 / ${deliveryMethodTotal(r.warehouses || [])} 个配送方式`)
   } catch (e) {
     ElMessage.error(e.message || '同步失败')
   } finally {
@@ -103,7 +132,7 @@ function fmtFetchedAt(ts) {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-defineExpose({ warehouses, visibleWarehouses, doSync, makeDefault, fmtFetchedAt, deliveryMethodsOf })
+defineExpose({ warehouses, visibleWarehouses, doSync, makeDefault, fmtFetchedAt, deliveryMethodsOf, deliveryMethodTotal })
 </script>
 
 <template>
@@ -178,7 +207,7 @@ defineExpose({ warehouses, visibleWarehouses, doSync, makeDefault, fmtFetchedAt,
           <div class="wh-meta-row">
             <span class="wh-meta-label">上次同步</span>
             <span v-if="w.fetched_at" class="wh-meta-value">{{ fmtFetchedAt(w.fetched_at) }}</span>
-            <span v-else class="wh-meta-value wh-meta-empty">—</span>
+            <span v-else class="wh-meta-value wh-meta-empty">-</span>
           </div>
 
           <div class="wh-dm">
@@ -191,11 +220,11 @@ defineExpose({ warehouses, visibleWarehouses, doSync, makeDefault, fmtFetchedAt,
               <div v-if="deliveryMethodsOf(w).length" class="wh-dm__list">
                 <div
                   v-for="dm in deliveryMethodsOf(w)"
-                  :key="dm.delivery_method_id ?? dm.id"
+                  :key="dm._display_key || dm.delivery_method_id || dm.id"
                   class="wh-dm__item"
                 >
                   <div class="wh-dm__item-head">
-                    <span class="wh-dm__name" :title="dm.name">{{ dm.name || '未命名配送方式' }}</span>
+                    <span class="wh-dm__name" :title="dm.name">{{ dm.display_name || dm.name || '未命名配送方式' }}</span>
                     <SBadge v-if="dm.is_express" variant="success">express</SBadge>
                     <span v-if="dm.status" class="wh-dm__status">{{ dm.status }}</span>
                   </div>
@@ -222,7 +251,6 @@ defineExpose({ warehouses, visibleWarehouses, doSync, makeDefault, fmtFetchedAt,
     </div>
   </div>
 </template>
-
 <style scoped>
 .wh-page{padding:var(--sp-6);max-width:1200px}
 .wh-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-4);margin-bottom:var(--sp-5);max-width:840px}

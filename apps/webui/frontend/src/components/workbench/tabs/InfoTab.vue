@@ -8,6 +8,7 @@ const props = defineProps({
   form: { type: Object, required: true },
   draft: { type: Object, default: () => ({}) },
 })
+
 const categoryModel = computed({
   get: () => ({ cat: props.form.category_id, type: props.form.type_id }),
   set: (v) => {
@@ -28,17 +29,17 @@ const brandModel = computed({
 <template>
   <div class="info-tab">
     <div class="info-grid">
-      <div class="ifield ifield--wide">
+      <div class="ifield">
         <label>Ozon 标题 (RU)</label>
         <ElInput v-model="form.ozon_title" placeholder="上架用俄语标题" />
       </div>
 
-      <div class="ifield ifield--wide">
+      <div class="ifield">
         <label>类目</label>
         <CategorySelect v-model="categoryModel" />
       </div>
 
-      <div class="ifield">
+      <div class="ifield ifield--double">
         <label>货号 (Offer ID)</label>
         <div class="ifield__ro">{{ draft.offer_id || '-' }}</div>
       </div>
@@ -46,11 +47,6 @@ const brandModel = computed({
       <div class="ifield">
         <label>品牌</label>
         <BrandSelect v-model="brandModel" :cat="form.category_id" :type="form.type_id" />
-      </div>
-
-      <div class="ifield">
-        <label>库存</label>
-        <ElInputNumber v-model="form.stock" :min="0" :precision="0" controls-position="right" style="width:100%" />
       </div>
 
       <div class="ifield">
@@ -64,11 +60,6 @@ const brandModel = computed({
       </div>
 
       <div class="ifield">
-        <label>克重 (g)</label>
-        <ElInputNumber v-model="form.weight_g" :min="0" :precision="0" controls-position="right" style="width:100%" />
-      </div>
-
-      <div class="ifield ifield--wide">
         <label>尺寸 长 x 宽 x 高 (mm)</label>
         <div class="dims">
           <ElInputNumber v-model="form.length_mm" :min="0" :precision="0" :controls="false" placeholder="长" style="width:100%" />
@@ -78,36 +69,86 @@ const brandModel = computed({
           <ElInputNumber v-model="form.height_mm" :min="0" :precision="0" :controls="false" placeholder="高" style="width:100%" />
         </div>
       </div>
+
+      <div class="ifield">
+        <label>重量 (g)</label>
+        <ElInputNumber v-model="form.weight_g" :min="0" :precision="0" controls-position="right" style="width:100%" />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.info-tab { padding: var(--sp-3, 12px); }
+.info-tab {
+  padding: var(--sp-3, 12px);
+}
+
 .info-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 16px;
-  margin-bottom: var(--sp-4, 16px);
 }
-.ifield { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.ifield--wide { grid-column: 1 / -1; }
+
+.ifield:nth-child(1),
+.ifield:nth-child(5),
+.ifield:nth-child(7) {
+  grid-column: span 2;
+}
+
+.ifield--double {
+  grid-column: span 2;
+}
+
+.ifield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .ifield > label {
   font-size: var(--fs-xs, 11.5px);
   color: var(--c-text-3, #8a94a3);
 }
+
 .ifield__ro {
-  font-size: var(--fs-sm, 13px);
-  color: var(--c-text, #1f2733);
-  font-weight: 500;
-  padding: 8px 11px;
-  background: var(--c-bg, #f7f9fc);
-  border: 1px solid var(--c-border, #e5e8ef);
-  border-radius: 9px;
   min-height: 36px;
   display: flex;
   align-items: center;
+  padding: 8px 11px;
+  border: 1px solid var(--c-border, #e5e8ef);
+  border-radius: 9px;
+  background: var(--c-bg, #f7f9fc);
+  color: var(--c-text, #1f2733);
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
 }
-.dims { display: flex; align-items: center; gap: 8px; }
-.dims__x { color: var(--c-text-3, #8a94a3); flex: 0 0 auto; }
+
+.dims {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.dims__x {
+  color: var(--c-text-3, #8a94a3);
+}
+
+@media (max-width: 760px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ifield:nth-child(1),
+  .ifield:nth-child(5),
+  .ifield:nth-child(7),
+  .ifield--double {
+    grid-column: auto;
+  }
+
+  .dims {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+}
 </style>

@@ -4,7 +4,7 @@
 
 ## ⚠️ 部署前必读:数据库迁移
 本仓库的 DAL 用 SQLAlchemy + Alembic(`migrations/versions/`)。**`metadata.create_all` 只建缺失的「表」,不会给已存在的表加「列」**。所以升级已有 MySQL 库时,**必须先跑 Alembic 迁移**,否则新代码 SELECT 新列会崩。
-- 关键迁移:`0006_in_gallery`(draft_images.in_gallery)、`0007_draft_image_local_url`(draft_images.local_url)、`0008_text_jobs`(文本生成 MQ 任务状态表)。
+- 关键迁移:`0006_in_gallery`(draft_images.in_gallery)、`0007_draft_image_local_url`(draft_images.local_url)、`0008_text_jobs`(文本生成 MQ 任务状态表)、`0009_task_runs`(统一任务进度/失败原因索引)、`0010_task_runs_nullable_draft`(全局后台任务)。
 - 上线当前代码前在生产 MySQL 跑:`python -m uv run --package ozon-webui alembic upgrade head`(或容器内 `alembic upgrade head`),并按 `docs/dal-m4-mysql-verification-checklist.md` 核对。
 - 全新库:`create_all` 已含全部列,首启自动建表,无需迁移。
 
@@ -12,6 +12,18 @@
 - Linux 服务器(Ubuntu 22.04+,1C2G 够用)+ Docker。
 - 一个 MySQL(可同机 Docker 容器,挂 `ozonnet` 网络)。
 - 一个域名,A 记录指向服务器(HTTPS + 插件基本必须)。
+
+## 0.1 当前生产拓扑
+- Web 后端/前端主服务部署在 `8.152.196.119`,容器名 `ozon-webui`,对外端口 `8585`。
+- Worker 主要部署在 `110.42.226.37`、`124.223.39.167`,容器名通常为 `ozon-text-worker`、`ozon-image-worker`。
+- MCP 部署在 `110.42.226.37`,容器名 `ozon-mcp`,端口映射为 `8586`。
+- `110.42.226.37`、`124.223.39.167` 已做免密/密码脚本登录；`8.152.196.119` 的 root 登录使用密钥文件:
+
+```text
+C:\Users\42918\.ssh\a119.pem
+```
+
+部署 Web 热修时优先连 `8.152.196.119`,不要误把 Web 改动只打到 worker/MCP 机器。
 
 ## 1. MySQL(若还没有)
 ```bash

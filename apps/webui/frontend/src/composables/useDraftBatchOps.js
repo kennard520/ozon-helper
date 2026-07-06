@@ -2,6 +2,15 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api.js'
 
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
 /**
  * useDraftBatchOps — 批量操作 / 发布 composable
  *
@@ -81,8 +90,29 @@ export function useDraftBatchOps(store) {
 
   async function doBatchPublish(ids) {
     if (!ids || !ids.length) return
+    const riskRows = []
+    const hardRows = []
+    for (const id of ids) {
+      try {
+        const preview = await api.publishPreview(id, selectedStore.value)
+        if (preview && preview.errors && preview.errors.length) hardRows.push({ id, errors: preview.errors })
+        if (preview && preview.warnings && preview.warnings.length) riskRows.push({ id, warnings: preview.warnings })
+      } catch (err) {
+        hardRows.push({ id, errors: [(err && err.message) || String(err)] })
+      }
+    }
+    const hardHtml = hardRows.length
+      ? `<div style="margin-bottom:8px"><b>以下商品存在技术性问题，可能无法发布：</b><ul style="padding-left:18px;margin:6px 0 0">${hardRows.slice(0, 8).map(r => `<li>#${escapeHtml(r.id)}: ${escapeHtml((r.errors || []).slice(0, 2).join('；'))}</li>`).join('')}</ul></div>`
+      : ''
+    const riskHtml = riskRows.length
+      ? `<div style="margin-bottom:8px"><b>以下商品有发布风险，确认后仍会继续提交：</b><ul style="padding-left:18px;margin:6px 0 0">${riskRows.slice(0, 8).map(r => `<li>#${escapeHtml(r.id)}: ${escapeHtml((r.warnings || []).slice(0, 2).join('；'))}</li>`).join('')}</ul></div>`
+      : ''
+    const suffix = (hardRows.length > 8 || riskRows.length > 8) ? `<p>其余 ${Math.max(hardRows.length - 8, 0) + Math.max(riskRows.length - 8, 0)} 项已省略。</p>` : ''
     try {
-      await confirmFn.value(`确认批量发布选中的 ${ids.length} 个商品到 Ozon？将逐个校验并扣发布费，不可逆。`, '批量发布确认')
+      await confirmFn.value(
+        `<div style="text-align:left">${hardHtml}${riskHtml}<p>确认批量发布选中的 ${ids.length} 个商品到 Ozon？将逐个提交并扣发布费，不可逆。</p>${suffix}</div>`,
+        '批量发布确认',
+      )
     } catch (e) {
       return // 用户取消
     }
@@ -103,7 +133,7 @@ export function useDraftBatchOps(store) {
   async function doDelete(rows) {
     const list = (rows || []).filter(Boolean)
     if (!list.length) return
-    const message = `确定删除选中的 ${list.length} 个草稿？此操作只清除本地草稿，不会删除 Ozon 线上商品。`
+    const message = `确定删除选中的 ${list.length} 个草稿组？同组变体会一起删除；此操作只清除本地草稿，不会删除 Ozon 线上商品。`
     try {
       await confirmFn.value(message, '删除草稿')
     } catch {
@@ -112,24 +142,25 @@ export function useDraftBatchOps(store) {
     const fail = []
     for (const row of list) {
       try {
-        await api.deleteDraft(row.id)
-        store.removeDraft(row.id)
+        const res = await api.deleteDraft(row.id, { scope: 'group' })
+        for (const id of (res.ids || [row.id])) store.removeDraft(id)
       } catch (err) {
         fail.push(`#${row.id}: ${(err && err.message) || err}`)
       }
     }
+    await store.loadDrafts()
     if (fail.length) ElMessage.error(`删除失败：\n${fail.join('\n')}`)
   }
 
   function _buildPreviewHtml(summary, errors, warnings) {
     if (errors && errors.length) {
-      const items = errors.map((e) => `<li style="color:var(--c-danger)">▲ ${e}</li>`).join('')
+      const items = errors.map((e) => `<li style="color:var(--c-danger)">▲ ${escapeHtml(e)}</li>`).join('')
       return `<div style="text-align:left"><b>发布前检查发现问题，无法继续：</b><ul style="padding-left:18px;margin:8px 0">${items}</ul></div>`
     }
     const warnHtml = (warnings && warnings.length)
       ? `<div style="text-align:left;margin-bottom:8px;padding:8px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:4px">` +
-        `<b style="color:var(--c-warning)">⚠️ 以下必填属性未填（可在 Ozon 后台补），仍可发布：</b>` +
-        `<ul style="padding-left:18px;margin:6px 0 0">${warnings.map((wn) => `<li>${wn}</li>`).join('')}</ul></div>`
+        `<b style="color:var(--c-warning)">以下是发布前风险提示，确认后仍会继续提交到 Ozon：</b>` +
+        `<ul style="padding-left:18px;margin:6px 0 0">${warnings.map((wn) => `<li>${escapeHtml(wn)}</li>`).join('')}</ul></div>`
       : ''
     const s = summary
     const dims = s.dims_mm ? `${s.dims_mm.depth}×${s.dims_mm.width}×${s.dims_mm.height} mm` : '—'
@@ -146,7 +177,7 @@ export function useDraftBatchOps(store) {
       ['含视频', s.has_video ? '是' : '否'],
     ]
     const trs = rows.map(([k, v]) =>
-      `<tr><td style="color:var(--c-text-3);padding:2px 8px 2px 0;white-space:nowrap">${k}</td><td style="font-weight:500">${v}</td></tr>`
+      `<tr><td style="color:var(--c-text-3);padding:2px 8px 2px 0;white-space:nowrap">${escapeHtml(k)}</td><td style="font-weight:500">${escapeHtml(v)}</td></tr>`
     ).join('')
     return `<div style="text-align:left">${warnHtml}<b>将提交以下内容到 Ozon（不可逆）：</b><table style="margin-top:8px;border-collapse:collapse">${trs}</table></div>`
   }

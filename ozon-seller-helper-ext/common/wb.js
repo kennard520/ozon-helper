@@ -98,6 +98,32 @@
     return out
   }
 
+  function cardJsonUrlFromEntries(entries, nm) {
+    const id = String(nm || '').trim()
+    if (!id || !Array.isArray(entries)) return null
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const raw = typeof entries[i] === 'string' ? entries[i] : (entries[i] && entries[i].name)
+      if (!raw) continue
+      try {
+        const u = new URL(String(raw))
+        const path = u.pathname.toLowerCase()
+        if (/\/vol\d+\/part\d+\/\d+\/info\/ru\/card\.json$/.test(path) && path.includes(`/${id}/info/ru/card.json`)) {
+          return u.href
+        }
+      } catch (e) { /* ignore invalid resource names */ }
+    }
+    return null
+  }
+
+  function loadedCardJsonUrl(nm) {
+    if (typeof performance === 'undefined' || !performance.getEntriesByType) return null
+    try {
+      return cardJsonUrlFromEntries(performance.getEntriesByType('resource'), nm)
+    } catch (e) {
+      return null
+    }
+  }
+
   // card.json → collect-parsed 的 data（键名对齐 Ozon 路径：title/description/images...；
   // WB 俄语直接用；options 放 source_raw 供后端 auto-map/AI；价后续就地取）
   function parseCard(card, host, nm) {
@@ -133,19 +159,30 @@
     const n = parseInt(nm, 10)
     const { vol, part } = volPart(n)
     const MAX = 100
+    const out = []
+    const seen = new Set()
+    const add = (host) => {
+      if (!host || seen.has(host)) return
+      seen.add(host)
+      out.push({ host, url: `https://${host}/vol${vol}/part${part}/${n}/info/ru/card.json` })
+    }
+    if (vol >= 10000) {
+      const cdn = Math.max(1, Math.floor(vol / 500))
+      ;[cdn, cdn - 1, cdn + 1].forEach((b) => {
+        if (b >= 1 && b <= MAX) add(`mow-basket-cdn-${String(b).padStart(2, '0')}.geobasket.ru`)
+      })
+    }
     let est = Math.round(19 + (vol - 3064) * (41 - 19) / (9816 - 3064))
     est = Math.max(1, Math.min(est, MAX))
     const order = []
     for (let b = est; b <= MAX; b++) order.push(b)
     for (let b = est - 1; b >= 1; b--) order.push(b)
-    return order.map((b) => {
-      const host = `basket-${String(b).padStart(2, '0')}.wbbasket.ru`
-      return { host, url: `https://${host}/vol${vol}/part${part}/${n}/info/ru/card.json` }
-    })
+    order.forEach((b) => add(`basket-${String(b).padStart(2, '0')}.wbbasket.ru`))
+    return out
   }
 
   return {
     nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-    volPart, imageUrls, parseCard, basketCardUrls
+    volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl
   }
 })

@@ -28,19 +28,26 @@ class WarehouseMixin:
             fetch_delivery_methods,
             fetch_warehouses,
         )
+        run = self.store.create_task_run(None, "warehouse_sync", status="running", source="webui", result={"phase": "start"})
         settings = self._settings_for_store(store_client_id)
         scid = str(settings.get("ozon_client_id") or "")
-        items = fetch_warehouses(settings)
-        self.store.upsert_warehouses(items, scid)
-        # 配送方式挂在仓库下：仓库同步完后逐仓拉取，按店全量替换
-        wids = [w.get("warehouse_id") for w in self.store.list_warehouses(scid)]
-        methods = fetch_delivery_methods(settings, wids)
-        self.store.replace_delivery_methods(methods, scid)
-        return {
-            "synced": len(items),
-            "delivery_methods": len(methods),
-            "warehouses": self._warehouses_with_delivery(scid),
-        }
+        try:
+            items = fetch_warehouses(settings)
+            self.store.upsert_warehouses(items, scid)
+            # 配送方式挂在仓库下：仓库同步完后逐仓拉取，按店全量替换
+            wids = [w.get("warehouse_id") for w in self.store.list_warehouses(scid)]
+            methods = fetch_delivery_methods(settings, wids)
+            self.store.replace_delivery_methods(methods, scid)
+            result = {
+                "synced": len(items),
+                "delivery_methods": len(methods),
+                "warehouses": self._warehouses_with_delivery(scid),
+            }
+            self.store.update_task_run(run["id"], {"status": "done", "progress_current": 1, "progress_total": 1, "result": {"phase": "done", "synced": len(items), "delivery_methods": len(methods), "store_client_id": scid}})
+            return result
+        except Exception as exc:
+            self.store.update_task_run(run["id"], {"status": "failed", "error": str(exc)[:500], "result": {"phase": "failed", "store_client_id": scid}})
+            raise
 
     def store_stats(self, store_client_id: str | None = None) -> dict:
         from webui.ozon_client_adapter import (  # noqa: PLC0415
@@ -72,12 +79,19 @@ class WarehouseMixin:
     def pull_fbs(self, status: str = "awaiting_packaging", days: int = 14,
                  store_client_id: str | None = None) -> dict:
         from webui.ozon_client_adapter import pull_fbs_postings  # noqa: PLC0415
+        run = self.store.create_task_run(None, "fbs_pull", status="running", source="webui", result={"phase": "start", "status": status, "days": days})
         settings = self._settings_for_store(store_client_id)
         scid = str(settings.get("ozon_client_id") or "")
-        items = pull_fbs_postings(settings, status, days)
-        self.store.upsert_postings(items, scid)
-        self.store.rebuild_procurement(scid)
-        return {"synced": len(items), "procurement": self.store.list_procurement(scid)}
+        try:
+            items = pull_fbs_postings(settings, status, days)
+            self.store.upsert_postings(items, scid)
+            self.store.rebuild_procurement(scid)
+            result = {"synced": len(items), "procurement": self.store.list_procurement(scid)}
+            self.store.update_task_run(run["id"], {"status": "done", "progress_current": 1, "progress_total": 1, "result": {"phase": "done", "synced": len(items), "store_client_id": scid}})
+            return result
+        except Exception as exc:
+            self.store.update_task_run(run["id"], {"status": "failed", "error": str(exc)[:500], "result": {"phase": "failed", "store_client_id": scid}})
+            raise
 
     def list_procurement(self, store_client_id: str | None = None) -> dict:
         scid = self._scid_of(store_client_id)

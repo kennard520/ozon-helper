@@ -73,10 +73,8 @@ class GenerateCardTest(unittest.TestCase):
         def chat(system, user):
             calls.append(user)
             if len(calls) == 1:
-                return '{"index":0}'                     # 第一层(根)下钻
+                return '{"index":0}'                     # 一次性类目候选选择
             if len(calls) == 2:
-                return '{"index":0}'                      # 第二层(末级类型)下钻
-            if len(calls) == 3:
                 return json.dumps({"ozon_title": "Автодержатель", "description": "Описание",
                                    "hashtags": []})       # 文案
             return json.dumps({"attributes": [{"id": 4180, "value": "металл"}],
@@ -101,7 +99,7 @@ class GenerateCardTest(unittest.TestCase):
         self.assertEqual(r["length_mm"], 200)
         self.assertEqual(r["width_mm"], 150)
         self.assertEqual(r["height_mm"], 100)
-        self.assertEqual(len(calls), 4)  # 2 类目下钻 + 文案 + 属性
+        self.assertEqual(len(calls), 3)  # 类目选择 + 文案 + 属性
         # Fix 2: AI 类目在候选中时 category_fallback 为 False
         self.assertFalse(r["category_fallback"])
 
@@ -132,7 +130,7 @@ class AiGenerateEndpointTest(unittest.TestCase):
                              "前置条件：草稿 category_id 应为空")
             # 打桩：AI 三次、catalog、属性、resolve
             import webui.ai_card as aic
-            seq = ['{"index":0}', '{"index":0}',
+            seq = ['{"index":0}',
                    J.dumps({"ozon_title": "Держатель", "description": "Опис", "hashtags": []}),
                    J.dumps({"attributes": [{"id": 4180, "value": "металл"}]})]
             calls = {"i": 0}
@@ -198,7 +196,7 @@ class AiGenerateEndpointTest(unittest.TestCase):
             d = app.store.insert_draft(create_draft_from_url("https://detail.1688.com/offer/987654321012.html"))
             app.store.update_draft(d["id"], {"source_raw": {"title": "测试品", "params": [], "description_text": "无"}})
             import webui.ai_card as aic
-            seq = ['{"index":0}', '{"index":0}',
+            seq = ['{"index":0}',
                    J.dumps({"ozon_title": "Держатель", "description": "Опис", "hashtags": []}),
                    J.dumps({"attributes": []})]
             calls = {"i": 0}

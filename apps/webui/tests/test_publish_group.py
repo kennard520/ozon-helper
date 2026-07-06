@@ -270,6 +270,54 @@ class TestPublishVariantGroup(_DbBase):
         result = app.publish_variant_group("G2", model_name="TravelPro X1")
         self.assertEqual(result["model_name"], "TravelPro X1")
 
+    def test_group_publish_rehosts_local_media_before_submit(self):
+        import webui.app_service as app_service
+
+        app = self._app()
+        r1, _ = self._insert_complete_drafts(app, "GMEDIA")
+        app.store.update_draft(r1["id"], {"images": ["/media/draft-1/local.png"]})
+        app.store.save_settings({
+            "oss_endpoint": "oss-cn.test.aliyuncs.com",
+            "oss_bucket": "bucket",
+            "oss_access_key_id": "ak",
+            "oss_access_key_secret": "sk",
+            "oss_public_base": "https://cdn.example.com",
+        })
+
+        captured: list = []
+        uploaded: list = []
+
+        class FakeOss:
+            def __init__(self, settings, local_reader=None):
+                self.settings = settings
+                self.local_reader = local_reader
+
+            def configured(self):
+                return True
+
+            def upload_remote(self, url):
+                uploaded.append(url)
+                return "https://cdn.example.com/ozon-media/local.png"
+
+        def fake_publish_items(settings, items):
+            captured.extend(items)
+            return {"result": {"task_id": 1}}
+
+        def fake_search(settings, cat, typ, attr_id, value, limit=5, **kw):
+            return {"result": [{"id": 1, "value": value}]}
+
+        app._category_attrs = lambda c, t: _FAKE_CATEGORY_ATTRS
+        app_service.OssClient = FakeOss
+        app_service.publish_items = fake_publish_items
+        app_service.search_attribute_values = fake_search
+
+        result = app.publish_variant_group("GMEDIA")
+
+        self.assertEqual(result["rehost"]["uploaded"], 1)
+        self.assertEqual(uploaded, ["/media/draft-1/local.png"])
+        self.assertEqual(captured[0]["images"], ["https://cdn.example.com/ozon-media/local.png"])
+        self.assertEqual(app.store.get_draft(r1["id"])["images"], ["https://cdn.example.com/ozon-media/local.png"])
+
     def test_empty_group_raises_value_error(self):
         app = self._app()
         with self.assertRaises(ValueError) as ctx:

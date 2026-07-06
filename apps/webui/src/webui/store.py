@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("ozon.app")
+from webui.draft_state import derive_draft_status
 from webui.drafts import dumps_json, loads_json, utc_now_iso, validate_draft
 
 # 当前请求的用户 ID（多用户隔离）。HTTP 中间件按 JWT 设置；非请求上下文(测试/启动)默认 1(admin)。
@@ -37,6 +38,11 @@ def _gen_job_repo():
     """延迟构造 GenJobRepo（避免模块级导入 dal）。"""
     from ozon_common.dal.repositories.gen_job_repo import GenJobRepo  # noqa: PLC0415
     return GenJobRepo()
+
+
+def _task_run_repo():
+    from ozon_common.dal.repositories.task_run_repo import TaskRunRepo  # noqa: PLC0415
+    return TaskRunRepo()
 
 
 def _catalog_cache_repo():
@@ -179,6 +185,8 @@ class Store:
         if eng is not None:
             eng.dispose()
             self._session_engine = None
+        from ozon_common.dal.session import unbind_engine  # noqa: PLC0415
+        unbind_engine()
 
     def init(self) -> None:
         # 建表权威切到 SQLAlchemy metadata（与老裸 SQL DDL schema 一致，已由保真测试证明）；
@@ -344,7 +352,7 @@ class Store:
         store_cid = str(draft.get("store_client_id") or "")
         # validate_draft / _offer_id_base 是 webui-only 逻辑，留在 Store 层算好再转调 repo
         errors = list(validate_draft(draft))
-        status = "invalid" if errors else draft["status"]
+        status = derive_draft_status(draft, errors, requested_status=draft.get("status"))
         offer_id_base = _offer_id_base(draft.get("source_platform"), draft.get("source_raw"))
         return _in_scope(lambda: _draft_repo().insert_draft(
             draft, user_id=user_id, store_cid=store_cid,
@@ -352,12 +360,66 @@ class Store:
         ))
 
     def set_media_status(self, draft_id: int, status: str) -> None:
-        _in_scope(lambda: _draft_repo().set_media_status(draft_id, status))
+        user_id = _uid(None)
+
+        def _do() -> None:
+            repo = _draft_repo()
+            repo.set_media_status(draft_id, status)
+            current = repo.get_draft(draft_id, user_id)
+            if current is None:
+                return
+            updated = {**current, "media_status": str(status), "updated_at": utc_now_iso()}
+            errors = list(validate_draft(updated))
+            next_status = derive_draft_status(updated, errors)
+            repo.update_draft(
+                draft_id, updated, user_id=user_id,
+                errors=errors, status=next_status, sync_images=False)
+            task_status = "done" if str(status) == "done" else "running"
+            _task_run_repo().upsert_external(
+                draft_id=draft_id,
+                task_type="media_rehost",
+                source="draft",
+                external_id=draft_id,
+                user_id=user_id,
+                status=task_status,
+                progress_current=1 if task_status == "done" else 0,
+                progress_total=1,
+                error=None,
+            )
+
+        _in_scope(_do)
 
     def apply_media_oss(self, draft_id: int, media_map: dict) -> None:
         """把草稿 images/video_url 里命中 media_map 的原 URL 换成 OSS URL，并置 media_status=done。
         从 draft_images 表读、_sync_draft_images 写。"""
-        _in_scope(lambda: _draft_repo().apply_media_oss(draft_id, media_map))
+        user_id = _uid(None)
+
+        def _do() -> None:
+            repo = _draft_repo()
+            repo.apply_media_oss(draft_id, media_map)
+            repo.set_media_status(draft_id, "done")
+            current = repo.get_draft(draft_id, user_id)
+            if current is None:
+                return
+            updated = {**current, "media_status": "done", "updated_at": utc_now_iso()}
+            errors = list(validate_draft(updated))
+            next_status = derive_draft_status(updated, errors)
+            repo.update_draft(
+                draft_id, updated, user_id=user_id,
+                errors=errors, status=next_status, sync_images=False)
+            _task_run_repo().upsert_external(
+                draft_id=draft_id,
+                task_type="media_rehost",
+                source="draft",
+                external_id=draft_id,
+                user_id=user_id,
+                status="done",
+                progress_current=1,
+                progress_total=1,
+                error=None,
+            )
+
+        _in_scope(_do)
 
     def list_pending_media_drafts(self, user_id: int) -> list[dict]:
         """当前用户 media_status=pending 的草稿，返回 [{id, images, video_url}]，供插件补传。"""
@@ -417,7 +479,7 @@ class Store:
             for extra in patch.get("validation_errors") or []:
                 if extra not in errors:
                     errors.append(extra)
-            status = patch.get("status") or ("ready" if not errors else "invalid")
+            status = derive_draft_status(updated, errors, requested_status=patch.get("status"))
             return repo.update_draft(
                 draft_id, updated, user_id=user_id,
                 errors=errors, status=status, sync_images=("images" in patch))
@@ -574,3 +636,51 @@ class Store:
 
     def count_gen_job_images_by_status(self, job_id: int) -> dict[str, int]:
         return _in_scope(lambda: _gen_job_repo().count_gen_job_images_by_status(job_id))
+
+    # ---------- 统一任务索引（task_runs）----------
+
+    def create_task_run(
+        self,
+        draft_id: int | None,
+        task_type: str,
+        user_id: int | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        uid = _uid(user_id)
+        return _in_scope(lambda: _task_run_repo().create(draft_id, task_type, uid, **kwargs))
+
+    def update_task_run(self, run_id: int, patch: dict[str, Any]) -> dict[str, Any] | None:
+        return _in_scope(lambda: _task_run_repo().update(run_id, patch))
+
+    def upsert_task_run_external(
+        self,
+        draft_id: int | None,
+        task_type: str,
+        source: str,
+        external_id: str | int,
+        user_id: int | None = None,
+        **patch: Any,
+    ) -> dict[str, Any]:
+        uid = _uid(user_id)
+        return _in_scope(
+            lambda: _task_run_repo().upsert_external(
+                draft_id, task_type, source, external_id, uid, **patch
+            )
+        )
+
+    def get_task_run_by_external(
+        self,
+        task_type: str,
+        source: str,
+        external_id: str | int,
+    ) -> dict[str, Any] | None:
+        return _in_scope(lambda: _task_run_repo().get_by_external(task_type, source, external_id))
+
+    def latest_task_runs_for_draft(
+        self, draft_id: int, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        uid = _uid(user_id)
+        return _in_scope(lambda: _task_run_repo().latest_for_draft(draft_id, uid))
+
+    def recover_stale_task_runs(self, timeout_seconds: int = 1800) -> int:
+        return _in_scope(lambda: _task_run_repo().fail_stale_active(timeout_seconds))

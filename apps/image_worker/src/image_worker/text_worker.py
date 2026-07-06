@@ -19,6 +19,7 @@ from ozon_common.dal.engine import engine_for
 from ozon_common.dal.repositories.catalog_cache_repo import CatalogCacheRepo
 from ozon_common.dal.repositories.draft_repo import DraftRepo
 from ozon_common.dal.repositories.settings_repo import SettingsRepo
+from ozon_common.dal.repositories.task_run_repo import TaskRunRepo
 from ozon_common.dal.repositories.text_job_repo import TextJobRepo
 from ozon_common.dal.session import bind_engine, session_scope
 from ozon_common.jsonio import utc_now_iso
@@ -42,6 +43,32 @@ _BRAND_ATTR_ID = 85
 _HASHTAGS_ATTR_ID = 23171
 _TEXT_ATTR_OPTION_CAP = int(os.environ.get("TEXT_ATTR_OPTION_CAP") or "120")
 _TEXT_ATTR_MAX_ITEMS = int(os.environ.get("TEXT_ATTR_MAX_ITEMS") or "60")
+_TEXT_TOTAL_STEPS = 4
+
+
+def _sync_text_task(job: dict, **patch) -> None:
+    steps_done = [s for s in str(job.get("steps_done") or "").split(",") if s]
+    values = {
+        "status": str(job.get("status") or "running"),
+        "progress_current": len(steps_done),
+        "progress_total": _TEXT_TOTAL_STEPS,
+        "error": job.get("error"),
+        "result": {"current_step": job.get("current_step"), "steps_done": steps_done},
+    }
+    values.update(patch)
+    TaskRunRepo().upsert_external(
+        job["draft_id"],
+        "ai_text",
+        "text_jobs",
+        job["id"],
+        job.get("user_id"),
+        **values,
+    )
+
+
+def _text_task_cancelled(job_id: int) -> bool:
+    run = TaskRunRepo().get_by_external("ai_text", "text_jobs", job_id)
+    return bool(run and str(run.get("status") or "") in {"cancel_requested", "cancelled"})
 
 
 def _to_int(value: object) -> int:
@@ -483,10 +510,21 @@ def _make_on_step(job_id: int):
             job = repo.get(job_id)
             if job is None:
                 return
+            if _text_task_cancelled(job_id):
+                repo.update_status(job_id, {"status": "cancelled", "error": "cancelled"})
+                raise RuntimeError("text job cancelled")
             done = [s for s in str(job.get("steps_done") or "").split(",") if s]
             if step not in done:
                 done.append(step)
-            repo.update_status(job_id, {"current_step": step, "steps_done": ",".join(done)})
+            updated = repo.update_status(job_id, {"current_step": step, "steps_done": ",".join(done)})
+            if updated is not None:
+                _sync_text_task(
+                    updated,
+                    status="running",
+                    progress_current=len(done),
+                    progress_total=_TEXT_TOTAL_STEPS,
+                    result={"current_step": step, "steps_done": done},
+                )
         log.info("[text_job %s] step done: %s", job_id, step)
     return on_step
 
@@ -500,9 +538,16 @@ def handle_text_job(job_id: int, draft_id: int) -> None:
     if job is None:
         log.warning("[text_job %s] job not found in DB, skipping (ack)", job_id)
         return
+    with session_scope():
+        if _text_task_cancelled(job_id):
+            TextJobRepo().update_status(job_id, {"status": "cancelled", "error": "cancelled"})
+            log.info("[text_job %s] cancelled before start", job_id)
+            return
 
     with session_scope():
-        TextJobRepo().update_status(job_id, {"status": "running"})
+        updated = TextJobRepo().update_status(job_id, {"status": "running"})
+        if updated is not None:
+            _sync_text_task(updated, status="running")
 
     try:
         run_text_pipeline(
@@ -514,12 +559,23 @@ def handle_text_job(job_id: int, draft_id: int) -> None:
             on_step=_make_on_step(job_id),
         )
         with session_scope():
-            TextJobRepo().update_status(job_id, {"status": "done", "current_step": "attrs"})
+            updated = TextJobRepo().update_status(job_id, {"status": "done", "current_step": "attrs"})
+            if updated is not None:
+                _sync_text_task(
+                    updated,
+                    status="done",
+                    progress_current=_TEXT_TOTAL_STEPS,
+                    progress_total=_TEXT_TOTAL_STEPS,
+                    result={"current_step": "attrs", "steps_done": ["understand", "category", "copy", "attrs"]},
+                )
         log.info("[text_job %s] done", job_id)
     except Exception as exc:
         log.exception("[text_job %s] failed: %s", job_id, exc)
         with session_scope():
-            TextJobRepo().update_status(job_id, {"status": "failed", "error": str(exc)[:500]})
+            status = "cancelled" if _text_task_cancelled(job_id) else "failed"
+            updated = TextJobRepo().update_status(job_id, {"status": status, "error": str(exc)[:500]})
+            if updated is not None:
+                _sync_text_task(updated, status=status, error=str(exc)[:500])
         raise
 
 

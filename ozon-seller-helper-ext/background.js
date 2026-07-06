@@ -336,8 +336,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     // WB：在 background 探测 + 取 card.json（content script 跨域 wbbasket 受限；bg 有 <all_urls>）
     if (msg && msg.type === 'wbResolveCard') {
-      const nm = msg.payload && msg.payload.nm
-      const cands = self.OzonHelperWb.basketCardUrls(nm)
+      const payload = (msg && msg.payload) || {}
+      const nm = payload.nm
+      const cands = []
+      const seen = new Set()
+      const add = (url, host) => {
+        if (!url || seen.has(url)) return
+        seen.add(url)
+        cands.push({ url, host })
+      }
+      try {
+        const direct = payload.cardUrl ? new URL(payload.cardUrl) : null
+        const path = direct ? direct.pathname.toLowerCase() : ''
+        if (direct && path.includes(`/${nm}/info/ru/card.json`)) add(direct.href, direct.host)
+      } catch (e) { /* ignore invalid page resource URL */ }
+      self.OzonHelperWb.basketCardUrls(nm).forEach((c) => add(c.url, c.host))
       for (const c of cands) {
         try {
           const r = await fetch(c.url)

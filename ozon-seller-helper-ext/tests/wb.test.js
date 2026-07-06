@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import OzonHelperWb from '../common/wb.js'
 
 const { nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-        volPart, imageUrls, parseCard, basketCardUrls } = OzonHelperWb
+        volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries } = OzonHelperWb
 
 describe('volPart', () => {
   it('nm → vol/part', () => {
@@ -57,6 +57,33 @@ describe('basketCardUrls', () => {
     const cands = basketCardUrls('123456789')
     expect(cands.length).toBeGreaterThan(50)
     expect(cands[0].url).toMatch(/^https:\/\/basket-\d{2}\.wbbasket\.ru\/vol1234\/part123456\/123456789\/info\/ru\/card\.json$/)
+  })
+  it('prefers current geobasket card.json CDN for high nm ids', () => {
+    const cands = basketCardUrls('1104961760')
+    expect(cands[0]).toEqual({
+      host: 'mow-basket-cdn-22.geobasket.ru',
+      url: 'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json'
+    })
+    expect(cands.some((c) => c.host === 'basket-50.wbbasket.ru')).toBe(true)
+  })
+})
+
+describe('cardJsonUrlFromEntries', () => {
+  it('finds the real card.json URL loaded by the current WB page', () => {
+    const entries = [
+      { name: 'https://static-basket-01.wb.ru/x.js' },
+      { name: 'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json' }
+    ]
+    expect(cardJsonUrlFromEntries(entries, '1104961760')).toBe(
+      'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json'
+    )
+  })
+
+  it('does not match card.json URLs for other nm ids', () => {
+    const entries = [
+      { name: 'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json' }
+    ]
+    expect(cardJsonUrlFromEntries(entries, '1104961759')).toBeNull()
   })
 })
 

@@ -267,9 +267,16 @@ def fetch_delivery_methods(settings: dict, warehouse_ids: list[int]) -> list[dic
     out: list[dict] = []
     cursor = ""
     while True:
-        r = client.list_delivery_methods(warehouse_ids=wids, cursor=cursor, limit=100)
+        r = client.list_delivery_methods(
+            warehouse_ids=wids,
+            status=["ACTIVE"],
+            cursor=cursor,
+            limit=100,
+        )
         batch = r.get("result") or r.get("delivery_methods") or []
         for d in batch:
+            if str(d.get("status") or "").upper() != "ACTIVE":
+                continue
             dp = d.get("tpl_dropoff_point") or {}      # 自提点(PUDO)：用户最关心的地址在这里
             coord = dp.get("address_coordinates") or {}
             out.append({

@@ -8,6 +8,8 @@ index-url = "https://mirrors.aliyun.com/pypi/simple/"
 [tool.uv.sources]
 ozon-common = { workspace = true }
 ozon-api = { workspace = true }
+ozon-webui = { workspace = true }
+ozon-mcp = { workspace = true }
 
 [tool.ruff]
 target-version = "py310"
@@ -17,7 +19,7 @@ line-length = 120
 select = ["I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["ozon_common", "ozon_api", "webui", "image_worker"]
+known-first-party = ["ozon_common", "ozon_api", "webui", "image_worker", "ozon_mcp"]
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -62,4 +62,11 @@ async def upload_media(draft_id: int, file: UploadFile = File(...), kind: str = 
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="文件过大(>20MB)")
     url = save_upload(f"draft-{draft_id}", file.filename or "upload", data)
-    return {"url": url, "kind": kind}
+    image_id = app_instance.APP.store.add_draft_image(
+        draft_id,
+        url,
+        source="uploaded",
+        in_gallery=1,
+    )
+    draft = app_instance.APP.store.get_draft(draft_id)
+    return {"url": url, "kind": kind, "image_id": image_id, "draft": draft}

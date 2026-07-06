@@ -81,15 +81,40 @@ app.add_middleware(_UserContextMiddleware)
 
 # 请求级 scoped-session 用的全局 sessionmaker 已在 App() → Store.init() 里 bind_engine 绑好
 # （与本进程的 Store 同一个库）；这里只需 session_scope 包请求即可。
-from ozon_common.dal.session import session_scope  # noqa: E402
+from ozon_common.dal.session import bind_engine, session_scope  # noqa: E402
 
 
 # 请求级 scoped-session：进入请求开 session 绑 ContextVar，结束提交/回滚/关闭。
 # async 中间件设的 ContextVar 会被 anyio 复制进同步端点的线程池（已实测）。
 @app.middleware("http")
 async def _db_session_mw(request: Request, call_next):
-    with session_scope():
+    raw_path = (request.scope.get("raw_path") or b"").decode("latin1", errors="ignore")
+    if request.url.path.startswith("/media/") or raw_path.startswith("/media/"):
         return await call_next(request)
+    scope = session_scope()
+    try:
+        scope.__enter__()
+    except RuntimeError as exc:
+        if "session" not in str(exc):
+            raise
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        engine = getattr(APP.store, "_session_engine", None)
+        if engine is None:
+            APP.store.init()
+            engine = getattr(APP.store, "_session_engine", None)
+        if engine is None:
+            raise
+        bind_engine(engine)
+        scope = session_scope()
+        scope.__enter__()
+    try:
+        response = await call_next(request)
+    except BaseException as exc:
+        scope.__exit__(type(exc), exc, exc.__traceback__)
+        raise
+    scope.__exit__(None, None, None)
+    return response
 
 
 # 本地图片托管：/media/<key>/<file> → data/images/ 下的下载图（采集时落地的本地副本）

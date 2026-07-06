@@ -59,6 +59,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     groupKey: '', variants: [], selectedVariantIds: new Set(),
     currentVariantId: null, loading: false,
     taskByVariant: {}, taskCheckingIds: new Set(),
+    focusTarget: null,
   }),
   getters: {
     currentVariant: (s) => s.variants.find(v => v.id === s.currentVariantId) || null,
@@ -114,6 +115,9 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.taskCheckingIds = new Set()
     },
     setCurrentVariant(id) { this.currentVariantId = id },
+    requestFocus(target) {
+      this.focusTarget = { ...(target || {}), nonce: Date.now() }
+    },
     setVariantTask(id, job) {
       if (id == null) return
       this.taskByVariant = { ...this.taskByVariant, [id]: job || null }
