@@ -11,6 +11,7 @@ import os
 import sys
 import time
 import uuid
+from urllib.parse import urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -278,9 +279,28 @@ def _resolve_values(settings: dict, cat: int, typ: int, aid: int, texts: list[st
 
 def _resolve_image(url: str) -> str:
     u = str(url or "").strip()
-    if u.startswith("/media/") and os.environ.get("TEXT_WORKER_MEDIA_BASE"):
-        return os.environ["TEXT_WORKER_MEDIA_BASE"].rstrip("/") + u
-    return u
+    if not u:
+        raise ValueError("empty image url")
+    if u.startswith("//"):
+        return "https:" + u
+    if u.startswith("/"):
+        base = (os.environ.get("TEXT_WORKER_MEDIA_BASE") or os.environ.get("WEBUI_PUBLIC_BASE") or "").strip()
+        if not base:
+            raise ValueError(f"relative image url without TEXT_WORKER_MEDIA_BASE: {u}")
+        return base.rstrip("/") + u
+    if u.startswith("data:image/"):
+        return u
+    parsed = urlparse(u)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return u
+    raise ValueError(f"invalid image url: {u}")
+
+
+def _is_wb_draft(draft: dict) -> bool:
+    raw = draft.get("source_raw")
+    raw = raw if isinstance(raw, dict) else {}
+    platform = str(draft.get("source_platform") or raw.get("source_platform") or "").strip().lower()
+    return platform == "wb"
 
 
 def _attr_has_value(attr: dict) -> bool:
@@ -314,6 +334,8 @@ def _dedupe_attrs(attrs: list[dict]) -> list[dict]:
 
 def _run_understand(draft_id: int) -> dict:
     draft = _get_draft(draft_id)
+    if _is_wb_draft(draft):
+        return {"ok": True, "skipped": True, "reason": "wb_text_features"}
     sr = dict(draft.get("source_raw") or {})
     cached = isinstance(sr.get("understanding"), dict) and bool(sr["understanding"])
     if not cached:
@@ -538,6 +560,9 @@ def handle_text_job(job_id: int, draft_id: int) -> None:
     if job is None:
         log.warning("[text_job %s] job not found in DB, skipping (ack)", job_id)
         return
+    if str(job.get("status") or "").lower() in {"done", "failed", "cancelled"}:
+        log.info("[text_job %s] already terminal (%s), skipping duplicate delivery", job_id, job.get("status"))
+        return
     with session_scope():
         if _text_task_cancelled(job_id):
             TextJobRepo().update_status(job_id, {"status": "cancelled", "error": "cancelled"})
@@ -571,12 +596,15 @@ def handle_text_job(job_id: int, draft_id: int) -> None:
         log.info("[text_job %s] done", job_id)
     except Exception as exc:
         log.exception("[text_job %s] failed: %s", job_id, exc)
-        with session_scope():
-            status = "cancelled" if _text_task_cancelled(job_id) else "failed"
-            updated = TextJobRepo().update_status(job_id, {"status": status, "error": str(exc)[:500]})
-            if updated is not None:
-                _sync_text_task(updated, status=status, error=str(exc)[:500])
-        raise
+        try:
+            with session_scope():
+                status = "cancelled" if _text_task_cancelled(job_id) else "failed"
+                updated = TextJobRepo().update_status(job_id, {"status": status, "error": str(exc)[:500]})
+                if updated is not None:
+                    _sync_text_task(updated, status=status, error=str(exc)[:500])
+        except Exception:
+            log.exception("[text_job %s] failed to persist failure state", job_id)
+            raise
 
 
 def main_text() -> None:
