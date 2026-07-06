@@ -80,13 +80,28 @@
     return out
   }
 
-  function _attributes(card) {
+  function _optionItems(card) {
     const out = []
-    for (const o of (card && card.options) || []) {
+    const seen = new Set()
+    const add = (o) => {
       const name = String((o && o.name) || '').trim()
       const value = String((o && o.value) || '').trim()
-      if (name && value) out.push({ name, value })
+      if (!name || !value) return
+      const key = `${name}\u0000${value}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({ name, value })
     }
+    ;((card && card.options) || []).forEach(add)
+    ;((card && card.grouped_options) || []).forEach((group) => {
+      ;((group && group.options) || []).forEach(add)
+    })
+    return out
+  }
+
+  function _attributes(card) {
+    const out = []
+    for (const o of _optionItems(card)) out.push({ name: o.name, value: o.value })
     return out
   }
 
@@ -96,6 +111,41 @@
     const out = []
     for (let i = 1; i <= n; i++) out.push(`${base}/${i}.webp`)
     return out
+  }
+
+  function variantIds(card, fallbackNm) {
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const raw = v && typeof v === 'object' ? (v.nm_id || v.id || v.nm) : v
+      const id = String(raw || '').trim()
+      if (!/^\d+$/.test(id) || seen.has(id)) return
+      seen.add(id)
+      out.push(id)
+    }
+    ;((card && card.full_colors) || []).forEach(add)
+    ;((card && card.colors) || []).forEach(add)
+    if (!out.length) add(fallbackNm || (card && card.nm_id))
+    return out
+  }
+
+  function variantGroup(card, fallbackNm) {
+    const raw = (card && (card.imt_id || card.root)) || fallbackNm
+    const id = String(raw || '').trim()
+    return id ? `wb-${id}` : ''
+  }
+
+  function variantLink(nm) {
+    return `https://www.wildberries.ru/catalog/${nm}/detail.aspx`
+  }
+
+  function variants(card, fallbackNm) {
+    return variantIds(card, fallbackNm).map((id) => ({
+      sku: id,
+      label: id,
+      link: variantLink(id),
+      available: true
+    }))
   }
 
   function cardJsonUrlFromEntries(entries, nm) {
@@ -129,23 +179,50 @@
   function parseCard(card, host, nm) {
     card = card || {}
     const { vol, part } = volPart(nm)
-    const options = card.options || []
+    const options = _optionItems(card)
     const title = String(card.imt_name || '').trim()
     const media = card.media || {}
     const selling = card.selling || {}
+    const vg = variantGroup(card, nm)
+    const vlist = variants(card, nm)
+    const ids = variantIds(card, nm)
+    const attrs = _attributes(card)
+    const pageAttrs = String(nm || '').trim()
+      ? [{ name: 'Артикул', value: String(nm).trim() }, ...attrs]
+      : attrs
     const data = {
       source_platform: 'wb',
       title: title,                 // 后端 → source_title + ozon_title
       description: String(card.description || '').trim(),
-      attributes: _attributes(card),  // 名值对 → draft.attributes，喂 auto-map/AI
+      attributes: pageAttrs,  // 名值对 → draft.attributes，喂 auto-map/AI
       weight_g: _weightG(options),
       images: imageUrls(host, vol, part, nm, media.photo_count),
       price: '', old_price: '', video_url: '',
+      variant_group: vg,
+      variants: vlist,
+      variant_label: title,
       source_raw: {
-        nm_id: nm, imt_name: title,
+        nm_id: nm, imt_id: card.imt_id, imt_name: title,
+        title: title,
+        description_text: String(card.description || '').trim(),
+        sku_id: nm,
+        spec_attrs: title,
+        variant_group: vg,
+        variants: vlist,
+        colors: ids,
+        full_colors: card.full_colors || [],
         brand_name: String(selling.brand_name || ''),
+        brand_hash: String(selling.brand_hash || ''),
+        supplier_id: selling.supplier_id,
+        vendor_code: card.vendor_code,
+        slug: card.slug,
         subj_name: card.subj_name,
-        options: _attributes(card),   // 俄语名值对，喂 auto-map/AI
+        subj_root_name: card.subj_root_name,
+        contents: card.contents,
+        data: card.data || {},
+        grouped_options: card.grouped_options || [],
+        nm_colors_names: card.nm_colors_names,
+        options: attrs,   // 俄语名值对，喂 auto-map/AI
         photo_count: media.photo_count,
         basket_host: host
       }
@@ -183,6 +260,7 @@
 
   return {
     nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-    volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl
+    volPart, imageUrls, variantIds, variantGroup, variantLink, variants,
+    parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl
   }
 })

@@ -266,7 +266,7 @@ class PipelineMixin:
         if step_id == "category_recognition":
             return self._track_sync_pipeline_action(draft_id, "category_recognition", lambda: self.recognize_category(draft_id))
         if step_id == "attribute_mapping":
-            return self._track_sync_pipeline_action(draft_id, "attribute_mapping", lambda: self.auto_map_attributes(draft_id))
+            return self._track_sync_pipeline_action(draft_id, "attribute_mapping", lambda: self.map_attributes(draft_id))
         if step_id == "attribute_ai_fill":
             return self._track_sync_pipeline_action(draft_id, "attribute_ai_fill", lambda: self.ai_fill_attributes(draft_id))
         if step_id == "translate":

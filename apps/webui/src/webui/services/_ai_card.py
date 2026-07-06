@@ -465,6 +465,36 @@ class AiCardMixin:
             return self.store.update_draft(int(draft["id"]), patch)
         return draft
 
+    def map_attributes(self, draft_id: int) -> dict:
+        """Map collected attributes into Ozon attributes.
+
+        1688 should first build a visual/text understanding, then use AI to fill
+        attributes for the recognized Ozon category. WB already has structured
+        Russian drawer features, so it goes straight to AI attribute filling.
+        Other platforms keep the fast name-based mapper.
+        """
+        draft = self.store.get_draft(draft_id)
+        if draft is None:
+            raise KeyError(f"draft {draft_id} not found")
+        sr = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
+        platform = str(draft.get("source_platform") or sr.get("source_platform") or "").strip().lower()
+        if platform == "1688":
+            if not (isinstance(sr.get("understanding"), dict) and sr.get("understanding")):
+                self.understand_draft(draft_id)
+            result = self.ai_fill_attributes(draft_id)
+            if isinstance(result, dict):
+                result.setdefault("mapped_by", "ai")
+            return result
+        if platform == "wb":
+            result = self.ai_fill_attributes(draft_id)
+            if isinstance(result, dict):
+                result.setdefault("mapped_by", "ai")
+            return result
+        result = self.auto_map_attributes(draft_id)
+        if isinstance(result, dict):
+            result.setdefault("mapped_by", "rules")
+        return result
+
     def _fill_model_name(self, meta: list[dict], draft: dict,
                          publish_by_id: dict, mapped: list[dict]) -> None:
         """型号名称(9048)：单品自动填一个唯一随机值，让每个单品成独立卡片、并满足必填。
@@ -517,8 +547,8 @@ class AiCardMixin:
         if multimodal:
             from webui import agnes  # noqa: PLC0415
             sr = (draft or {}).get("source_raw") or {}
-            pics = agnes.pick_public_images((draft or {}).get("images"), sr.get("detail_images")) or []
-            images = pics[:1] or None      # 只发主图
+            pics = agnes.pick_public_images((draft or {}).get("images"), sr.get("detail_images"), cap=4) or []
+            images = pics[:4] or None      # 多模态最多看 4 张图，覆盖卖点/参数图
         if engine == "agnes":
             from webui import agnes  # noqa: PLC0415
             return lambda s, u: agnes.agnes_chat(settings, s, u, images=images)

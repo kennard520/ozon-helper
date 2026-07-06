@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import OzonHelperWb from '../common/wb.js'
 
 const { nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-        volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries } = OzonHelperWb
+        volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries, variantIds } = OzonHelperWb
 
 describe('volPart', () => {
   it('nm → vol/part', () => {
@@ -49,6 +49,60 @@ describe('parseCard', () => {
     expect(d.source_raw.options.length).toBe(5)    // 5 个名值对喂 auto-map
     expect(d.source_raw.brand_name).toBe('NoName')
     expect(d.price).toBe('')                        // 价后续就地取
+  })
+
+  it('keeps WB sibling nm ids as variants and a stable variant_group', () => {
+    const card = {
+      imt_id: 1021418841,
+      nm_id: 883887355,
+      imt_name: 'Датчик температуры',
+      slug: 'datchik-temperatury',
+      subj_root_name: 'Умный дом и безопасность',
+      vendor_code: 'СП-00075985',
+      contents: 'Датчик, стикер для монтажа',
+      data: { subject_id: 1532, subject_root_id: 6259, chrt_ids: [1333493136], tech_size: '0' },
+      media: { photo_count: 1 },
+      full_colors: [
+        { nm_id: 374523268 },
+        { nm_id: 884050191 },
+        { nm_id: 883887355 }
+      ],
+      grouped_options: [{ group_name: 'Основная информация', options: [{ name: 'Цвет', value: 'белый' }] }],
+      colors: [374523268, 884050191, 883887355]
+    }
+    const d = parseCard(card, 'basket-39.wildberries.cn', '883887355')
+    expect(d.attributes).toContainEqual({ name: 'Артикул', value: '883887355' })
+    expect(variantIds(card, '883887355')).toEqual(['374523268', '884050191', '883887355'])
+    expect(d.variant_group).toBe('wb-1021418841')
+    expect(d.variants).toEqual([
+      { sku: '374523268', label: '374523268', link: 'https://www.wildberries.ru/catalog/374523268/detail.aspx', available: true },
+      { sku: '884050191', label: '884050191', link: 'https://www.wildberries.ru/catalog/884050191/detail.aspx', available: true },
+      { sku: '883887355', label: '883887355', link: 'https://www.wildberries.ru/catalog/883887355/detail.aspx', available: true }
+    ])
+    expect(d.source_raw.variant_group).toBe('wb-1021418841')
+    expect(d.source_raw.variants.length).toBe(3)
+    expect(d.source_raw.colors).toEqual(['374523268', '884050191', '883887355'])
+    expect(d.source_raw.vendor_code).toBe('СП-00075985')
+    expect(d.source_raw.contents).toBe('Датчик, стикер для монтажа')
+    expect(d.source_raw.grouped_options).toEqual(card.grouped_options)
+    expect(d.source_raw.data).toEqual(card.data)
+  })
+
+  it('uses grouped_options drawer features when top-level options are missing', () => {
+    const card = {
+      imt_name: 'Mini jet fan',
+      description: 'Cordless blower',
+      media: { photo_count: 1 },
+      grouped_options: [{ group_name: 'Extra', options: [
+        { name: 'Air speed', value: '62 m/s' },
+        { name: 'Battery type', value: 'Li-Ion' }
+      ] }]
+    }
+    const d = parseCard(card, 'mow-basket-cdn-20.geobasket.ru', '1015621667')
+    expect(d.attributes).toContainEqual({ name: 'Air speed', value: '62 m/s' })
+    expect(d.attributes).toContainEqual({ name: 'Battery type', value: 'Li-Ion' })
+    expect(d.source_raw.options).toContainEqual({ name: 'Air speed', value: '62 m/s' })
+    expect(d.source_raw.grouped_options).toEqual(card.grouped_options)
   })
 })
 

@@ -36,6 +36,32 @@ class BuildProfileTest(unittest.TestCase):
     def test_empty_understanding_ignored(self) -> None:
         self.assertNotIn("Selling points", build_profile(RAW, understanding={}))
 
+    def test_wb_category_and_drawer_features_are_profile_input(self) -> None:
+        raw = {
+            "imt_name": "Mini jet fan",
+            "subj_root_name": "Garden",
+            "subj_name": "Blowers",
+            "description": "Cordless handheld blower.",
+            "contents": "Blower, case, nozzles",
+            "options": [{"name": "Battery type", "value": "Li-Ion"}],
+            "grouped_options": [
+                {"group_name": "Extra", "options": [
+                    {"name": "Air speed", "value": "62 m/s"},
+                    {"name": "Battery type", "value": "Li-Ion"},
+                ]}
+            ],
+        }
+
+        p = build_profile(raw)
+
+        self.assertIn("Title: Mini jet fan", p)
+        self.assertIn("Source category: Garden / Blowers", p)
+        self.assertIn("Battery type: Li-Ion", p)
+        self.assertIn("Air speed: 62 m/s", p)
+        self.assertEqual(p.count("Battery type: Li-Ion"), 1)
+        self.assertIn("Contents: Blower, case, nozzles", p)
+        self.assertIn("Description: Cordless handheld blower.", p)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -136,7 +136,7 @@ class ExtBridgeTest(unittest.TestCase):
             client = self._client(tmp)
             try:
                 calls = []
-                self._main.APP.auto_map_attributes = lambda did: calls.append(did) or {}
+                self._main.APP.map_attributes = lambda did: calls.append(did) or {}
                 # 无类目（无 API key 无法自动匹配）→ 不触发
                 client.post("/api/ext/collect-parsed", json={
                     "url": "https://www.ozon.ru/product/no-cat-1/", "data": {"title": "T"}})

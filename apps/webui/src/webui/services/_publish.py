@@ -539,7 +539,7 @@ class PublishMixin:
         try:
             d = self.store.get_draft(draft_id)
             if d and str(d.get("category_id") or "").strip() and str(d.get("type_id") or "").strip():
-                self.auto_map_attributes(draft_id)
+                self.map_attributes(draft_id)
         except Exception:  # noqa: BLE001
             pass
 

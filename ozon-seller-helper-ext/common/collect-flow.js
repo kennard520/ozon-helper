@@ -43,6 +43,18 @@
     return null
   }
 
+  async function _applyWbPrice(data, nm, rate) {
+    const wp = await _fetchWbPrice(nm)
+    if (wp && typeof OzonHelperProduct !== 'undefined') {
+      const cny = OzonHelperProduct.applyRubToCny({ price: wp.price_rub, old_price: wp.old_rub }, rate)
+      data.price = cny.price
+      if (cny.old_price !== '' && cny.old_price != null) data.old_price = cny.old_price
+      if (wp.rating != null) data.source_raw.rating = wp.rating
+      if (wp.feedbacks != null) data.source_raw.feedbacks = wp.feedbacks
+    }
+    return wp
+  }
+
   // 媒体重托管：把草稿里所有图/视频下载后多线程直传 OSS（预签名，国内快），
   // 换成 OSS 公网直链再推后端。best-effort：传失败保留原链接，不阻断采集。onStatus 可选。
   async function _rehostMedia(data, onStatus) {
@@ -135,14 +147,7 @@
     }
     let data = OzonHelperWb.parseCard(cr.data.card, cr.data.host, nm)
     // 2) 就地取价(卢布→人民币)
-    const wp = await _fetchWbPrice(nm)
-    if (wp) {
-      const cny = OzonHelperProduct.applyRubToCny({ price: wp.price_rub, old_price: wp.old_rub }, rt.rate)
-      data.price = cny.price
-      if (cny.old_price !== '' && cny.old_price != null) data.old_price = cny.old_price
-      if (wp.rating != null) data.source_raw.rating = wp.rating
-      if (wp.feedbacks != null) data.source_raw.feedbacks = wp.feedbacks
-    }
+    const wp = await _applyWbPrice(data, nm, rt.rate)
     // 3) 推送（计划三：不再同步传媒体，推原始链接秒回，媒体由 background 后台异步传 OSS）
     const r = await OzonHelperBridge.bgCall('collectParsed', { schema_version: COLLECT_SCHEMA_VERSION, url, data })
     if (r && r.ok) {
@@ -240,8 +245,77 @@
 
   // 串行限速爬取所有变体；每个变体 → 一个草稿(带 variant_group=主商品SKU)
   // onProgress(done,total,label); getStop()→true 则停。返回 {collected, stopped}
+  async function collectAllWbVariants(currentUrl, opts) {
+    opts = opts || {}
+    const onProgress = opts.onProgress || function () {}
+    const getStop = opts.getStop || function () { return false }
+    const spacingMs = opts.spacingMs == null ? 2500 : opts.spacingMs
+    if (typeof OzonHelperWb === 'undefined' || typeof OzonHelperBridge === 'undefined') {
+      return { collected: 0, stopped: false }
+    }
+    const rt = await _fetchRate()
+    if (!rt.ok) { onProgress(0, 0, '连不上后端服务器'); return { collected: 0, stopped: false, noRate: true } }
+    if (!rt.rate) { onProgress(0, 0, '未配置汇率(webui 设置填 RUB/CNY)'); return { collected: 0, stopped: false, noRate: true } }
+    const currentNm = OzonHelperWb.nmFromUrl(currentUrl)
+    if (!currentNm) { onProgress(0, 0, '读取失败'); return { collected: 0, stopped: false } }
+    const cardUrl = OzonHelperWb.loadedCardJsonUrl ? OzonHelperWb.loadedCardJsonUrl(currentNm) : null
+    const base = await OzonHelperBridge.bgCall('wbResolveCard', { nm: currentNm, cardUrl })
+    if (!base || !base.ok || !base.data || !base.data.card) {
+      onProgress(0, 0, 'WB 商品数据采不到(card.json)')
+      return { collected: 0, stopped: false }
+    }
+    const ids = OzonHelperWb.variantIds(base.data.card, currentNm)
+    const group = OzonHelperWb.variantGroup(base.data.card, currentNm)
+    const allVariants = OzonHelperWb.variants(base.data.card, currentNm)
+    const total = ids.length
+    let collected = 0
+    let firstDraftId = null
+    let autoPublish = false
+    for (let i = 0; i < total; i++) {
+      if (getStop()) return { collected, stopped: true }
+      const nm = ids[i]
+      onProgress(i, total, nm)
+      try {
+        const cr = nm === currentNm ? base : await OzonHelperBridge.bgCall('wbResolveCard', { nm })
+        if (!cr || !cr.ok || !cr.data || !cr.data.card) continue
+        const data = OzonHelperWb.parseCard(cr.data.card, cr.data.host, nm)
+        data.variant_group = group
+        data.variants = allVariants
+        if (data.source_raw) {
+          data.source_raw.variant_group = group
+          data.source_raw.variants = allVariants
+          data.source_raw.colors = ids
+        }
+        await _applyWbPrice(data, nm, rt.rate)
+        const r = await OzonHelperBridge.bgCall('collectParsed', {
+          schema_version: COLLECT_SCHEMA_VERSION,
+          url: OzonHelperWb.variantLink(nm),
+          data
+        })
+        if (r && r.ok) {
+          collected++
+          if (firstDraftId == null) {
+            const created = r.data && r.data.created
+            firstDraftId = Array.isArray(created) && created[0] ? created[0].id : null
+            autoPublish = !!(r.data && r.data.auto_publish)
+          }
+        }
+      } catch (e) { /* skip one failed WB sibling */ }
+      if (i < total - 1 && spacingMs > 0) await new Promise((res) => setTimeout(res, spacingMs))
+    }
+    if (collected) {
+      OzonHelperBridge.bgCall('rehostPending')
+      if (!autoPublish) OzonHelperBridge.bgCall('openEditor', { draftId: firstDraftId })
+    }
+    onProgress(total, total, '完成')
+    return { collected, stopped: false }
+  }
+
   async function collectAllVariants(currentUrl, opts) {
     opts = opts || {}
+    if (typeof OzonHelperSite !== 'undefined' && OzonHelperSite.detectSite(location.hostname) === 'wb') {
+      return collectAllWbVariants(currentUrl, opts)
+    }
     const onProgress = opts.onProgress || function () {}
     const getStop = opts.getStop || function () { return false }
     const spacingMs = opts.spacingMs || 4000
@@ -283,5 +357,5 @@
     return { collected, stopped: false }
   }
 
-  root.OzonHelperCollect = { collectAndEdit, collectAllVariants, collectWbAndEdit, collect1688AndEdit }
+  root.OzonHelperCollect = { collectAndEdit, collectAllVariants, collectAllWbVariants, collectWbAndEdit, collect1688AndEdit }
 })(typeof globalThis !== 'undefined' ? globalThis : self)

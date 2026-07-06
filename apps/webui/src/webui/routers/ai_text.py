@@ -50,7 +50,7 @@ def recognize_category(draft_id: int) -> dict:
 @router.post("/api/drafts/{draft_id}/auto-map")
 def auto_map(draft_id: int) -> dict:
     try:
-        return _run_tracked(draft_id, "attribute_mapping", lambda: app_instance.APP.auto_map_attributes(draft_id))
+        return _run_tracked(draft_id, "attribute_mapping", lambda: app_instance.APP.map_attributes(draft_id))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc))
 

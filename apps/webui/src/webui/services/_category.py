@@ -282,7 +282,9 @@ class CategoryMixin:
             raw = loads_json(raw, {})
         raw = dict(raw or {})
         und_auto = False
-        if not (isinstance(raw.get("understanding"), dict) and raw.get("understanding")):
+        is_wb_structured = str(draft.get("source_platform") or raw.get("source_platform") or "").strip().lower() == "wb"
+        skip_understand = is_wb_structured and bool(raw.get("options") or raw.get("grouped_options") or raw.get("subj_name"))
+        if not skip_understand and not (isinstance(raw.get("understanding"), dict) and raw.get("understanding")):
             # 没看图理解就先做一次(无图/失败则静默跳过，仍按纯文本下钻)
             try:
                 self.understand_draft(draft_id)
@@ -295,6 +297,12 @@ class CategoryMixin:
             except Exception:  # noqa: BLE001
                 pass
         settings = self.store.get_settings()
+        if not str(raw.get("title") or raw.get("imt_name") or "").strip():
+            raw["title"] = draft.get("source_title") or draft.get("ozon_title") or ""
+        if not raw.get("params"):
+            raw["params"] = raw.get("attributes") or (draft.get("attributes") if isinstance(draft.get("attributes"), list) else [])
+        if not str(raw.get("description_text") or raw.get("description") or "").strip():
+            raw["description_text"] = draft.get("description") or ""
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
         roots = self._category_roots_zh(settings)
         nav = navigate_category(roots, self._card_chat(settings, draft), profile)

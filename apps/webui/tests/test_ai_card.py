@@ -105,6 +105,109 @@ class GenerateCardTest(unittest.TestCase):
 
 
 class AiGenerateEndpointTest(unittest.TestCase):
+    def test_map_attributes_routes_wb_to_ai_fill(self):
+        import importlib
+        import tempfile
+        from pathlib import Path
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        with tempfile.TemporaryDirectory() as tmp:
+            store_mod.DEFAULT_DB = Path(tmp) / "map_route.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            app = svc.App()
+            from webui.drafts import create_draft_from_url
+            wb = app.store.insert_draft(create_draft_from_url(
+                "https://www.wildberries.ru/catalog/1015621667/detail.aspx",
+                source_platform="wb",
+                scraped={"category_id": "1", "type_id": "2"},
+            ))
+            p1688 = app.store.insert_draft(create_draft_from_url(
+                "https://detail.1688.com/offer/123456789012.html",
+                source_platform="1688",
+                scraped={"category_id": "1", "type_id": "2"},
+            ))
+            other = app.store.insert_draft(create_draft_from_url(
+                "https://www.ozon.ru/product/x-12345678/",
+                source_platform="ozon",
+                scraped={"category_id": "1", "type_id": "2"},
+            ))
+            calls = []
+            app.ai_fill_attributes = lambda did: calls.append(("ai", did)) or {"ok": True}
+            app.auto_map_attributes = lambda did: calls.append(("auto", did)) or {"ok": True}
+            app.understand_draft = lambda did: calls.append(("understand", did)) or {"ok": True}
+            try:
+                app.map_attributes(wb["id"])
+                app.map_attributes(p1688["id"])
+                app.map_attributes(other["id"])
+                self.assertEqual(calls, [
+                    ("ai", wb["id"]),
+                    ("understand", p1688["id"]),
+                    ("ai", p1688["id"]),
+                    ("auto", other["id"]),
+                ])
+            finally:
+                app.store.close()
+                import gc; gc.collect()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
+
+    def test_recognize_category_for_wb_uses_text_profile_without_understanding(self):
+        """WB has category text and drawer features, so recognition should not auto-run vision."""
+        import importlib
+        import tempfile
+        from pathlib import Path
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        with tempfile.TemporaryDirectory() as tmp:
+            store_mod.DEFAULT_DB = Path(tmp) / "wb_category.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            import webui.main as main_mod; importlib.reload(main_mod)
+            app = main_mod.APP
+            from webui.drafts import create_draft_from_url
+            raw = {
+                "imt_name": "Mini jet fan",
+                "subj_root_name": "Garden",
+                "subj_name": "Blowers",
+                "description": "Cordless handheld blower.",
+                "options": [{"name": "Air speed", "value": "62 m/s"}],
+            }
+            draft = create_draft_from_url(
+                "https://www.wildberries.ru/catalog/1015621667/detail.aspx",
+                source_platform="wb",
+                scraped={"source_title": "Mini jet fan", "description": "Cordless handheld blower."},
+            )
+            d = app.store.insert_draft(draft)
+            app.store.update_draft(d["id"], {"source_raw": raw})
+
+            app._category_roots_zh = lambda settings: [
+                {"description_category_id": 1, "category_name": "Tools", "children": [
+                    {"type_id": 2, "type_name": "Blower", "description_category_id": 1}]}]
+
+            seen = {}
+            app._card_chat = lambda settings, draft: (
+                lambda system, user: seen.setdefault("user", user) or '{"index":0}'
+            )
+
+            def fail_understand(*args, **kwargs):
+                raise AssertionError("WB category recognition should not auto-run understand_draft")
+
+            app.understand_draft = fail_understand
+            try:
+                result = app.recognize_category(d["id"])
+                self.assertTrue(result["ok"])
+                self.assertEqual(str(result["category_id"]), "1")
+                self.assertIn("Source category: Garden / Blowers", seen["user"])
+                self.assertIn("Air speed: 62 m/s", seen["user"])
+                self.assertFalse(result["understood"])
+            finally:
+                app.store.close()
+                import gc; gc.collect()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
+                importlib.reload(main_mod)
+
     def test_ai_generate_endpoint(self):
         """ai_generate 应返回 mode/proposal（含 fields.category_id/ozon_title/brand_name），且不持久化主字段。"""
         import importlib

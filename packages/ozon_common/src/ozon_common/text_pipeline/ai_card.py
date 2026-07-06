@@ -169,7 +169,18 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
     """拼商品 profile 喂文案 AI。understanding(理解层事实)非空时并入——把"看图理解"的
     品类/材质/规格/卖点/场景/包装喂给文案,让简介基于图上卖点写(解决纯文本太薄)。"""
     raw = raw or {}
-    parts = [f"Title: {raw.get('title') or ''}"]
+    parts = [f"Title: {raw.get('title') or raw.get('imt_name') or raw.get('source_title') or raw.get('name') or ''}"]
+    category_parts: list[str] = []
+    category_path = str(raw.get("category_path") or "").strip()
+    if category_path:
+        category_parts.append(category_path)
+    else:
+        for key in ("subj_root_name", "subj_name"):
+            value = str(raw.get(key) or "").strip()
+            if value and value not in category_parts:
+                category_parts.append(value)
+    if category_parts:
+        parts.append("Source category: " + " / ".join(category_parts))
     # 兼容两种格式：1688 {name, value} 和 Ozon {id, values: [{dictionary_value_id, value}]}
     for p in (raw.get("params") or raw.get("attributes") or []):
         k = p.get("k") or p.get("name") or str(p.get("id") or "")
@@ -181,7 +192,33 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
                 v = ", ".join(vals)
         if k and v:
             parts.append(f"{k}: {v}")
-    desc = str(raw.get("description_text") or "")
+    seen_pairs = set()
+    for line in parts[1:]:
+        if ": " in line:
+            k, v = line.split(": ", 1)
+            seen_pairs.add((k, v))
+
+    def add_option_item(item: object) -> None:
+        if not isinstance(item, dict):
+            return
+        k = str(item.get("name") or item.get("k") or "").strip()
+        v = str(item.get("value") or item.get("v") or "").strip()
+        if not k or not v or (k, v) in seen_pairs:
+            return
+        seen_pairs.add((k, v))
+        parts.append(f"{k}: {v}")
+
+    for item in raw.get("options") or []:
+        add_option_item(item)
+    for group in raw.get("grouped_options") or []:
+        if isinstance(group, dict):
+            for item in group.get("options") or []:
+                add_option_item(item)
+
+    contents = str(raw.get("contents") or "").strip()
+    if contents:
+        parts.append("Contents: " + contents)
+    desc = str(raw.get("description_text") or raw.get("description") or "")
     parts.append("Description: " + desc)
     if isinstance(understanding, dict) and understanding:
         u = understanding

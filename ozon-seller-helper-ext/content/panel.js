@@ -260,7 +260,7 @@
 
   function renderWbBody() {
     if (typeof OzonHelperWb !== 'undefined' && OzonHelperWb.isWbProductPage(location.pathname)) {
-      setBody(actionHtml() + statusHtml('采集后进入管理端草稿编辑', 'ok'))
+      setBody(actionHtml({ variants: true }) + statusHtml('采集后进入管理端草稿编辑', 'ok'))
     } else {
       setBody(statusHtml('打开 WB 商品页后可采集到管理端草稿', 'warn'))
     }

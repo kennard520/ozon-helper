@@ -501,12 +501,12 @@ class CardChatProviderTest(unittest.TestCase):
                 agnes_mod.agnes_chat = fake
                 settings = {"ai_text": {"engine": "agnes", "api_base": "b", "api_key": "K",
                                         "model": "m", "multimodal": True}}
-                draft = {"images": ["/media/draft-1/01.jpg", "https://a/1.jpg"],
-                         "source_raw": {"detail_images": ["https://a/2.jpg"]}}
+                draft = {"images": ["/media/draft-1/01.jpg", "https://a/1.jpg", "https://a/2.jpg", "https://a/3.jpg"],
+                         "source_raw": {"detail_images": ["https://a/4.jpg", "https://a/5.jpg"]}}
                 fn = app._card_chat(settings, draft)
                 self.assertEqual(fn("S", "U"), "A")
                 # 本地 /media 跳过；multimodal=True 只取第一张公网主图
-                self.assertEqual(seen["images"], ["https://a/1.jpg"])
+                self.assertEqual(seen["images"], ["https://a/1.jpg", "https://a/2.jpg", "https://a/3.jpg", "https://a/4.jpg"])
                 # multimodal 关 → 不带图
                 fn2 = app._card_chat({"ai_text": {"engine": "agnes", "api_base": "b",
                                                   "api_key": "K", "model": "m",
