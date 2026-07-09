@@ -214,6 +214,23 @@ class DraftsTest(unittest.TestCase):
         self.assertEqual(url_attr["values"][0]["value"], "https://cdn.example/v.mp4")
         self.assertEqual(name_attr["values"][0]["value"], "Микрофон")
 
+    def test_to_ozon_import_item_skips_known_low_res_wb_video(self) -> None:
+        draft = create_draft_from_url("https://www.wildberries.ru/catalog/502312325/detail.aspx", source_platform="wb")
+        draft.update({
+            "id": 1, "ozon_title": "Детектор газа", "description": "Описание",
+            "category_id": "17028922", "type_id": "94307", "price": "799",
+            "weight_g": 500, "length_mm": 300, "width_mm": 200, "height_mm": 100,
+            "images": ["https://example.test/a.jpg"],
+            "video_url": "http://8.152.196.119:8585/oss/ozon-media/rehosted.mp4",
+            "source_raw": {
+                "video_url": "https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4",
+            },
+        })
+
+        item = to_ozon_import_item(draft)
+
+        self.assertNotIn("complex_attributes", item)
+
     def test_to_ozon_import_item_does_not_passthrough_collected_brand_attr(self) -> None:
         draft = create_draft_from_url("https://detail.1688.com/offer/123456789012.html")
         draft.update({

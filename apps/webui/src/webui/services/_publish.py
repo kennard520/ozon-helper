@@ -10,6 +10,7 @@ from webui.drafts import (
     missing_required_attributes,
     to_ozon_import_item,
     utc_now_iso,
+    video_publish_skip_reason,
 )
 from webui.media_rehost import needs_rehost, rehost_draft_media, rewrite_item_media
 from webui.ozon_client_adapter import get_import_info
@@ -93,6 +94,9 @@ class PublishMixin:
         checks = build_draft_checks(draft)
         warnings: list[str] = [*blocking_errors(checks), *warning_messages(checks)]
         technical_errors: list[str] = []
+        video_warning = video_publish_skip_reason(draft.get("video_url"), draft.get("source_raw"))
+        if video_warning:
+            warnings.append(video_warning)
         # 1688 来源若标题/描述仍含中文，说明还没本地化（功能③的 AI 中译俄）——提示但允许继续
         if draft.get("source_platform") == "1688" and (
             _has_cjk(draft.get("ozon_title")) or _has_cjk(draft.get("description"))
@@ -147,7 +151,7 @@ class PublishMixin:
         # 构建摘要（item 已含换算后价格）
         images = item.get("images") or []
         attributes = item.get("attributes") or []
-        has_video = bool(draft.get("video_url"))
+        has_video = bool(item.get("complex_attributes"))
         summary = {
             "offer_id": item.get("offer_id"),
             "name": item.get("name"),

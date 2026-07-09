@@ -24,6 +24,7 @@ from webui.services._helpers import (
     _WEIGHT_KW,
     _has_cjk,
     _is_country_attr,
+    _is_manufacturer_attr,
     _parse_dims_mm,
     _parse_volume_ml,
     _parse_weight_g,
@@ -152,7 +153,13 @@ class AiCardMixin:
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
         # 本变体的区别规格(1688 spec_attrs，如「美式20升」)——喂给 AI 按本变体填区别特征(is_aspect)
         variant_spec = str((raw or {}).get("spec_attrs") or (raw or {}).get("variant_label") or "").strip()
-        all_attrs = [a for a in (self._category_attrs(cat, typ) or []) if int(a.get("id") or 0) != 85]
+        meta_attrs = self._category_attrs(cat, typ) or []
+        all_attrs = [
+            a for a in meta_attrs
+            if int(a.get("id") or 0) != 85
+            and not _is_country_attr(a)
+            and not _is_manufacturer_attr(a)
+        ]
         facts = self._physical_facts(draft)
         # 只把「代码真能填出值」的物理属性排除出 AI 并由代码填；提取不到值的**留给 AI**(避免两头落空)
         phys_fill: dict = {}
@@ -315,6 +322,12 @@ class AiCardMixin:
         existing = [a for a in (draft.get("attributes") or []) if isinstance(a, dict)]
         merged = [a for a in existing if not (a.get("id") is not None and int(a.get("id")) in ai_ids)]
         merged += [a for a in new_attrs if int(a.get("id")) not in keep]
+        passthrough = [a for a in merged if not (a.get("id") is not None and isinstance(a.get("values"), list))]
+        publish_by_id = {_to_int(a.get("id")): a for a in merged
+                         if a.get("id") is not None and isinstance(a.get("values"), list)}
+        self._force_country_to_china(cat, typ, meta_attrs, publish_by_id, mapped)
+        self._force_manufacturer_to_zqr(meta_attrs, publish_by_id, mapped)
+        merged = passthrough + list(publish_by_id.values())
         # 型号名称(9048,合并为一张卡用)：变体组**强制** = variant_group(整组一致→Ozon 合并)，覆盖任何旧值；
         # 非变体则随机 M-XXXX(每个单品独立卡)、已填则不覆盖。类目无此属性则不塞。
         import uuid  # noqa: PLC0415
@@ -379,7 +392,7 @@ class AiCardMixin:
         for p in pairs:
             attr, ch = p["attr"], p["char"]
             aid = _to_int(attr.get("id"))
-            if aid == BRAND_ATTR_ID:
+            if aid == BRAND_ATTR_ID or _is_country_attr(attr) or _is_manufacturer_attr(attr):
                 continue
             text = str(ch.get("value") or "")
             if attr.get("dictionary_id"):
@@ -402,6 +415,7 @@ class AiCardMixin:
             mapped.append({"id": aid, "name": name, "value": text})
 
         self._force_country_to_china(cat_i, typ_i, meta, publish_by_id, mapped)  # 原产国一律中国
+        self._force_manufacturer_to_zqr(meta, publish_by_id, mapped)  # 制造商一律 zqr
         self._fill_model_name(meta, draft, publish_by_id, mapped)  # 型号名称：单品自动填唯一随机值
         new_attributes = passthrough + list(publish_by_id.values())
         brand_id = draft.get("brand_id") if str(draft.get("brand_name") or "").strip() == NO_BRAND else None
@@ -419,7 +433,7 @@ class AiCardMixin:
         """原产国一律「中国」：类目里只要有原产国属性(俄文名含 Страна)，就把它的值强制
         设成 Китай(中国)、覆盖竞品采到的任何值；竞品没采到也主动填。与采集内容无关。"""
         for attr in meta:
-            if "страна" not in str(attr.get("name") or "").lower():
+            if not _is_country_attr(attr):
                 continue
             caid = _to_int(attr.get("id"))
             if not caid or caid == BRAND_ATTR_ID:
@@ -429,8 +443,20 @@ class AiCardMixin:
                 publish_by_id[caid] = {"id": caid, "values": cvals}
                 mapped.append({"id": caid, "name": attr.get("name"), "value": "Китай"})
 
+    def _force_manufacturer_to_zqr(self, meta: list[dict], publish_by_id: dict,
+                                   mapped: list[dict]) -> None:
+        """制造商一律 zqr：覆盖 WB/1688/AI 采集到的真实厂家名。"""
+        for attr in meta:
+            if not _is_manufacturer_attr(attr):
+                continue
+            aid = _to_int(attr.get("id"))
+            if not aid or aid == BRAND_ATTR_ID:
+                continue
+            publish_by_id[aid] = {"id": aid, "values": [{"value": "zqr"}]}
+            mapped.append({"id": aid, "name": attr.get("name"), "value": "zqr"})
+
     def _ensure_fixed_attrs(self, draft: dict) -> dict:
-        """发布前**写死**：品牌=无品牌、原产国/制造国=中国(Китай)，覆盖采集/AI 的任何值。
+        """发布前**写死**：品牌=无品牌、原产国/制造国=中国(Китай)、制造商=zqr，覆盖采集/AI 的任何值。
         不在「特征」让用户填，要改去 Ozon 后台改。即使没跑过自动填充也保证这几项就位。"""
         cat = int(str(draft.get("category_id") or "0") or 0)
         typ = int(str(draft.get("type_id") or "0") or 0)
@@ -453,6 +479,19 @@ class AiCardMixin:
                 attrs.append({"id": cid, "values": cvals})
                 country_changed = True
         if country_changed:
+            patch["attributes"] = attrs
+        # 制造商 / 生产商 / 厂家 → zqr（自由文本，全部覆盖）
+        manufacturer_ids = [_to_int(a.get("id")) for a in meta
+                            if _is_manufacturer_attr(a) and _to_int(a.get("id")) not in (0, BRAND_ATTR_ID)]
+        manufacturer_changed = False
+        for mid in dict.fromkeys(manufacturer_ids):
+            fixed = {"id": mid, "values": [{"value": "zqr"}]}
+            existing = next((a for a in attrs if _to_int(a.get("id")) == mid), None)
+            if existing != fixed:
+                attrs = [a for a in attrs if _to_int(a.get("id")) != mid]
+                attrs.append(fixed)
+                manufacturer_changed = True
+        if manufacturer_changed:
             patch["attributes"] = attrs
         # 品牌 → 无品牌(brand_id 没解析过才解析一次)
         if not (_to_int(draft.get("brand_id")) > 0

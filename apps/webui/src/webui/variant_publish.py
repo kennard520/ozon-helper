@@ -7,6 +7,7 @@ import re
 from typing import Any, Callable
 
 from webui.drafts import dedupe_publish_attributes, loads_json, to_ozon_import_item
+from webui.services._helpers import _is_country_attr, _is_manufacturer_attr, _to_int
 
 MODEL_NAME_ATTR_ID = 9048   # 型号名称（合并为一张商品卡片）
 COLOR_DICT_ATTR_ID = 10096  # 商品颜色（字典）
@@ -73,9 +74,28 @@ def build_group_items(
     items: list[dict[str, Any]] = []
     for d in drafts:
         item = to_ozon_import_item(d)  # 校验+基础结构（会 raise ValueError 若草稿不完整）
+        attrs = list(item["attributes"])
+        fixed_attrs: list[dict[str, Any]] = []
+        for a in category_attrs or []:
+            aid = _to_int(a.get("id"))
+            if not aid:
+                continue
+            if _is_country_attr(a):
+                rv = resolve_dict(aid, int(a.get("dictionary_id") or 0), "Китай")
+                if rv:
+                    fixed_attrs.append({"id": aid, "values": [{
+                        "dictionary_value_id": rv["dictionary_value_id"],
+                        "value": rv.get("value") or "Китай",
+                    }]})
+            elif _is_manufacturer_attr(a):
+                fixed_attrs.append({"id": aid, "values": [{"value": "zqr"}]})
+        if fixed_attrs:
+            fixed_ids = {a["id"] for a in fixed_attrs}
+            attrs = [x for x in attrs if x.get("id") not in fixed_ids]
+            attrs.extend(fixed_attrs)
         # 型号名(9048)强制 = model_name(整组发布权威合并 key，可由调用方指定)；
         # 覆盖单条构建时兜底塞的 variant_group，保证组内一致 + 尊重显式 model_name。
-        attrs = [x for x in item["attributes"] if x.get("id") != MODEL_NAME_ATTR_ID]
+        attrs = [x for x in attrs if x.get("id") != MODEL_NAME_ATTR_ID]
         attrs.append({"id": MODEL_NAME_ATTR_ID, "values": [{"value": model_name}]})
         aspects = _sr(d).get("selected_aspects") or derived.get(d.get("id")) or []
         # 草稿已填好的属性 id(含有效值)——Part C(AI)已按本变体填了颜色/尺寸(已译俄+解析 value_id)的就别覆盖

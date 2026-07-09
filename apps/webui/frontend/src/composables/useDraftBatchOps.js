@@ -193,7 +193,9 @@ export function useDraftBatchOps(store) {
     try {
       preview = await api.publishPreview(draft.id, targetStore)
     } catch (err) {
-      publishResult.value = { published: false, errors: [`预览失败: ${(err && err.message) || String(err)}`] }
+      const msg = (err && err.message) || String(err)
+      ElMessage.error(`发布预览失败：${msg}`)
+      publishResult.value = { published: false, errors: [`预览失败: ${msg}`] }
       return
     }
 

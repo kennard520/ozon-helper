@@ -58,6 +58,7 @@ export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     groupKey: '', variants: [], selectedVariantIds: new Set(),
     currentVariantId: null, loading: false,
+    currentVariantVersion: 0,
     taskByVariant: {}, taskCheckingIds: new Set(),
     focusTarget: null,
   }),
@@ -94,6 +95,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     async loadForDraft(draftId) {
       if (draftId == null) { this.reset(); return }
       this.loading = true
+      const versionAtStart = this.currentVariantVersion
       try {
         const r = await api.variantGroup(draftId)
         const vs = r.variants || []
@@ -102,7 +104,11 @@ export const useWorkbenchStore = defineStore('workbench', {
         // 默认聚焦:优先打开传入的草稿(若它确在变体组里),否则回退到第一个变体,
         // 保证「进来就有一个变体被选中查看」、详情不空着。
         const hasDraft = this.variants.some(v => v.id === draftId)
-        this.currentVariantId = hasDraft ? draftId : (this.variants[0] ? this.variants[0].id : null)
+        const userChangedCurrent = this.currentVariantVersion !== versionAtStart
+        const hasCurrent = this.variants.some(v => v.id === this.currentVariantId)
+        this.currentVariantId = (userChangedCurrent && hasCurrent)
+          ? this.currentVariantId
+          : (hasDraft ? draftId : (this.variants[0] ? this.variants[0].id : null))
         this.selectedVariantIds = new Set(this.variants.map(v => v.id))
       } finally { this.loading = false }
     },
@@ -111,10 +117,11 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.variants = []
       this.selectedVariantIds = new Set()
       this.currentVariantId = null
+      this.currentVariantVersion += 1
       this.taskByVariant = {}
       this.taskCheckingIds = new Set()
     },
-    setCurrentVariant(id) { this.currentVariantId = id },
+    setCurrentVariant(id) { this.currentVariantId = id; this.currentVariantVersion += 1 },
     requestFocus(target) {
       this.focusTarget = { ...(target || {}), nonce: Date.now() }
     },
@@ -148,12 +155,14 @@ export const useWorkbenchStore = defineStore('workbench', {
       const i = this.currentVariantIndex
       const next = i < 0 ? 0 : (i + 1) % this.variants.length
       this.currentVariantId = this.variants[next].id
+      this.currentVariantVersion += 1
     },
     prevVariant() {
       if (!this.variants.length) return
       const i = this.currentVariantIndex
       const prev = i < 0 ? 0 : (i - 1 + this.variants.length) % this.variants.length
       this.currentVariantId = this.variants[prev].id
+      this.currentVariantVersion += 1
     },
     toggleVariant(id) {
       const s = new Set(this.selectedVariantIds)

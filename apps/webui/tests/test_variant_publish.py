@@ -226,6 +226,21 @@ class BuildGroupItemsTest(unittest.TestCase):
         count_9048 = sum(1 for a in items[0]["attributes"] if a["id"] == MODEL_NAME_ATTR_ID)
         self.assertEqual(count_9048, 1)
 
+    def test_fixed_country_and_manufacturer_override_draft_values(self) -> None:
+        draft = dict(self.draft_white)
+        draft["attributes"] = [
+            {"id": 4389, "values": [{"dictionary_value_id": 7, "value": "Россия"}]},
+            {"id": 23487, "values": [{"value": "Real Factory"}]},
+        ]
+        attrs = _CATEGORY_ATTRS + [
+            {"id": 4389, "name": "Страна-изготовитель", "dictionary_id": 77},
+            {"id": 23487, "name": "Производитель", "dictionary_id": 0},
+        ]
+        items = build_group_items([draft], attrs, self.model_name, _stub_resolve_dict)
+        by_id = {a["id"]: a for a in items[0]["attributes"]}
+        self.assertEqual(by_id[4389]["values"], [{"dictionary_value_id": 111, "value": "Китай"}])
+        self.assertEqual(by_id[23487]["values"], [{"value": "zqr"}])
+
 
 if __name__ == "__main__":
     unittest.main()

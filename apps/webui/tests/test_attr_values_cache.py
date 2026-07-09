@@ -296,6 +296,13 @@ class ConcurrentContextVarTest(unittest.TestCase):
 
 
 class ForceCountryChinaTest(unittest.TestCase):
+    def test_country_detector_does_not_treat_manufacturer_as_country(self):
+        from webui.services._helpers import _is_country_attr
+
+        self.assertTrue(_is_country_attr({"id": 4389, "name": "Страна-изготовитель"}))
+        self.assertTrue(_is_country_attr({"id": 4390, "name": "Страна производства"}))
+        self.assertFalse(_is_country_attr({"id": 23487, "name": "Производитель"}))
+
     def test_fills_china_when_category_has_country_attr(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             svc, app = _make_app(tmp)
@@ -323,6 +330,77 @@ class ForceCountryChinaTest(unittest.TestCase):
                 publish = {}
                 app._force_country_to_china(100, 22, meta, publish, [])
                 self.assertEqual(publish, {})
+            finally:
+                app.store.close()
+
+
+class FixedBusinessAttrsTest(unittest.TestCase):
+    def test_force_manufacturer_overwrites_collected_value(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                meta = [{"id": 23487, "name": "Производитель"}, {"id": 4389, "name": "Страна-изготовитель"}]
+                publish = {23487: {"id": 23487, "values": [{"value": "HABOTEST"}]}}
+                mapped = []
+                app._force_manufacturer_to_zqr(meta, publish, mapped)
+                self.assertEqual(publish[23487], {"id": 23487, "values": [{"value": "zqr"}]})
+                self.assertEqual(mapped[-1]["value"], "zqr")
+            finally:
+                app.store.close()
+
+    def test_ensure_fixed_attrs_sets_brand_country_and_manufacturer(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            svc, app = _make_app(tmp)
+            try:
+                meta = [
+                    {"id": 85, "name": "Бренд", "dictionary_id": 1},
+                    {"id": 4389, "name": "Страна-изготовитель", "dictionary_id": 2},
+                    {"id": 23487, "name": "Производитель", "dictionary_id": 0},
+                ]
+                app._category_attrs = lambda c, t, language="RU": meta
+
+                def fake_resolve(cat, typ, aid, texts, is_coll):
+                    if aid == 85:
+                        return [{"dictionary_value_id": 10, "value": "Нет бренда"}]
+                    if aid == 4389:
+                        return [{"dictionary_value_id": 20, "value": "Китай"}]
+                    return []
+
+                app._resolve_values = fake_resolve
+                draft = app.store.insert_draft({
+                    "source_url": "https://example.com/item",
+                    "source_title": "t",
+                    "ozon_title": "t",
+                    "description": "d",
+                    "category_id": "100",
+                    "type_id": "22",
+                    "price": "100",
+                    "old_price": "120",
+                    "stock": 1,
+                    "weight_g": 100,
+                    "length_mm": 10,
+                    "width_mm": 10,
+                    "height_mm": 10,
+                    "images": ["https://example.com/a.jpg"],
+                    "brand_name": "HABOTEST",
+                    "source_platform": "wb",
+                    "status": "ready",
+                    "publish_response": None,
+                    "validation_errors": [],
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "attributes": [
+                        {"id": 4389, "values": [{"dictionary_value_id": 7, "value": "Россия"}]},
+                        {"id": 23487, "values": [{"value": "HABOTEST"}]},
+                    ],
+                    "source_raw": {},
+                })
+                updated = app._ensure_fixed_attrs(draft)
+                attrs = {a["id"]: a for a in updated["attributes"]}
+                self.assertEqual(updated["brand_name"], "Нет бренда")
+                self.assertEqual(updated["brand_id"], 10)
+                self.assertEqual(attrs[4389]["values"], [{"dictionary_value_id": 20, "value": "Китай"}])
+                self.assertEqual(attrs[23487]["values"], [{"value": "zqr"}])
             finally:
                 app.store.close()
 

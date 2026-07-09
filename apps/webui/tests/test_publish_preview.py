@@ -135,6 +135,26 @@ class PublishPreviewOkTest(unittest.TestCase):
             self.assertTrue(result["summary"]["has_video"])
             _close_app(app)
 
+    def test_preview_warns_and_marks_low_res_wb_video_skipped(self) -> None:
+        """WB 360p 视频会被 Ozon 拒绝，预览应提示且发布 payload 不带视频。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _make_app(tmp)
+            app._category_attrs = lambda c, t: []
+            draft = _draft(
+                app,
+                source_platform="wb",
+                video_url="http://8.152.196.119:8585/oss/ozon-media/rehosted.mp4",
+                source_raw={
+                    "video_url": "https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4",
+                },
+            )
+            result = app.publish_preview(draft["id"])
+
+            self.assertTrue(result["ok"])
+            self.assertFalse(result["summary"]["has_video"])
+            self.assertTrue(any("视频" in w and "跳过" in w for w in result["warnings"]))
+            _close_app(app)
+
 
 class PublishPreviewSideEffectFreeTest(unittest.TestCase):
     def test_preview_does_not_write_status_on_error(self) -> None:

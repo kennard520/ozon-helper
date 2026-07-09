@@ -25,6 +25,7 @@ from webui.services._helpers import (
     _attr_language,
     _has_cjk,
     _is_country_attr,
+    _is_manufacturer_attr,
     _to_int,
 )
 
@@ -145,9 +146,10 @@ class CategoryMixin:
                     a.get("category_dependent")
                     and str(a.get("name") or "").strip().lower() in ("类型", "тип", "type")
                 )]
-                # 品牌(85)写死「无品牌」、原产国写死「中国」——发布时强制填，不在属性区展示让用户填，
-                # 要改自己去 Ozon 改。故从所有展示组里排除这两个。
-                attrs = [a for a in attrs if int(a.get("id") or 0) != 85 and not _is_country_attr(a)]
+                # 品牌(85)写死「无品牌」、原产国写死「中国」、制造商写死 zqr——发布时强制填，
+                # 不在属性区展示让用户填，要改自己去 Ozon 改。故从所有展示组里排除这些固定字段。
+                attrs = [a for a in attrs if int(a.get("id") or 0) != 85
+                         and not _is_country_attr(a) and not _is_manufacturer_attr(a)]
                 # 「区别特征」(变体维度 is_aspect，如商品颜色)单列一组、置顶突出——合并成一张卡时
                 # 各变体靠它区分，最关键，不该埋在折叠里。从必填/可选里拆出，避免重复展示。
                 aspects = [a for a in attrs if a.get("is_aspect")]

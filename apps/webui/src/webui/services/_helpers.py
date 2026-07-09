@@ -105,11 +105,32 @@ def _models_url(base: str) -> str:
 
 def _is_country_attr(attr: dict) -> bool:
     """是否「原产国/制造国」属性（写死中国，发布时强制填，不在 UI 让用户填）。
-    名按中文(原产国/制造国/生产国/产地)或俄文(страна/произв)匹配。"""
+    名按中文(原产国/制造国/生产国/产地)或俄文(страна)匹配。"""
+    aid = _to_int(attr.get("id"))
+    if aid == 4389:
+        return True
     nm = str(attr.get("name") or "")
     low = nm.lower()
     return ("原产国" in nm or "制造国" in nm or "生产国" in nm or "产地" in nm
-            or "страна" in low or "произв" in low)
+            or "страна" in low or "country" in low)
+
+
+def _is_manufacturer_attr(attr: dict) -> bool:
+    """是否「制造商/Производитель」属性（全站固定填 zqr）。"""
+    if _is_country_attr(attr):
+        return False
+    aid = _to_int(attr.get("id"))
+    if aid == 23487:
+        return True
+    nm = str(attr.get("name") or "")
+    low = nm.lower()
+    return (
+        "制造商" in nm
+        or "生产商" in nm
+        or "厂家" in nm
+        or "manufacturer" in low
+        or "производитель" in low
+    )
 
 
 def _download_bytes(url: str, *, timeout: int = 60) -> bytes:

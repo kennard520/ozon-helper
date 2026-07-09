@@ -66,6 +66,20 @@ describe('workbench store', () => {
     await wb.loadForDraft(999)   // 999 不在变体组里
     expect(wb.currentVariantId).toBe(10)
   })
+  it('loadForDraft 不覆盖加载中用户手动切换的当前变体', async () => {
+    let resolveGroup
+    api.variantGroup.mockReturnValue(new Promise((resolve) => { resolveGroup = resolve }))
+    const wb = useWorkbenchStore()
+    wb.variants = [{ id: 1, spec: 'first' }, { id: 2, spec: 'second' }]
+    wb.currentVariantId = 2
+    const pending = wb.loadForDraft(2)
+
+    wb.setCurrentVariant(1)
+    resolveGroup({ ok: true, group: 'G', count: 2, variants: [{ id: 1, spec: 'first' }, { id: 2, spec: 'second' }] })
+    await pending
+
+    expect(wb.currentVariantId).toBe(1)
+  })
   it('翻页对空 variants 安全(不抛错)', () => {
     const wb = useWorkbenchStore()
     expect(() => { wb.nextVariant(); wb.prevVariant() }).not.toThrow()
