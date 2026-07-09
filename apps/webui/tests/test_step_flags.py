@@ -48,7 +48,7 @@ def test_returns_step_keys():
 
 
 def test_rich():
-    assert step_flags(_d(source_raw={"rich_content_json": {"blocks": []}}))["rich"] is False
+    assert step_flags(_d(source_raw={"rich_content_json": {"blocks": []}}))["rich"] is True
     assert step_flags(_d(source_raw={
         "rich_content_json": {"blocks": []},
         "workflow_status": {"rich": {"status": "done"}},

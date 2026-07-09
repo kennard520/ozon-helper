@@ -105,12 +105,131 @@
     return out
   }
 
+  function _videoUrlFromNode(node) {
+    if (!node) return ''
+    if (typeof node === 'string') {
+      const s = node.trim()
+      return /^https?:\/\//i.test(s) && /\.(mp4|mov|webm|m4v)(?:\?|#|$)/i.test(s) ? s : ''
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = _videoUrlFromNode(item)
+        if (found) return found
+      }
+      return ''
+    }
+    if (typeof node === 'object') {
+      for (const key of Object.keys(node)) {
+        if (String(key).toLowerCase().includes('video')) {
+          const found = _videoUrlFromNode(node[key])
+          if (found) return found
+        }
+      }
+      for (const key of Object.keys(node)) {
+        const value = node[key]
+        if (typeof value === 'string') {
+          const found = _videoUrlFromNode(value)
+          if (found) return found
+        }
+      }
+    }
+    return ''
+  }
+
+  function videoUrlFromEntries(entries, nm) {
+    const id = String(nm || '').trim()
+    if (!id || !Array.isArray(entries)) return ''
+    const preferred = []
+    const fallback = []
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const raw = typeof entries[i] === 'string' ? entries[i] : (entries[i] && entries[i].name)
+      if (typeof raw !== 'string') continue
+      const s = raw.trim()
+      if (!s) continue
+      let href = s
+      try {
+        href = new URL(s).href
+      } catch (e) {
+        href = s
+      }
+      if (!/\.(mp4|mov|webm|m4v|m3u8)(?:\?|#|$)/i.test(href)) continue
+      if (href.includes(`/${id}/`) || href.includes(id)) {
+        preferred.push(href)
+      } else {
+        fallback.push(href)
+      }
+    }
+    return preferred[0] || fallback[0] || ''
+  }
+
+  function loadedVideoUrl(nm) {
+    if (typeof performance === 'undefined' || !performance.getEntriesByType) return ''
+    try {
+      return videoUrlFromEntries(performance.getEntriesByType('resource'), nm)
+    } catch (e) {
+      return ''
+    }
+  }
+
+  function videoHostPart(nm) {
+    const n = parseInt(nm, 10)
+    if (!Number.isFinite(n)) return null
+    const vol = n % 144
+    const part = Math.floor(n / 10000)
+    let bucket = 13
+    if (vol <= 11) bucket = 1
+    else if (vol <= 23) bucket = 2
+    else if (vol <= 35) bucket = 3
+    else if (vol <= 47) bucket = 4
+    else if (vol <= 59) bucket = 5
+    else if (vol <= 71) bucket = 6
+    else if (vol <= 83) bucket = 7
+    else if (vol <= 95) bucket = 8
+    else if (vol <= 107) bucket = 9
+    else if (vol <= 119) bucket = 10
+    else if (vol <= 131) bucket = 11
+    else if (vol <= 143) bucket = 12
+    return { host: `videonme-basket-${String(bucket).padStart(2, '0')}.wbbasket.ru`, vol, part }
+  }
+
+  function productVideoUrl(nm) {
+    const p = videoHostPart(nm)
+    if (!p) return ''
+    return `https://${p.host}/vol${p.vol}/part${p.part}/${parseInt(nm, 10)}/mp4/360p/1.mp4`
+  }
+
+  function _legacyBasketByVol(vol) {
+    const ranges = [
+      [143, 1], [287, 2], [431, 3], [719, 4], [1007, 5],
+      [1061, 6], [1115, 7], [1169, 8], [1313, 9], [1601, 10],
+      [1655, 11], [1919, 12], [2045, 13], [2189, 14], [2405, 15],
+      [2621, 16], [2837, 17], [3053, 18], [3269, 19]
+    ]
+    for (const [maxVol, basket] of ranges) {
+      if (vol <= maxVol) return basket
+    }
+    return null
+  }
+
   function imageUrls(host, vol, part, nm, photoCount) {
     const n = Math.max(1, parseInt(photoCount, 10) || 0)
     const base = `https://${host}/vol${vol}/part${part}/${nm}/images/big`
     const out = []
     for (let i = 1; i <= n; i++) out.push(`${base}/${i}.webp`)
     return out
+  }
+
+  function buildRichContent(imgUrls) {
+    const list = Array.isArray(imgUrls) ? imgUrls.filter((u) => typeof u === 'string' && u) : []
+    if (!list.length) return null
+    return {
+      content: list.map((u) => ({
+        widgetName: 'raShowcase',
+        type: 'billboard',
+        blocks: [{ img: { src: u, srcMobile: u, alt: '' } }]
+      })),
+      version: 0.3
+    }
   }
 
   function variantIds(card, fallbackNm) {
@@ -135,15 +254,26 @@
     return id ? `wb-${id}` : ''
   }
 
-  function variantLink(nm) {
-    return `https://www.wildberries.ru/catalog/${nm}/detail.aspx`
+  function variantLink(nm, baseUrl) {
+    const id = String(nm || '').trim()
+    if (!id) return ''
+    const fallback = `https://www.wildberries.ru/catalog/${id}/detail.aspx`
+    if (!baseUrl) return fallback
+    try {
+      const u = new URL(String(baseUrl), 'https://www.wildberries.ru')
+      u.hostname = 'www.wildberries.ru'
+      u.pathname = `/catalog/${id}/detail.aspx`
+      return u.href
+    } catch (e) {
+      return fallback
+    }
   }
 
-  function variants(card, fallbackNm) {
+  function variants(card, fallbackNm, baseUrl) {
     return variantIds(card, fallbackNm).map((id) => ({
       sku: id,
       label: id,
-      link: variantLink(id),
+      link: variantLink(id, baseUrl),
       available: true
     }))
   }
@@ -176,17 +306,21 @@
 
   // card.json → collect-parsed 的 data（键名对齐 Ozon 路径：title/description/images...；
   // WB 俄语直接用；options 放 source_raw 供后端 auto-map/AI；价后续就地取）
-  function parseCard(card, host, nm) {
+  function parseCard(card, host, nm, sourceUrl) {
     card = card || {}
     const { vol, part } = volPart(nm)
     const options = _optionItems(card)
     const title = String(card.imt_name || '').trim()
     const media = card.media || {}
     const selling = card.selling || {}
+    const videoUrl = _videoUrlFromNode(card) || _videoUrlFromNode(media) || loadedVideoUrl(nm) ||
+      (media.has_video ? productVideoUrl(nm) : '')
     const vg = variantGroup(card, nm)
-    const vlist = variants(card, nm)
+    const vlist = variants(card, nm, sourceUrl)
     const ids = variantIds(card, nm)
     const attrs = _attributes(card)
+    const images = imageUrls(host, vol, part, nm, media.photo_count)
+    const richContent = buildRichContent(images)
     const pageAttrs = String(nm || '').trim()
       ? [{ name: 'Артикул', value: String(nm).trim() }, ...attrs]
       : attrs
@@ -196,8 +330,9 @@
       description: String(card.description || '').trim(),
       attributes: pageAttrs,  // 名值对 → draft.attributes，喂 auto-map/AI
       weight_g: _weightG(options),
-      images: imageUrls(host, vol, part, nm, media.photo_count),
-      price: '', old_price: '', video_url: '',
+      images: images,
+      rich_content_json: richContent,
+      price: '', old_price: '', video_url: videoUrl,
       variant_group: vg,
       variants: vlist,
       variant_label: title,
@@ -224,6 +359,9 @@
         nm_colors_names: card.nm_colors_names,
         options: attrs,   // 俄语名值对，喂 auto-map/AI
         photo_count: media.photo_count,
+        has_video: Boolean(media.has_video),
+        video_url: videoUrl,
+        rich_content_json: richContent,
         basket_host: host
       }
     }
@@ -249,6 +387,8 @@
         if (b >= 1 && b <= MAX) add(`mow-basket-cdn-${String(b).padStart(2, '0')}.geobasket.ru`)
       })
     }
+    const legacy = _legacyBasketByVol(vol)
+    if (legacy) add(`basket-${String(legacy).padStart(2, '0')}.wbbasket.ru`)
     let est = Math.round(19 + (vol - 3064) * (41 - 19) / (9816 - 3064))
     est = Math.max(1, Math.min(est, MAX))
     const order = []
@@ -260,7 +400,8 @@
 
   return {
     nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-    volPart, imageUrls, variantIds, variantGroup, variantLink, variants,
-    parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl
+    volPart, imageUrls, buildRichContent, variantIds, variantGroup, variantLink, variants,
+    parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl,
+    videoUrlFromEntries, loadedVideoUrl, videoHostPart, productVideoUrl
   }
 })

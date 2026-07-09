@@ -240,10 +240,11 @@ class AiImageMixin:
         imgs = list(draft.get("images") or [])
         if not imgs:
             raise ValueError("草稿没有图片，无法生成富文本（先采集/生成图片）")
+        is_wb = str(draft.get("source_platform") or "").strip().lower() == "wb"
         if image_indexes:
             sel = [imgs[i] for i in image_indexes if isinstance(i, int) and 0 <= i < len(imgs)]
         else:
-            sel = imgs[1:] if len(imgs) > 1 else imgs   # 默认跳过主图，其余进富文本
+            sel = imgs if is_wb else (imgs[1:] if len(imgs) > 1 else imgs)   # 默认跳过主图，其余进富文本
         if not sel:
             raise ValueError("没有可用于富文本的图片")
         rc = build_rich_content(sel)
@@ -291,7 +292,8 @@ class AiImageMixin:
         c = ai_config(s, "image")
         return GenImageConfig(api_key=(c.get("key") or None),
                               base_url=(c.get("base") or None),
-                              model=(c.get("model") or None))
+                              model=(c.get("model") or None),
+                              engine=(c.get("engine") or None))
 
     def _edit_source_image(self, draft_id: int, source_index: int, prompt: str) -> bytes:
         """对草稿第 source_index 张图做 gpt-image edit(传源图保产品一致),返回结果字节。"""

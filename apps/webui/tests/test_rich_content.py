@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import importlib
+import tempfile
 import unittest
+from pathlib import Path
 
-from webui.drafts import RICH_CONTENT_ATTR_ID, to_ozon_import_item
+from webui.drafts import RICH_CONTENT_ATTR_ID, create_draft_from_url, to_ozon_import_item
 
 
 def _make_draft(**overrides):
@@ -76,6 +79,46 @@ class TestRichContentAttr(unittest.TestCase):
         rich_attrs = [a for a in item["attributes"] if a.get("id") == RICH_CONTENT_ATTR_ID]
         self.assertEqual(len(rich_attrs), 1)
         self.assertEqual(json.loads(rich_attrs[0]["values"][0]["value"]), rcj)
+
+
+class TestMakeRichContent(unittest.TestCase):
+    def test_wb_make_rich_content_uses_all_gallery_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import webui.store as store_mod
+            store_mod.DEFAULT_DB = Path(tmp) / "rich.db"
+            import webui.app_service as svc
+            importlib.reload(svc)
+            app = svc.App()
+            try:
+                draft = create_draft_from_url(
+                    "https://www.wildberries.ru/catalog/95070213/detail.aspx",
+                    source_platform="wb",
+                )
+                draft.update({
+                    "ozon_title": "WB 褌芯胁邪褉",
+                    "description": "袨锌懈褋邪薪懈械",
+                    "category_id": "17028922",
+                    "type_id": "94307",
+                    "price": "100",
+                    "images": [],
+                })
+                saved = app.store.insert_draft(draft)
+                images = [
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/1.webp",
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/2.webp",
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/3.webp",
+                ]
+                for url in images:
+                    app.store.add_draft_image(saved["id"], url, source="collected", in_gallery=1)
+
+                result = app.make_rich_content(saved["id"])
+
+                self.assertEqual(result["blocks"], 3)
+                rich = result["draft"]["source_raw"]["rich_content_json"]
+                got = [item["blocks"][0]["img"]["src"] for item in rich["content"]]
+                self.assertEqual(got, images)
+            finally:
+                app.store.close()
 
 
 if __name__ == "__main__":

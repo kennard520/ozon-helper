@@ -5,6 +5,42 @@ from urllib.parse import urlparse
 from ozon_common.oss import OssClient
 from webui.services._helpers import _money_to_float, _to_int
 
+WB_PRICE_RULE = "cny_x3_sale_old_x3_v2"
+WB_PRICE_RULE_LEGACY = "cny_x3_v1"
+
+
+def _scale_money_text(value, multiplier: float) -> str:
+    try:
+        n = float(str(value or "").strip())
+    except (TypeError, ValueError):
+        n = 0.0
+    if n <= 0:
+        return ""
+    out = round(n * multiplier, 2)
+    return str(int(out)) if float(out).is_integer() else str(out)
+
+
+def _normalize_wb_price_rule(scraped: dict, incoming_source_raw: dict) -> bool:
+    if incoming_source_raw.get("wb_price_rule") in {WB_PRICE_RULE, WB_PRICE_RULE_LEGACY}:
+        sale = _scale_money_text(scraped.get("price"), 1)
+    else:
+        sale = _scale_money_text(scraped.get("price"), 3)
+    if not sale:
+        return False
+    old = _scale_money_text(sale, 3)
+    changed = scraped.get("price") != sale or scraped.get("old_price") != old
+    scraped["price"] = sale
+    scraped["old_price"] = old
+    return changed
+
+
+def _build_wb_rich_content_from_images(images: object) -> dict | None:
+    urls = [str(u or "").strip() for u in (images or []) if str(u or "").strip()] if isinstance(images, list) else []
+    if not urls:
+        return None
+    from webui.listing_build import build_rich_content  # noqa: PLC0415
+    return build_rich_content(urls)
+
 
 def _oss_key_from_public_url(url: str, oss: OssClient) -> str:
     u = str(url or "").strip()
@@ -57,6 +93,27 @@ class ExtMixin:
         except Exception:  # noqa: BLE001
             pass
 
+    def _promote_wb_images_to_gallery(self, draft_id: int, draft: dict) -> None:
+        if str((draft or {}).get("source_platform") or "").strip().lower() != "wb":
+            return
+        images = [str(u or "").strip() for u in ((draft or {}).get("images") or []) if str(u or "").strip()]
+        if not images:
+            return
+        source_raw = (draft or {}).get("source_raw")
+        source_raw = source_raw if isinstance(source_raw, dict) else {}
+        image_types = source_raw.get("image_types")
+        image_types = image_types if isinstance(image_types, dict) else {}
+        local_images = list((draft or {}).get("local_images") or [])
+        for i, img_url in enumerate(images):
+            self.store.add_draft_image(
+                draft_id,
+                img_url,
+                type=str(image_types.get(img_url) or ""),
+                source="collected",
+                in_gallery=1,
+                local_url=str(local_images[i] or "") if i < len(local_images) else "",
+            )
+
     def ext_collect_parsed(self, payload: dict) -> dict:
         url = str(payload.get("url") or "").strip()
         if not url:
@@ -103,6 +160,9 @@ class ExtMixin:
         except Exception:  # noqa: BLE001
             pass
         platform = str(data.get("source_platform") or "ozon").strip() or "ozon"
+        incoming_sr = data.get("source_raw")
+        incoming_sr = incoming_sr if isinstance(incoming_sr, dict) else {}
+        wb_price_rule_applied = platform == "wb" and _normalize_wb_price_rule(scraped, incoming_sr)
         # 1688 采集价=「进价」而非售价 → 进 cost_cny，按默认倍率算售价(进价×1.3×2)/划线价(售价×1.8)
         if platform == "1688":
             from webui.listing_build import default_pricing  # noqa: PLC0415
@@ -122,7 +182,9 @@ class ExtMixin:
             store_cid = str((self.store.get_settings() or {}).get("ozon_client_id") or "")
         new_draft["store_client_id"] = store_cid
         det = data.get("detail_images") or []
-        rcj = data.get("rich_content_json") or None
+        rcj = data.get("rich_content_json") or incoming_sr.get("rich_content_json") or None
+        if not rcj and platform == "wb":
+            rcj = _build_wb_rich_content_from_images(scraped.get("images"))
         vars_ = data.get("variants") or []
         vg = data.get("variant_group") or ""
         sa = data.get("selected_aspects") or []
@@ -130,9 +192,10 @@ class ExtMixin:
         if schema_version:
             sr_new["collect_schema_version"] = schema_version
         # 插件可直接带 source_raw（如 WB 的 options/brand_name，喂 auto-map/AI）
-        incoming_sr = data.get("source_raw")
-        if isinstance(incoming_sr, dict):
+        if incoming_sr:
             sr_new.update(incoming_sr)
+        if platform == "wb" and (wb_price_rule_applied or incoming_sr.get("wb_price_rule") == WB_PRICE_RULE):
+            sr_new["wb_price_rule"] = WB_PRICE_RULE
         if det:
             sr_new["detail_images"] = det
         if rcj:
@@ -162,14 +225,29 @@ class ExtMixin:
                 has_val = val not in (None, "", 0) and not (isinstance(val, list) and not val)
                 if is_empty and has_val:
                     patch[k] = val
+            ex_sr_for_price = existing.get("source_raw")
+            ex_sr_for_price = ex_sr_for_price if isinstance(ex_sr_for_price, dict) else {}
+            if (
+                platform == "wb"
+                and wb_price_rule_applied
+                and (
+                    existing.get("price") != new_draft.get("price")
+                    or existing.get("old_price") != new_draft.get("old_price")
+                    or ex_sr_for_price.get("wb_price_rule") != WB_PRICE_RULE
+                )
+            ):
+                patch["price"] = new_draft.get("price")
+                patch["old_price"] = new_draft.get("old_price")
             if sr_new:
                 ex_sr = existing.get("source_raw")
                 if not isinstance(ex_sr, dict):
                     ex_sr = {}
                 merged = dict(ex_sr)
                 for kk, vv in sr_new.items():
-                    if not merged.get(kk):  # 旧草稿没有才补
+                    if kk == "wb_price_rule" or not merged.get(kk):  # 旧草稿没有才补；价格规则允许升级
                         merged[kk] = vv
+                if platform == "wb" and sr_new.get("rich_content_json"):
+                    merged["rich_content_json"] = sr_new["rich_content_json"]
                 if merged != ex_sr:
                     patch["source_raw"] = merged
             # 属性/标签补空（不覆盖用户已填）：旧草稿没有采集名值对则补；没有 attr 23171 则补标签
@@ -204,6 +282,7 @@ class ExtMixin:
                     in_gallery=0,
                     local_url=str(local_images[i] or "") if i < len(local_images) else "",
                 )
+            self._promote_wb_images_to_gallery(existing["id"], new_draft)
             if _has_media and self._media_needs_upload(self.store.get_draft(existing["id"]) or existing):
                 self.store.set_media_status(existing["id"], "pending")  # 媒体未传 OSS，待后台补
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
@@ -221,6 +300,8 @@ class ExtMixin:
                         "errors": [], "deduped": True,
                         "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
             raise
+        self._promote_wb_images_to_gallery(saved["id"], new_draft)
+        saved = self.store.get_draft(saved["id"]) or saved
         if _has_media and self._media_needs_upload(saved):
             self.store.set_media_status(saved["id"], "pending")  # 媒体未传 OSS，待后台补
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）

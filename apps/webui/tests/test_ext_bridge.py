@@ -193,7 +193,23 @@ class ExtBridgeTest(unittest.TestCase):
                         "source_platform": "wb",
                         "title": "Сумка женская",
                         "description": "Отличная",
-                        "images": ["https://basket-19.wbbasket.ru/vol1/part1/1/images/big/1.webp"],
+                        "images": [
+                            "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/1.webp",
+                            "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/2.webp",
+                        ],
+                        "rich_content_json": {
+                            "content": [
+                                {"widgetName": "raShowcase", "type": "billboard",
+                                 "blocks": [{"img": {"src": "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/1.webp",
+                                                     "srcMobile": "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/1.webp",
+                                                     "alt": ""}}]},
+                                {"widgetName": "raShowcase", "type": "billboard",
+                                 "blocks": [{"img": {"src": "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/2.webp",
+                                                     "srcMobile": "https://basket-19.wbbasket.ru/vol1/part1/1/images/big/2.webp",
+                                                     "alt": ""}}]},
+                            ],
+                            "version": 0.3,
+                        },
                         "weight_g": 500, "length_mm": 300, "width_mm": 200, "height_mm": 100,
                         "source_raw": {"options": [{"name": "Цвет", "value": "чёрный"}], "brand_name": "NoName"},
                     },
@@ -209,6 +225,78 @@ class ExtBridgeTest(unittest.TestCase):
                 self.assertEqual(d["source_raw"]["options"][0]["value"], "чёрный")
                 self.assertEqual(d["source_raw"]["brand_name"], "NoName")
                 self.assertEqual(d["source_raw"]["collect_schema_version"], "2026-07-01")
+                self.assertEqual(d["images"], payload["data"]["images"])
+                self.assertEqual(d["source_raw"]["rich_content_json"], payload["data"]["rich_content_json"])
+            finally:
+                self._main.APP.store.close()
+
+    def test_collect_parsed_wb_recollect_adds_images_to_gallery(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                url = "https://www.wildberries.ru/catalog/95070213/detail.aspx"
+                client.post("/api/ext/collect-parsed", json={
+                    "url": url,
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "WB item",
+                        "rich_content_json": {"content": [], "version": 0.3},
+                    },
+                })
+                images = [
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/1.webp",
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/2.webp",
+                ]
+                rich = {
+                    "content": [
+                        {"widgetName": "raShowcase", "type": "billboard",
+                         "blocks": [{"img": {"src": images[0], "srcMobile": images[0], "alt": ""}}]},
+                        {"widgetName": "raShowcase", "type": "billboard",
+                         "blocks": [{"img": {"src": images[1], "srcMobile": images[1], "alt": ""}}]},
+                    ],
+                    "version": 0.3,
+                }
+                r = client.post("/api/ext/collect-parsed", json={
+                    "url": url,
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "WB item",
+                        "images": images,
+                        "rich_content_json": rich,
+                    },
+                })
+                self.assertEqual(r.status_code, 200)
+                self.assertTrue(r.json()["deduped"])
+                did = r.json()["created"][0]["id"]
+                d = self._main.APP.store.get_draft(did)
+                self.assertEqual(d["images"], images)
+                self.assertEqual(d["source_raw"]["rich_content_json"], rich)
+            finally:
+                self._main.APP.store.close()
+
+    def test_collect_parsed_wb_builds_rich_content_when_extension_omits_it(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                images = [
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/1.webp",
+                    "https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/2.webp",
+                ]
+                r = client.post("/api/ext/collect-parsed", json={
+                    "url": "https://www.wildberries.ru/catalog/95070213/detail.aspx",
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "WB item",
+                        "images": images,
+                    },
+                })
+                self.assertEqual(r.status_code, 200)
+                did = r.json()["created"][0]["id"]
+                d = self._main.APP.store.get_draft(did)
+                rich = d["source_raw"]["rich_content_json"]
+                got = [item["blocks"][0]["img"]["src"] for item in rich["content"]]
+                self.assertEqual(d["images"], images)
+                self.assertEqual(got, images)
             finally:
                 self._main.APP.store.close()
 
@@ -259,6 +347,36 @@ class ExtBridgeTest(unittest.TestCase):
                 self.assertEqual(sr["variants"][0]["sku"], "111")
                 self.assertEqual(sr["variant_group"], "G1")
                 self.assertEqual(sr["selected_aspects"][0]["value"], "Белый")
+            finally:
+                self._main.APP.store.close()
+
+    def test_collect_parsed_uses_default_store_when_store_missing(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                self._main.APP.save_settings({
+                    "ozon_stores": [
+                        {"name": "RYD", "client_id": "5020196", "api_key": "k1", "is_default": False},
+                        {"name": "rongyida", "client_id": "4891171", "api_key": "k2", "is_default": True},
+                    ],
+                })
+                payload = {
+                    "url": "https://www.wildberries.ru/catalog/291085835/detail.aspx",
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "Автосканер",
+                        "price": "331.4",
+                        "images": ["https://basket.example/1.webp"],
+                    },
+                }
+                r = client.post("/api/ext/collect-parsed", json=payload)
+                self.assertEqual(r.status_code, 200)
+                did = r.json()["created"][0]["id"]
+
+                old_store = client.get("/api/drafts", params={"store_client_id": "5020196"}).json()["drafts"]
+                current_store = client.get("/api/drafts", params={"store_client_id": "4891171"}).json()["drafts"]
+                self.assertEqual([d["id"] for d in old_store], [])
+                self.assertEqual([d["id"] for d in current_store], [did])
             finally:
                 self._main.APP.store.close()
 

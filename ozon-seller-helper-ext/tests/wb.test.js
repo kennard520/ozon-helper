@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import OzonHelperWb from '../common/wb.js'
 
 const { nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
-        volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries, variantIds } = OzonHelperWb
+        volPart, imageUrls, parseCard, basketCardUrls, cardJsonUrlFromEntries,
+        variantIds, productVideoUrl } = OzonHelperWb
 
 describe('volPart', () => {
   it('nm → vol/part', () => {
@@ -49,6 +50,30 @@ describe('parseCard', () => {
     expect(d.source_raw.options.length).toBe(5)    // 5 个名值对喂 auto-map
     expect(d.source_raw.brand_name).toBe('NoName')
     expect(d.price).toBe('')                        // 价后续就地取
+  })
+
+  it('uses every WB gallery image to build rich content', () => {
+    const card = {
+      imt_name: 'WB item',
+      description: 'WB description',
+      media: { photo_count: 3 }
+    }
+    const d = parseCard(card, 'basket-05.wbbasket.ru', '95070213')
+    const expectedImages = [
+      'https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/1.webp',
+      'https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/2.webp',
+      'https://basket-05.wbbasket.ru/vol950/part95070/95070213/images/big/3.webp'
+    ]
+
+    expect(d.images).toEqual(expectedImages)
+    expect(d.rich_content_json.version).toBe(0.3)
+    expect(d.rich_content_json.content).toHaveLength(expectedImages.length)
+    expectedImages.forEach((url, idx) => {
+      const img = d.rich_content_json.content[idx].blocks[0].img
+      expect(img.src).toBe(url)
+      expect(img.srcMobile).toBe(url)
+    })
+    expect(d.source_raw.rich_content_json).toEqual(d.rich_content_json)
   })
 
   it('keeps WB sibling nm ids as variants and a stable variant_group', () => {
@@ -104,6 +129,62 @@ describe('parseCard', () => {
     expect(d.source_raw.options).toContainEqual({ name: 'Air speed', value: '62 m/s' })
     expect(d.source_raw.grouped_options).toEqual(card.grouped_options)
   })
+
+  it('extracts WB video URLs when present in nested card payload fields', () => {
+    const card = {
+      imt_name: 'Mini printer',
+      description: 'Test product',
+      media: { has_video: true, photo_count: 1 },
+      videos: [{ url: 'https://cdn.example.com/video.mp4' }]
+    }
+    const d = parseCard(card, 'basket-39.wbbasket.ru', '901539901')
+    expect(d.video_url).toBe('https://cdn.example.com/video.mp4')
+    expect(d.source_raw.has_video).toBe(true)
+    expect(d.source_raw.video_url).toBe('https://cdn.example.com/video.mp4')
+  })
+
+  it('uses the already loaded WB mp4 resource when the page exposes one', () => {
+    const card = {
+      imt_name: 'Mini printer',
+      description: 'Test product',
+      media: { has_video: true, photo_count: 1 }
+    }
+    const savedPerformance = globalThis.performance
+    globalThis.performance = {
+      getEntriesByType: () => [
+        { name: 'https://example.com/other.js' },
+        { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4' },
+        { name: 'https://mow-videofeedback-06-cdn-06.geobasket.ru/a496f298-917a-4230-ac69-03d77da254ca/preview.webp' }
+      ]
+    }
+    try {
+      const d = parseCard(card, 'basket-39.wbbasket.ru', '901541649')
+      expect(d.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+      expect(d.source_raw.has_video).toBe(true)
+      expect(d.source_raw.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+    } finally {
+      globalThis.performance = savedPerformance
+    }
+  })
+
+  it('builds the WB product mp4 URL when card only marks that video exists', () => {
+    const card = {
+      imt_name: 'Mini printer',
+      description: 'Test product',
+      media: { has_video: true, photo_count: 1 }
+    }
+    const savedPerformance = globalThis.performance
+    globalThis.performance = { getEntriesByType: () => [] }
+    try {
+      const d = parseCard(card, 'basket-39.wbbasket.ru', '901541649')
+      expect(d.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+      expect(d.video_url).toBe(productVideoUrl('901541649'))
+      expect(d.source_raw.has_video).toBe(true)
+      expect(d.source_raw.video_url).toBe(d.video_url)
+    } finally {
+      globalThis.performance = savedPerformance
+    }
+  })
 })
 
 describe('basketCardUrls', () => {
@@ -119,6 +200,15 @@ describe('basketCardUrls', () => {
       url: 'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json'
     })
     expect(cands.some((c) => c.host === 'basket-50.wbbasket.ru')).toBe(true)
+  })
+
+  it('prefers the legacy basket host used by older WB vol ranges', () => {
+    const cands = basketCardUrls('95070213')
+    expect(cands[0]).toEqual({
+      host: 'basket-05.wbbasket.ru',
+      url: 'https://basket-05.wbbasket.ru/vol950/part95070/95070213/info/ru/card.json'
+    })
+    expect(cands.filter((c) => c.host === 'basket-05.wbbasket.ru')).toHaveLength(1)
   })
 })
 
@@ -138,6 +228,16 @@ describe('cardJsonUrlFromEntries', () => {
       { name: 'https://mow-basket-cdn-22.geobasket.ru/vol11049/part1104961/1104961760/info/ru/card.json' }
     ]
     expect(cardJsonUrlFromEntries(entries, '1104961759')).toBeNull()
+  })
+
+  it('ignores failed English card.json probes and keeps the Russian payload URL', () => {
+    const entries = [
+      { name: 'https://basket-05.wbbasket.ru/vol950/part95070/95070213/info/en/card.json' },
+      { name: 'https://basket-05.wbbasket.ru/vol950/part95070/95070213/info/ru/card.json' }
+    ]
+    expect(cardJsonUrlFromEntries(entries, '95070213')).toBe(
+      'https://basket-05.wbbasket.ru/vol950/part95070/95070213/info/ru/card.json'
+    )
   })
 })
 

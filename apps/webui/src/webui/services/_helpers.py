@@ -161,7 +161,7 @@ def step_flags(draft: dict) -> dict:
     # rich_content_json 是前端 richContentJson computed 实际读的键(DraftDetail.vue:1998)
     workflow_status = sr.get("workflow_status") if isinstance(sr.get("workflow_status"), dict) else {}
     rich_status = workflow_status.get("rich") if isinstance(workflow_status.get("rich"), dict) else {}
-    rich = bool(rich_status.get("status") == "done")
+    rich = bool(sr.get("rich_content_json") or rich_status.get("status") == "done")
 
     category_done = bool(d.get("category_id") and d.get("type_id"))
     copy_done = bool(d.get("ozon_title") and d.get("description"))
