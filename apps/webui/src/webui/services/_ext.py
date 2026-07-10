@@ -23,6 +23,16 @@ def _scale_money_text(value, multiplier: float) -> str:
     return str(int(out)) if float(out).is_integer() else str(out)
 
 
+def _wb_cost_from_sale(value) -> float | None:
+    try:
+        n = float(str(value or "").strip())
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    return round(n / 3, 2)
+
+
 def _normalize_wb_price_rule(scraped: dict, incoming_source_raw: dict) -> bool:
     if incoming_source_raw.get("wb_price_rule") in {WB_PRICE_RULE, WB_PRICE_RULE_LEGACY}:
         sale = _scale_money_text(scraped.get("price"), 1)
@@ -34,6 +44,9 @@ def _normalize_wb_price_rule(scraped: dict, incoming_source_raw: dict) -> bool:
     changed = scraped.get("price") != sale or scraped.get("old_price") != old
     scraped["price"] = sale
     scraped["old_price"] = old
+    cost = _wb_cost_from_sale(sale)
+    if cost is not None:
+        scraped["cost_cny"] = cost
     return changed
 
 

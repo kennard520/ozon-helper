@@ -104,7 +104,18 @@ def _oid_seg(value: Any) -> str:
     return _OID_STRIP.sub("", s).strip("-").strip()
 
 
-def _offer_id_base(platform: Any, source_raw: Any) -> str:
+def _cost_offer_seg(value: Any) -> str:
+    try:
+        n = float(str(value or "").strip())
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    text = f"{round(n, 2):.2f}".rstrip("0").rstrip(".")
+    return f"C{text}"
+
+
+def _offer_id_base(platform: Any, source_raw: Any, cost_cny: Any = None) -> str:
     """按 {平台}-{变体维度值} 拼货号(可读，标明来源+哪个 SKU)：
     1688/ozon/wb + selected_aspects 各轴值，如 1688-红-XL；无变体维度退回 spec_attrs；再没有就平台+随机短码。"""
     plat = str(platform or "1688").strip() or "1688"
@@ -120,6 +131,10 @@ def _offer_id_base(platform: Any, source_raw: Any) -> str:
         seg = _oid_seg(sr.get("spec_attrs") or sr.get("variant_label"))
         if seg:
             parts.append(seg)
+    if plat.lower() == "wb":
+        cost_seg = _cost_offer_seg(cost_cny)
+        if cost_seg:
+            parts.append(cost_seg)
     if parts:
         return plat + "-" + "-".join(parts)
     import uuid  # noqa: PLC0415
@@ -353,7 +368,11 @@ class Store:
         # validate_draft / _offer_id_base 是 webui-only 逻辑，留在 Store 层算好再转调 repo
         errors = list(validate_draft(draft))
         status = derive_draft_status(draft, errors, requested_status=draft.get("status"))
-        offer_id_base = _offer_id_base(draft.get("source_platform"), draft.get("source_raw"))
+        offer_id_base = _offer_id_base(
+            draft.get("source_platform"),
+            draft.get("source_raw"),
+            draft.get("cost_cny"),
+        )
         return _in_scope(lambda: _draft_repo().insert_draft(
             draft, user_id=user_id, store_cid=store_cid,
             errors=errors, status=status, offer_id_base=offer_id_base,

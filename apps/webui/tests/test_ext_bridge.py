@@ -260,6 +260,61 @@ class ExtBridgeTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_collect_parsed_wb_offer_id_includes_cost_price(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                payload = {
+                    "url": "https://www.wildberries.ru/catalog/706528285/detail.aspx?targetUrl=MI",
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "WB item",
+                        "price": "37.5",
+                        "images": ["https://basket-34.wbbasket.ru/vol7065/part706528/706528285/images/big/1.webp"],
+                        "source_raw": {
+                            "nm_id": "706528285",
+                            "sku_id": "706528285",
+                            "spec_attrs": "706528285",
+                            "wb_price_rule": "cny_x3_sale_old_x3_v2",
+                        },
+                    },
+                }
+                r = client.post("/api/ext/collect-parsed", json=payload)
+                self.assertEqual(r.status_code, 200)
+                did = r.json()["created"][0]["id"]
+                d = self._main.APP.store.get_draft(did)
+                self.assertEqual(d["price"], "37.5")
+                self.assertEqual(d["cost_cny"], 12.5)
+                self.assertEqual(d["offer_id"], "wb-706528285-C12.5")
+            finally:
+                self._main.APP.store.close()
+
+    def test_collect_parsed_wb_offer_id_omits_cost_when_price_missing(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                payload = {
+                    "url": "https://www.wildberries.ru/catalog/706528286/detail.aspx?targetUrl=MI",
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "WB item",
+                        "images": ["https://basket-34.wbbasket.ru/vol7065/part706528/706528286/images/big/1.webp"],
+                        "source_raw": {
+                            "nm_id": "706528286",
+                            "sku_id": "706528286",
+                            "spec_attrs": "706528286",
+                        },
+                    },
+                }
+                r = client.post("/api/ext/collect-parsed", json=payload)
+                self.assertEqual(r.status_code, 200)
+                did = r.json()["created"][0]["id"]
+                d = self._main.APP.store.get_draft(did)
+                self.assertIsNone(d["cost_cny"])
+                self.assertEqual(d["offer_id"], "wb-706528286")
+            finally:
+                self._main.APP.store.close()
+
     def test_collect_parsed_wb_recollect_adds_images_to_gallery(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client = self._client(tmp)
