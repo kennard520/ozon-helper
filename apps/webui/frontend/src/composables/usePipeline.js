@@ -30,6 +30,7 @@ const PIPELINE_STEP = {
 const FRONTEND_STEP = Object.fromEntries(Object.entries(PIPELINE_STEP).map(([ui, backend]) => [backend, ui]))
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed', 'cancelled', 'skipped'])
 const TERMINAL_PIPELINE_STATUSES = new Set(['done', 'failed', 'cancelled', 'skipped', 'blocked'])
+const DEP_DONE_STATUSES = new Set(['done', 'skipped'])
 
 export function usePipeline(workbench, store) {
   const statusByVariant = reactive({})
@@ -214,11 +215,11 @@ export function usePipeline(workbench, store) {
     }, { immediate: true })
   }
 
-  function wfDepOk(stepId, variant) {
+  function wfDepOk(stepId, variant, variantId = workbench.currentVariantId) {
     const step = WF.find(s => s.id === stepId)
     if (!step) return false
     const flags = (variant && variant.steps) || {}
-    return depsFor(step, variant).every(d => flags[d])
+    return depsFor(step, variant).every(d => flags[d] || serverDepDone(d, variantId))
   }
 
   function platformOf(variant) {
@@ -231,6 +232,12 @@ export function usePipeline(workbench, store) {
     return step.dep
   }
 
+  function serverDepDone(depId, variantId = workbench.currentVariantId) {
+    const step = serverStepFor(depId, variantId)
+    const status = String((step && step.status) || '').toLowerCase()
+    return DEP_DONE_STATUSES.has(status)
+  }
+
   function stepLocked(stepId) {
     const server = serverStepFor(stepId)
     if (server) {
@@ -241,7 +248,7 @@ export function usePipeline(workbench, store) {
     if (!step || !step.dep.length) return false
     const v = workbench.currentVariant
     if (!v) return false
-    return !wfDepOk(stepId, v)
+    return !wfDepOk(stepId, v, workbench.currentVariantId)
   }
 
   async function runStep(stepId) {

@@ -96,6 +96,25 @@ describe('usePipeline', () => {
     expect(pipe.stepLocked('category')).toBe(false)
   })
 
+  it('stepLocked treats backend skipped understand as satisfied for category', async () => {
+    api.draftPipeline.mockResolvedValueOnce({
+      steps: [
+        { id: 'understand', status: 'skipped' },
+        { id: 'category_recognition', status: 'pending' },
+      ],
+      next: { action: 'run', step_id: 'category_recognition' },
+    })
+    const wb = useWorkbenchStore()
+    wb.variants = [{ id: 1, steps: { understand: false, category: false } }]
+    wb.currentVariantId = 1
+    const pipe = usePipeline(wb, { loadDrafts: vi.fn() })
+    await pipe.loadPipeline(1)
+
+    expect(pipe.stepLocked('category')).toBe(false)
+    await pipe.runStep('category')
+    expect(api.draftPipelineRetry).toHaveBeenCalledWith(1, 'category_recognition')
+  })
+
   it('runStep(category) submits category_recognition through backend pipeline', async () => {
     const wb = useWorkbenchStore()
     await wb.loadForDraft(1)
