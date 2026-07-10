@@ -167,6 +167,15 @@ describe('parseCard', () => {
     }
   })
 
+  it('ignores already loaded WB videos that belong to another nm id', () => {
+    const entries = [
+      { name: 'https://mow-videonme-cdn-58.geobasket.ru/vol128/part50535/505354016/mp4/360p/1.mp4' },
+      { name: 'https://example.com/other.js' }
+    ]
+
+    expect(OzonHelperWb.videoUrlFromEntries(entries, '706528285')).toBe('')
+  })
+
   it('builds the WB product mp4 URL when card only marks that video exists', () => {
     const card = {
       imt_name: 'Mini printer',

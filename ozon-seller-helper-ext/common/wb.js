@@ -140,7 +140,6 @@
     const id = String(nm || '').trim()
     if (!id || !Array.isArray(entries)) return ''
     const preferred = []
-    const fallback = []
     for (let i = entries.length - 1; i >= 0; i--) {
       const raw = typeof entries[i] === 'string' ? entries[i] : (entries[i] && entries[i].name)
       if (typeof raw !== 'string') continue
@@ -155,11 +154,9 @@
       if (!/\.(mp4|mov|webm|m4v|m3u8)(?:\?|#|$)/i.test(href)) continue
       if (href.includes(`/${id}/`) || href.includes(id)) {
         preferred.push(href)
-      } else {
-        fallback.push(href)
       }
     }
-    return preferred[0] || fallback[0] || ''
+    return preferred[0] || ''
   }
 
   function loadedVideoUrl(nm) {

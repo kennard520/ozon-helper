@@ -230,6 +230,36 @@ class ExtBridgeTest(unittest.TestCase):
             finally:
                 self._main.APP.store.close()
 
+    def test_collect_parsed_wb_drops_video_from_another_nm(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            client = self._client(tmp)
+            try:
+                wrong_video = "https://mow-videonme-cdn-58.geobasket.ru/vol128/part50535/505354016/mp4/360p/1.mp4"
+                payload = {
+                    "url": "https://www.wildberries.ru/catalog/706528285/detail.aspx?targetUrl=MI",
+                    "data": {
+                        "source_platform": "wb",
+                        "title": "Ваза для цветов",
+                        "images": ["https://basket-34.wbbasket.ru/vol7065/part706528/706528285/images/big/1.webp"],
+                        "video_url": wrong_video,
+                        "source_raw": {
+                            "nm_id": "706528285",
+                            "sku_id": "706528285",
+                            "video_url": wrong_video,
+                            "has_video": True,
+                        },
+                    },
+                }
+                r = client.post("/api/ext/collect-parsed", json=payload)
+                self.assertEqual(r.status_code, 200)
+                did = r.json()["created"][0]["id"]
+                d = self._main.APP.store.get_draft(did)
+                self.assertEqual(d["video_url"], "")
+                self.assertEqual(d["source_raw"]["video_url"], "")
+                self.assertFalse(d["source_raw"]["has_video"])
+            finally:
+                self._main.APP.store.close()
+
     def test_collect_parsed_wb_recollect_adds_images_to_gallery(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             client = self._client(tmp)

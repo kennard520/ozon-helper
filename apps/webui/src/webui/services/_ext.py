@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 from ozon_common.oss import OssClient
@@ -7,6 +8,8 @@ from webui.services._helpers import _money_to_float, _to_int
 
 WB_PRICE_RULE = "cny_x3_sale_old_x3_v2"
 WB_PRICE_RULE_LEGACY = "cny_x3_v1"
+_WB_VIDEO_NM_RE = re.compile(r"/(\d+)/mp4/", re.IGNORECASE)
+_WB_CATALOG_NM_RE = re.compile(r"/catalog/(\d+)", re.IGNORECASE)
 
 
 def _scale_money_text(value, multiplier: float) -> str:
@@ -40,6 +43,20 @@ def _build_wb_rich_content_from_images(images: object) -> dict | None:
         return None
     from webui.listing_build import build_rich_content  # noqa: PLC0415
     return build_rich_content(urls)
+
+
+def _wb_nm_from_collect_url(url: str) -> str:
+    m = _WB_CATALOG_NM_RE.search(str(url or ""))
+    return m.group(1) if m else ""
+
+
+def _wb_video_matches_nm(video_url: object, nm: object) -> bool:
+    url = str(video_url or "").strip()
+    current_nm = str(nm or "").strip()
+    if not url or not current_nm:
+        return True
+    m = _WB_VIDEO_NM_RE.search(urlparse(url).path)
+    return not m or m.group(1) == current_nm
 
 
 def _oss_key_from_public_url(url: str, oss: OssClient) -> str:
@@ -162,6 +179,17 @@ class ExtMixin:
         platform = str(data.get("source_platform") or "ozon").strip() or "ozon"
         incoming_sr = data.get("source_raw")
         incoming_sr = incoming_sr if isinstance(incoming_sr, dict) else {}
+        if platform == "wb":
+            current_nm = (
+                incoming_sr.get("nm_id")
+                or incoming_sr.get("sku_id")
+                or data.get("nm_id")
+                or data.get("sku_id")
+                or _wb_nm_from_collect_url(url)
+            )
+            if not _wb_video_matches_nm(scraped.get("video_url"), current_nm):
+                scraped["video_url"] = ""
+                incoming_sr = {**incoming_sr, "video_url": "", "has_video": False}
         wb_price_rule_applied = platform == "wb" and _normalize_wb_price_rule(scraped, incoming_sr)
         # 1688 采集价=「进价」而非售价 → 进 cost_cny，按默认倍率算售价(进价×1.3×2)/划线价(售价×1.8)
         if platform == "1688":
