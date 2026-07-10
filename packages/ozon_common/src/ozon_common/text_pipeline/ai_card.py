@@ -95,21 +95,27 @@ def _category_candidate_score(option: dict, profile: str) -> int:
     return score
 
 
-def navigate_category_once(roots: list, chat, profile: str, *, candidate_limit: int = 240) -> dict | None:
-    """Pick the final type with a single AI call from locally shortlisted leaf categories."""
-    leaves = _flatten_type_options(roots)
-    if not leaves:
-        return None
-    scored = [(_category_candidate_score(opt, profile), i, opt) for i, opt in enumerate(leaves)]
-    best_score = max(score for score, _, _ in scored)
-    if len(leaves) > candidate_limit and best_score <= 0:
-        return None
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    candidates = [opt for _, _, opt in scored[:candidate_limit]]
-    options = [
-        {"index": i, "path": " / ".join(opt.get("path") or [])}
+def _leaf_path(option: dict) -> list[str]:
+    path = option.get("path") or []
+    if isinstance(path, str):
+        return [p.strip() for p in path.split(" / ") if p.strip()]
+    if isinstance(path, (tuple, list)):
+        return [str(p).strip() for p in path if str(p).strip()]
+    return []
+
+
+def _leaf_prompt_options(candidates: list[dict]) -> list[dict]:
+    return [
+        {"index": i, "path": " / ".join(_leaf_path(opt))}
         for i, opt in enumerate(candidates)
     ]
+
+
+def navigate_leaf_candidates(candidates: list[dict], chat, profile: str) -> dict | None:
+    """Choose one final leaf category from a pre-recalled flat candidate list."""
+    if not candidates:
+        return None
+    options = _leaf_prompt_options(candidates)
     user = ("Final category candidates (pick the best matching final leaf index):\n"
             + json.dumps(options, ensure_ascii=False)
             + "\n\nProduct:\n" + (profile or ""))
@@ -122,10 +128,24 @@ def navigate_category_once(roots: list, chat, profile: str, *, candidate_limit: 
     return {
         "description_category_id": int(chosen["description_category_id"]),
         "type_id": int(chosen["type_id"]),
-        "path": list(chosen.get("path") or []),
+        "path": _leaf_path(chosen),
         "category_fallback": False,
         "category_one_shot": True,
     }
+
+
+def navigate_category_once(roots: list, chat, profile: str, *, candidate_limit: int = 240) -> dict | None:
+    """Pick the final type with a single AI call from locally shortlisted leaf categories."""
+    leaves = _flatten_type_options(roots)
+    if not leaves:
+        return None
+    scored = [(_category_candidate_score(opt, profile), i, opt) for i, opt in enumerate(leaves)]
+    best_score = max(score for score, _, _ in scored)
+    if len(leaves) > candidate_limit and best_score <= 0:
+        return None
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    candidates = [opt for _, _, opt in scored[:candidate_limit]]
+    return navigate_leaf_candidates(candidates, chat, profile)
 
 
 def _navigate_category_drilldown(roots: list, chat, profile: str, *, max_depth: int = 6) -> dict | None:
