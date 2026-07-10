@@ -24,7 +24,7 @@ const CARDS = [
   {
     id: 'category',
     no: 2,
-    title: '选择分类',
+    title: 'AI 分类',
     eta: '~30s',
     backend: ['category_recognition'],
     action: '运行',

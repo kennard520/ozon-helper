@@ -3,7 +3,7 @@ import { api } from '../api.js'
 
 export const WF = [
   { id: 'understand', label: '理解/准备', eta: '~30s', dep: [] },
-  { id: 'category', label: '选择分类', eta: '~30s', dep: ['understand'] },
+  { id: 'category', label: 'AI 分类', eta: '~30s', dep: ['understand'] },
   { id: 'content', label: 'AI 生成内容', eta: '~2min（后台）', dep: ['category'] },
   { id: 'images', label: '图集/出图', eta: '~2-3min', dep: ['content'] },
   { id: 'rich', label: '富文本', eta: '即时', dep: ['images'] },
