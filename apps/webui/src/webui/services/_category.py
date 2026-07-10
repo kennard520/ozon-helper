@@ -278,7 +278,8 @@ class CategoryMixin:
         **特征是按类别来的**，故这是「特征值识别(auto_map)」的前置步骤。
         复用 navigate_category(只做类别下钻)，比「智能草案」轻——不生成文案/属性。
         没看图理解(understanding)就先自动跑一遍——靠外观判类目的品类(纯文本太薄)会更准。"""
-        from webui.ai_card import build_profile, navigate_category, navigate_leaf_candidates  # noqa: PLC0415
+        from webui.ai_card import build_profile, navigate_category  # noqa: PLC0415
+        from ozon_common.text_pipeline.ai_card import navigate_leaf_candidates  # noqa: PLC0415
         from webui.drafts import loads_json  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:

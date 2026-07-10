@@ -4,6 +4,7 @@ import importlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from webui.drafts import create_draft_from_url
 
@@ -116,6 +117,36 @@ class TaskPipelineTest(unittest.TestCase):
                 self.assertTrue(result["ok"])
                 self.assertTrue(result["skipped"])
                 self.assertEqual(result["task"]["status"], "skipped")
+            finally:
+                app.store.close()
+
+    def test_wb_pipeline_retry_category_uses_leaf_candidate_navigator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            try:
+                draft = _valid_wb_draft()
+                draft["category_id"] = ""
+                draft["type_id"] = ""
+                saved = app.store.insert_draft(draft)
+                candidate = {
+                    "description_category_id": 17028922,
+                    "type_id": 94307,
+                    "path": ["Jewelry", "Necklaces"],
+                }
+                app.catalog_ru.recall = lambda _client, _query, limit=120: [candidate]
+                app.catalog.recall = lambda _client, _query, limit=120: []
+
+                with patch(
+                    "ozon_common.text_pipeline.ai_card.navigate_leaf_candidates",
+                    return_value=candidate,
+                ) as nav:
+                    result = app.pipeline_retry(saved["id"], "category_recognition")
+
+                self.assertTrue(result["ok"])
+                self.assertTrue(result["matched"])
+                self.assertEqual(str(result["category_id"]), "17028922")
+                self.assertEqual(str(result["type_id"]), "94307")
+                nav.assert_called_once()
             finally:
                 app.store.close()
 
