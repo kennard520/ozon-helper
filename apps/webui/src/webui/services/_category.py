@@ -1,6 +1,8 @@
 """CategoryMixin —— 类目/属性搜索 + 字典值解析 + 品牌搜索。"""
 from __future__ import annotations
 
+import logging
+
 from webui.drafts import (
     BRAND_ATTR_ID,
     NO_BRAND,
@@ -28,6 +30,8 @@ from webui.services._helpers import (
     _is_manufacturer_attr,
     _to_int,
 )
+
+log = logging.getLogger("ozon.app")
 
 
 class CategoryMixin:
@@ -274,7 +278,7 @@ class CategoryMixin:
         **特征是按类别来的**，故这是「特征值识别(auto_map)」的前置步骤。
         复用 navigate_category(只做类别下钻)，比「智能草案」轻——不生成文案/属性。
         没看图理解(understanding)就先自动跑一遍——靠外观判类目的品类(纯文本太薄)会更准。"""
-        from webui.ai_card import build_profile, navigate_category  # noqa: PLC0415
+        from webui.ai_card import build_profile, navigate_category, navigate_leaf_candidates  # noqa: PLC0415
         from webui.drafts import loads_json  # noqa: PLC0415
         draft = self.store.get_draft(draft_id)
         if draft is None:
@@ -285,7 +289,7 @@ class CategoryMixin:
         raw = dict(raw or {})
         und_auto = False
         is_wb_structured = str(draft.get("source_platform") or raw.get("source_platform") or "").strip().lower() == "wb"
-        skip_understand = is_wb_structured and bool(raw.get("options") or raw.get("grouped_options") or raw.get("subj_name"))
+        skip_understand = is_wb_structured
         if not skip_understand and not (isinstance(raw.get("understanding"), dict) and raw.get("understanding")):
             # 没看图理解就先做一次(无图/失败则静默跳过，仍按纯文本下钻)
             try:
@@ -305,9 +309,75 @@ class CategoryMixin:
             raw["params"] = raw.get("attributes") or (draft.get("attributes") if isinstance(draft.get("attributes"), list) else [])
         if not str(raw.get("description_text") or raw.get("description") or "").strip():
             raw["description_text"] = draft.get("description") or ""
-        profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
-        roots = self._category_roots_zh(settings)
-        nav = navigate_category(roots, self._card_chat(settings, draft), profile)
+        if is_wb_structured:
+            title = (
+                draft.get("source_title")
+                or draft.get("ozon_title")
+                or raw.get("imt_name")
+                or raw.get("title")
+                or ""
+            )
+            profile = f"Title: {title}".strip()
+        else:
+            profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
+        query = (
+            str(
+                draft.get("source_title")
+                or draft.get("ozon_title")
+                or raw.get("imt_name")
+                or raw.get("title")
+                or ""
+            ).strip()
+            if is_wb_structured
+            else str(profile or "").strip()
+        )
+        client = None
+        if not (self.catalog.has_cache() and self.catalog_ru.has_cache()):
+            try:
+                client = build_client(settings)
+            except Exception:  # noqa: BLE001
+                client = None
+        recall_sources = (
+            (self.catalog_ru, query),
+            (self.catalog, query),
+        ) if is_wb_structured else (
+            (self.catalog, query),
+            (self.catalog_ru, query),
+        )
+        recalled: list[dict] = []
+        seen_pairs: set[tuple[int, int]] = set()
+        for catalog, q in recall_sources:
+            if not q:
+                continue
+            try:
+                hits = catalog.recall(client, q, limit=120)
+            except Exception:  # noqa: BLE001
+                continue
+            for hit in hits or []:
+                cat_id = int(hit.get("description_category_id") or 0)
+                type_id = int(hit.get("type_id") or 0)
+                if not cat_id or not type_id:
+                    continue
+                key = (cat_id, type_id)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                recalled.append(hit)
+        log.info(
+            "[recognize_category] draft=%s platform=%s wb=%s understood=%s recall=%s title=%s profile=%s",
+            draft_id,
+            str(draft.get("source_platform") or raw.get("source_platform") or "").strip().lower(),
+            is_wb_structured,
+            und_auto,
+            len(recalled),
+            str(draft.get("source_title") or draft.get("ozon_title") or raw.get("imt_name") or raw.get("title") or "")[:120],
+            str(profile)[:500],
+        )
+        chat = self._card_chat(settings, draft)
+        nav = navigate_leaf_candidates(recalled, chat, profile) if recalled else None
+        if not nav:
+            roots = self._category_roots_zh(settings)
+            nav = navigate_category(roots, chat, profile)
         if not nav or not nav.get("type_id"):
             return {"ok": False, "matched": False,
                     "note": "AI 没识别出类别，请手动选类目或用「智能草案」"}
@@ -317,8 +387,6 @@ class CategoryMixin:
         patch = {"category_id": str(cat), "type_id": str(typ)}
         if path:
             patch["category_path"] = path
-        import logging  # noqa: PLC0415
-        log = logging.getLogger("ozon.app")
         log.info(f"[recognize_category] draft={draft_id} cat={cat} type={typ} path={path}")
         updated = self.store.update_draft(draft_id, patch)
         # 同组变体合并成一张 Ozon 卡 → 把识别到的类别同步到整组

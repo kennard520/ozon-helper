@@ -14,8 +14,24 @@ const pipe = usePipeline(wb, store)
 
 const CARDS = [
   {
-    id: 'content',
+    id: 'understand',
     no: 1,
+    title: '理解/准备',
+    eta: '~30s',
+    backend: ['understand'],
+    action: '运行',
+  },
+  {
+    id: 'category',
+    no: 2,
+    title: '选择分类',
+    eta: '~30s',
+    backend: ['category_recognition'],
+    action: '运行',
+  },
+  {
+    id: 'content',
+    no: 3,
     title: 'AI 生成内容',
     eta: '~2min（后台）',
     backend: ['ai_text'],
@@ -23,7 +39,7 @@ const CARDS = [
   },
   {
     id: 'images',
-    no: 2,
+    no: 4,
     title: '图集/出图',
     eta: '~2-3min',
     backend: ['ai_image', 'media'],
@@ -31,7 +47,7 @@ const CARDS = [
   },
   {
     id: 'rich',
-    no: 3,
+    no: 5,
     title: '富文本',
     eta: '即时',
     backend: ['rich_content'],
@@ -39,7 +55,7 @@ const CARDS = [
   },
   {
     id: 'publish',
-    no: 4,
+    no: 6,
     title: '发布',
     eta: '~30s',
     backend: ['preflight', 'publish'],
@@ -62,11 +78,12 @@ function cardState(card) {
   const local = pipe.stepStatus[card.id]
   const statuses = serverSteps.map((s) => String(s.status || ''))
 
-  if (local === 'running' || local === 'submitted' || statuses.some((s) => s === 'running' || s === 'submitted')) return 'running'
   if (statuses.some((s) => s === 'failed')) return 'failed'
+  if (statuses.some((s) => s === 'cancelled')) return 'cancelled'
   if (statuses.some((s) => s === 'blocked')) return 'locked'
   if (card.id === 'publish' && hasPublishRisk(serverSteps)) return 'warning'
   if (wb.currentStepDone(card.id) || (serverSteps.length && statuses.every((s) => s === 'done' || s === 'skipped'))) return 'done'
+  if (local === 'running' || local === 'submitted' || statuses.some((s) => s === 'running' || s === 'submitted')) return 'running'
   if (pipe.stepLocked(card.id)) return 'locked'
   return 'idle'
 }
@@ -85,6 +102,7 @@ function statusText(card) {
     ? `生成中：${pipe.textJob.value.current_step}`
     : '进行中'
   if (state === 'failed') return '失败'
+  if (state === 'cancelled') return '已取消'
   if (state === 'locked') return '待前置'
   if (state === 'warning') return '有风险'
   return '未开始'
@@ -93,14 +111,14 @@ function statusText(card) {
 function statusVariant(card) {
   const state = cardState(card)
   if (state === 'done') return 'success'
-  if (state === 'failed' || state === 'locked') return 'danger'
+  if (state === 'failed' || state === 'locked' || state === 'cancelled') return 'danger'
   if (state === 'warning') return 'warn'
   if (state === 'running') return 'primary'
   return 'neutral'
 }
 
 function failureReason(card) {
-  if (card.id === 'content' && pipe.textJob.value && pipe.textJob.value.status === 'failed') {
+  if (card.id === 'content' && pipe.textJob.value && ['failed', 'cancelled'].includes(String(pipe.textJob.value.status || '').toLowerCase())) {
     return pipe.textJob.value.error || 'AI 生成失败'
   }
   const step = backendSteps(card).find((s) => (s.errors && s.errors.length) || s.error)
@@ -143,7 +161,7 @@ function runCard(card) {
     <header class="pp-head">
       <div>
         <h2 class="pp-title">AI 智能上架工作台</h2>
-        <p class="pp-subtitle">只保留四个主操作；细分任务在后台自动完成。</p>
+        <p class="pp-subtitle">先选分类，再生成内容；细分任务在后台自动完成。</p>
       </div>
       <div v-if="wb.currentVariant" class="pp-variant">
         <span class="pp-variant__dot" :style="{ background: variantColor(wb.currentVariant) }"></span>
@@ -201,10 +219,10 @@ function runCard(card) {
 .pp-variant{display:flex;align-items:center;gap:8px;max-width:42%;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--r-sm);background:#fff;font-size:var(--fs-sm);color:var(--c-text-2)}
 .pp-variant__dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
 .pp-empty{padding:12px;border:1px dashed var(--c-border);border-radius:var(--r-sm);color:var(--c-text-3);font-size:var(--fs-sm)}
-.pp-cards{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:12px}
+.pp-cards{display:grid;grid-template-columns:repeat(3,minmax(190px,1fr));gap:12px}
 .pp-card{display:flex;flex-direction:column;gap:12px;min-height:112px;padding:14px 16px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
 .pp-card--running{border-color:var(--c-primary-200);background:var(--c-primary-50,#f0f5ff)}
-.pp-card--failed,.pp-card--locked{background:#fff5f5}
+.pp-card--failed,.pp-card--locked,.pp-card--cancelled{background:#fff5f5}
 .pp-card--warning{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.06)}
 .pp-card__main{display:flex;align-items:flex-start;gap:12px;min-width:0}
 .pp-card__num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--c-primary-100,#efe7ff);color:var(--c-primary,#7c3aed);font-size:var(--fs-sm);font-weight:800}

@@ -8,6 +8,7 @@ _DONE = {"done", "published"}
 _FAILED = {"failed"}
 _CANCELLED = {"cancelled"}
 _STEP_TASK_TYPES = {
+    "understand": "understand",
     "ai_text": "ai_text",
     "ai_image": "ai_image",
     "category_recognition": "category_recognition",
@@ -48,6 +49,15 @@ def _progress(run: dict | None) -> dict:
         "current": int(run.get("progress_current") or 0),
         "total": int(run.get("progress_total") or 0),
     }
+
+
+def _draft_source_platform(draft: dict) -> str:
+    sr = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
+    return str(draft.get("source_platform") or sr.get("source_platform") or "").strip().lower()
+
+
+def _is_wb_draft(draft: dict) -> bool:
+    return _draft_source_platform(draft) == "wb"
 
 
 class PipelineMixin:
@@ -92,6 +102,7 @@ class PipelineMixin:
         tasks = self.store.latest_task_runs_for_draft(draft_id)
         by_type = _task_by_type(tasks)
         flags = step_flags(draft)
+        is_wb = _is_wb_draft(draft)
         checks = build_draft_checks(draft)
         check_items = [c.as_dict() for c in checks]
         errors = blocking_errors(checks)
@@ -105,6 +116,15 @@ class PipelineMixin:
         media_step_status = _run_status(media_run, fallback_done=media_status != "pending")
         if media_status == "pending" and media_step_status == "pending":
             media_step_status = "running"
+
+        understand_run = by_type.get("understand")
+        understand_status = _run_status(understand_run, fallback_done=bool(flags.get("understand")))
+        understand_message = "理解商品图片和参数"
+        understand_progress = _progress(understand_run)
+        if is_wb and not understand_run and not flags.get("understand"):
+            understand_status = "skipped"
+            understand_message = "WB 商品已有结构化特征，可直接选择分类"
+            understand_progress = {"current": 1, "total": 1}
 
         publish_run = by_type.get("publish")
         publish_status = _run_status(publish_run)
@@ -146,6 +166,22 @@ class PipelineMixin:
                 "progress": _progress(media_run) if media_run else {"current": 1, "total": 1},
             },
             {
+                "id": "understand",
+                "label": "理解/准备",
+                "status": understand_status,
+                "message": understand_message,
+                "errors": [by_type["understand"].get("error")] if by_type.get("understand") and by_type["understand"].get("error") else [],
+                "progress": understand_progress,
+            },
+            {
+                "id": "category_recognition",
+                "label": "类目识别",
+                "status": _run_status(by_type.get("category_recognition"), fallback_done=bool(draft.get("category_id") and draft.get("type_id"))),
+                "message": "识别 Ozon 类目和类型",
+                "errors": [by_type["category_recognition"].get("error")] if by_type.get("category_recognition") and by_type["category_recognition"].get("error") else [],
+                "progress": _progress(by_type.get("category_recognition")),
+            },
+            {
                 "id": "ai_text",
                 "label": "AI 文案",
                 "status": _run_status(by_type.get("ai_text"), fallback_done=bool(flags.get("content"))),
@@ -160,14 +196,6 @@ class PipelineMixin:
                 "message": "图集规划与生成",
                 "errors": [by_type["ai_image"].get("error")] if by_type.get("ai_image") and by_type["ai_image"].get("error") else [],
                 "progress": _progress(by_type.get("ai_image")),
-            },
-            {
-                "id": "category_recognition",
-                "label": "类目识别",
-                "status": _run_status(by_type.get("category_recognition"), fallback_done=bool(draft.get("category_id") and draft.get("type_id"))),
-                "message": "识别 Ozon 类目和类型",
-                "errors": [by_type["category_recognition"].get("error")] if by_type.get("category_recognition") and by_type["category_recognition"].get("error") else [],
-                "progress": _progress(by_type.get("category_recognition")),
             },
             {
                 "id": "attribute_mapping",
@@ -259,6 +287,29 @@ class PipelineMixin:
         active = self._latest_pipeline_task(draft_id, step_id)
         if active and str(active.get("status") or "") in _RUNNING:
             return {"ok": True, "task": active, "already_running": True}
+        if step_id == "understand":
+            if _is_wb_draft(draft):
+                patch = {
+                    "status": "skipped",
+                    "progress_current": 1,
+                    "progress_total": 1,
+                    "error": None,
+                    "result": {"phase": "skipped", "reason": "WB draft uses structured source attributes"},
+                }
+                if active:
+                    task = self.store.update_task_run(active["id"], patch)
+                else:
+                    task = self.store.create_task_run(
+                        draft_id,
+                        "understand",
+                        status="skipped",
+                        progress_current=1,
+                        progress_total=1,
+                        source="pipeline",
+                        result=patch["result"],
+                    )
+                return {"ok": True, "skipped": True, "task": task, "pipeline": self.draft_pipeline(draft_id)}
+            return self._track_sync_pipeline_action(draft_id, "understand", lambda: self.understand_draft(draft_id))
         if step_id == "ai_text":
             return self.submit_text_job(draft_id)
         if step_id == "ai_image":

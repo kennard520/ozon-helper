@@ -2,7 +2,9 @@ import { computed, getCurrentInstance, onUnmounted, reactive, watch } from 'vue'
 import { api } from '../api.js'
 
 export const WF = [
-  { id: 'content', label: 'AI 生成内容', eta: '~2min（后台）', dep: [] },
+  { id: 'understand', label: '理解/准备', eta: '~30s', dep: [] },
+  { id: 'category', label: '选择分类', eta: '~30s', dep: ['understand'] },
+  { id: 'content', label: 'AI 生成内容', eta: '~2min（后台）', dep: ['category'] },
   { id: 'images', label: '图集/出图', eta: '~2-3min', dep: ['content'] },
   { id: 'rich', label: '富文本', eta: '即时', dep: ['images'] },
   { id: 'publish', label: '发布', eta: '~30s', dep: ['content', 'images', 'rich'] },
@@ -18,11 +20,16 @@ const RUN_ONE = {
 }
 
 const PIPELINE_STEP = {
+  understand: 'understand',
+  category: 'category_recognition',
   content: 'ai_text',
   images: 'ai_image',
   rich: 'rich_content',
   publish: 'publish',
 }
+const FRONTEND_STEP = Object.fromEntries(Object.entries(PIPELINE_STEP).map(([ui, backend]) => [backend, ui]))
+const TERMINAL_JOB_STATUSES = new Set(['done', 'failed', 'cancelled', 'skipped'])
+const TERMINAL_PIPELINE_STATUSES = new Set(['done', 'failed', 'cancelled', 'skipped', 'blocked'])
 
 export function usePipeline(workbench, store) {
   const statusByVariant = reactive({})
@@ -81,13 +88,16 @@ export function usePipeline(workbench, store) {
   }
 
   function currentStepStatus(stepId) {
+    const local = statusFor(workbench.currentVariantId, stepId)
+    if (local === 'running' || local === 'submitted') return local
     const server = serverStepFor(stepId)
     if (server && server.status === 'running') return 'running'
     if (server && server.status === 'failed') return 'failed'
+    if (server && server.status === 'cancelled') return 'cancelled'
     if (server && server.status === 'done') return 'done'
     if (server && server.status === 'skipped') return 'done'
     if (server && server.status === 'blocked') return 'locked'
-    return statusFor(workbench.currentVariantId, stepId)
+    return local
   }
 
   function serverStepFor(stepId, variantId = workbench.currentVariantId) {
@@ -115,7 +125,7 @@ export function usePipeline(workbench, store) {
 
   function isUnfinished(job) {
     const status = String((job && job.status) || '').toLowerCase()
-    return !!status && status !== 'done' && status !== 'failed'
+    return !!status && !TERMINAL_JOB_STATUSES.has(status)
   }
 
   async function pollTextJob(variantId, jobId) {
@@ -146,13 +156,26 @@ export function usePipeline(workbench, store) {
         await loadPipeline(variantId)
         break
       }
-      if (status === 'failed') break
+      if (TERMINAL_JOB_STATUSES.has(status)) break
       await sleep(2500)
     }
   }
 
+  async function pollPipelineStep(variantId, backendStepId, tokenKey) {
+    if (variantId == null || !backendStepId) return
+    const token = (pollTokens[tokenKey] || 0) + 1
+    pollTokens[tokenKey] = token
+    while (!unmounted && pollTokens[tokenKey] === token) {
+      await sleep(600)
+      const data = await loadPipeline(variantId)
+      const step = ((data && data.steps) || []).find(s => s.id === backendStepId)
+      const status = String((step && step.status) || '').toLowerCase()
+      if (TERMINAL_PIPELINE_STATUSES.has(status)) break
+    }
+  }
+
   async function syncLatestTextJob(variantId) {
-    if (variantId == null || runningFor(variantId)) return
+    if (variantId == null) return
     let job
     try {
       job = workbench && workbench.checkVariantTask
@@ -166,6 +189,9 @@ export function usePipeline(workbench, store) {
     }
     jobByVariant[variantId] = job || null
     const status = String((job && job.status) || '').toLowerCase()
+    if (TERMINAL_JOB_STATUSES.has(status) && workbench && workbench.setVariantTask) {
+      workbench.setVariantTask(variantId, job || null)
+    }
     if (status === 'done') {
       await workbench.reload()
       if (store && store.loadDrafts) await store.loadDrafts()
@@ -192,14 +218,24 @@ export function usePipeline(workbench, store) {
     const step = WF.find(s => s.id === stepId)
     if (!step) return false
     const flags = (variant && variant.steps) || {}
-    return step.dep.every(d => flags[d])
+    return depsFor(step, variant).every(d => flags[d])
+  }
+
+  function platformOf(variant) {
+    const raw = variant && (variant.source_platform || variant.sourcePlatform || variant.source)
+    return String(raw || '').trim().toLowerCase()
+  }
+
+  function depsFor(step, variant) {
+    if (step.id === 'category' && platformOf(variant) === 'wb') return []
+    return step.dep
   }
 
   function stepLocked(stepId) {
     const server = serverStepFor(stepId)
     if (server) {
       if (server.status === 'blocked' || server.status === 'running') return true
-      return false
+      if (['done', 'skipped', 'failed', 'cancelled'].includes(String(server.status || ''))) return false
     }
     const step = WF.find(s => s.id === stepId)
     if (!step || !step.dep.length) return false
@@ -249,14 +285,25 @@ export function usePipeline(workbench, store) {
   async function retryPipelineStep(stepId) {
     const id = workbench.currentVariantId
     if (id == null) return
-    const result = await api.draftPipelineRetry(id, stepId)
-    const jobId = result && (result.job_id || result.id)
-    if (stepId === 'ai_text' && jobId) {
-      jobByVariant[id] = result || null
-      await pollTextJob(id, jobId)
-      return
+    const uiStep = FRONTEND_STEP[stepId] || stepId
+    const tokenKey = `${id}:pipeline:${stepId}`
+    setStatus(id, uiStep, stepId === 'ai_text' ? 'submitted' : 'running')
+    const pipelinePoll = stepId === 'ai_text'
+      ? null
+      : pollPipelineStep(id, stepId, tokenKey).catch(() => null)
+    try {
+      const result = await api.draftPipelineRetry(id, stepId)
+      const jobId = result && (result.job_id || result.id)
+      if (stepId === 'ai_text' && jobId) {
+        jobByVariant[id] = result || null
+        await pollTextJob(id, jobId)
+        return
+      }
+      await refreshAfterPipelineAction(id)
+    } finally {
+      pollTokens[tokenKey] = (pollTokens[tokenKey] || 0) + 1
+      setStatus(id, uiStep, 'idle')
     }
-    await refreshAfterPipelineAction(id)
   }
 
   async function skipPipelineStep(stepId, reason = '') {

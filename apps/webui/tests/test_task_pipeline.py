@@ -24,6 +24,23 @@ def _valid_draft() -> dict:
     return draft
 
 
+def _valid_wb_draft() -> dict:
+    draft = create_draft_from_url(
+        "https://www.wildberries.ru/catalog/123456/detail.aspx",
+        source_platform="wb",
+    )
+    draft.update({
+        "ozon_title": "WB товар тестовый",
+        "description": "Описание товара",
+        "category_id": "17028922",
+        "type_id": "94307",
+        "price": "799",
+        "stock": 1,
+        "images": ["https://example.test/a.jpg"],
+    })
+    return draft
+
+
 class TaskPipelineTest(unittest.TestCase):
     def _app(self, tmp: str):
         import webui.store as store_mod
@@ -33,6 +50,74 @@ class TaskPipelineTest(unittest.TestCase):
 
         importlib.reload(svc)
         return svc.App()
+
+    def test_pipeline_includes_understand_before_category_and_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            try:
+                saved = app.store.insert_draft(_valid_draft())
+
+                body = app.draft_pipeline(saved["id"])
+                step_ids = [s["id"] for s in body["steps"]]
+                self.assertLess(step_ids.index("understand"), step_ids.index("category_recognition"))
+                self.assertLess(step_ids.index("category_recognition"), step_ids.index("ai_text"))
+            finally:
+                app.store.close()
+
+    def test_pipeline_retry_understand_runs_understand_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            try:
+                saved = app.store.insert_draft(_valid_draft())
+                called = {}
+
+                def fake_understand(did):
+                    called["did"] = did
+                    return {"ok": True, "understanding": {"type": "x"}}
+
+                app.understand_draft = fake_understand
+                result = app.pipeline_retry(saved["id"], "understand")
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(called["did"], saved["id"])
+                self.assertIn("task_run_id", result)
+            finally:
+                app.store.close()
+
+    def test_wb_pipeline_skips_understand_and_next_starts_with_category(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            try:
+                draft = _valid_wb_draft()
+                draft["category_id"] = ""
+                draft["type_id"] = ""
+                saved = app.store.insert_draft(draft)
+
+                body = app.draft_pipeline(saved["id"])
+                steps = {s["id"]: s for s in body["steps"]}
+
+                self.assertEqual(steps["understand"]["status"], "skipped")
+                self.assertEqual(body["next"]["step_id"], "category_recognition")
+            finally:
+                app.store.close()
+
+    def test_wb_pipeline_retry_understand_is_noop_skip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            try:
+                saved = app.store.insert_draft(_valid_wb_draft())
+
+                def fail_understand(_did):
+                    raise AssertionError("WB should not run understand")
+
+                app.understand_draft = fail_understand
+                result = app.pipeline_retry(saved["id"], "understand")
+
+                self.assertTrue(result["ok"])
+                self.assertTrue(result["skipped"])
+                self.assertEqual(result["task"]["status"], "skipped")
+            finally:
+                app.store.close()
 
     def test_pipeline_reports_task_progress_and_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
