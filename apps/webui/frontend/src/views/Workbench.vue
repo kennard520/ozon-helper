@@ -12,7 +12,7 @@ const store = useAppStore()
 const wb = useWorkbenchStore()
 const ops = useDraftBatchOps(store)
 // 顶层解构让模板可自动解包 ref（Vue 3 setup 顶层 ref 自动 unwrap）
-const { publishResult, warehouses: draftWarehouses } = ops
+const { groupPublishing, warehouses: draftWarehouses } = ops
 
 watch(() => store.selectedId, (id) => wb.loadForDraft(id), { immediate: true })
 onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
@@ -64,19 +64,14 @@ function sourceLink(d) {
         </section>
         <!-- 顶:变体组横排条 -->
         <section class="wb-group">
-          <VariantGroupBar @variant-deleted="store.loadDrafts()" />
+          <VariantGroupBar
+            :publishing="groupPublishing"
+            @variant-deleted="store.loadDrafts()"
+            @publish-group="ops.doPublishGroup(wb.groupKey, wb.variantCount)"
+          />
         </section>
         <!-- 中:流程(含发布条) -->
         <section class="wb-flow">
-          <div class="wb-publish-bar">
-            <el-button type="primary" size="small" @click="ops.doPublish(publishTarget)">
-              {{ store.selectedDraft.source === 'ozon' ? '同步回 Ozon' : '🚀 发布到 Ozon' }}
-            </el-button>
-            <div v-if="publishResult" class="wb-publish-result">
-              <span v-if="publishResult.published" class="ok">● 已发布</span>
-              <span v-for="(e, i) in (publishResult.errors || [])" :key="i" class="err">▲ {{ typeof e === 'string' ? e : JSON.stringify(e) }}</span>
-            </div>
-          </div>
           <PipelinePanel @publish-one="ops.doPublish(publishTarget)" />
         </section>
         <!-- 下:变体详情 -->
@@ -106,8 +101,4 @@ function sourceLink(d) {
 .wb-source__t{font-weight:600;color:var(--c-text-2);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wb-source__lk{color:var(--c-primary);text-decoration:none}
 .wb-source__lk:hover{text-decoration:underline}
-.wb-publish-bar{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
-.wb-publish-result{display:flex;flex-wrap:wrap;gap:4px;font-size:var(--fs-sm)}
-.wb-publish-result .ok{color:var(--c-success)}
-.wb-publish-result .err{color:var(--c-danger)}
 </style>

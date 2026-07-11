@@ -5,6 +5,11 @@
       <span class="vgb-head__title">🔗 变体组</span>
       <span class="vgb-head__count">共 {{ wb.variantCount }} 个变体</span>
       <span class="vgb-head__hint">（同组合并成一张 Ozon 多变体卡）</span>
+      <button
+        class="vgb-publish"
+        :disabled="!wb.groupKey || !wb.variantCount || publishing"
+        @click="emit('publish-group')"
+      >{{ publishing ? '发布中...' : `发布整组（${wb.variantCount} 个变体）` }}</button>
     </div>
 
     <!-- 横排胶囊 -->
@@ -51,7 +56,8 @@ import { useWorkbenchStore, variantColor, variantColorName } from '../../stores/
 import { api } from '../../api.js'
 
 const wb = useWorkbenchStore()
-const emit = defineEmits(['variant-deleted'])
+defineProps({ publishing: { type: Boolean, default: false } })
+const emit = defineEmits(['variant-deleted', 'publish-group'])
 
 async function onSelect(v) {
   wb.setCurrentVariant(v.id)
@@ -105,6 +111,20 @@ async function onDelete(v) {
   font-size: var(--fs-xs);
   color: var(--c-text-3);
 }
+.vgb-publish {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--c-primary);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.vgb-publish:hover:not(:disabled) { filter: brightness(.96); }
+.vgb-publish:disabled { opacity: .55; cursor: not-allowed; }
 
 /* 胶囊：自动折行铺满，不横向滚动 */
 .vgb-pills {

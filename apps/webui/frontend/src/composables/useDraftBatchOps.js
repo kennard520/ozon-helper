@@ -19,6 +19,8 @@ function escapeHtml(value) {
  */
 export function useDraftBatchOps(store) {
   const publishResult = ref(null)
+  const groupPublishResult = ref(null)
+  const groupPublishing = ref(false)
   const warehouses = ref([])
 
   // 目标店选择：默认 last_publish_store（在选项里），否则默认店
@@ -127,6 +129,31 @@ export function useDraftBatchOps(store) {
       }
     } catch (e) {
       ElMessage.error('批量发布失败：' + ((e && e.message) || e))
+    }
+  }
+
+  async function doPublishGroup(groupKey, variantCount) {
+    if (!groupKey || groupPublishing.value) return null
+    groupPublishing.value = true
+    groupPublishResult.value = null
+    const targetStore = selectedStore.value || String(store.settings.ozon_client_id || '')
+    const storeName = store.currentStoreName || targetStore || '当前店铺'
+    try {
+      await confirmFn.value(
+        `确认发布整组 ${Number(variantCount || 0)} 个变体到 ${storeName}？`,
+        '发布整组',
+      )
+      const result = await api.publishGroup(groupKey, targetStore)
+      groupPublishResult.value = result
+      await store.loadDrafts()
+      ElMessage.success(`整组发布已提交：${Number((result && result.count) || variantCount || 0)} 个变体`)
+      return result
+    } catch (err) {
+      if (err === 'cancel' || err === 'close' || (err && err.message === 'cancel')) return null
+      ElMessage.error(`整组发布失败：${(err && err.message) || err}`)
+      return null
+    } finally {
+      groupPublishing.value = false
     }
   }
 
@@ -252,9 +279,12 @@ export function useDraftBatchOps(store) {
     loadWarehouses,
     doBatchUpdate,
     doBatchPublish,
+    doPublishGroup,
     doDelete,
     doPublish,
     publishResult,
+    groupPublishResult,
+    groupPublishing,
     selectedStore,
     storeOptions,
     onPricingApply,
