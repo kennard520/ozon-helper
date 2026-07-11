@@ -11,6 +11,7 @@ export function useDraftForm(draftIdRef) {
   const draft = ref(null)
   const loading = ref(false)
   const form = reactive({})
+  let loadSeq = 0
 
   function initFromDraft(d) {
     const s = d || {}
@@ -43,12 +44,20 @@ export function useDraftForm(draftIdRef) {
   }
 
   async function load() {
+    const seq = ++loadSeq
     const id = draftIdRef.value
     if (id == null) { draft.value = null; return }
     loading.value = true
     // GET /api/drafts/{id} 返回 {draft: {...}};兼容裸草稿对象
-    try { const r = await api.getDraft(id); const d = (r && r.draft) ? r.draft : r; draft.value = d; initFromDraft(d) }
-    finally { loading.value = false }
+    try {
+      const r = await api.getDraft(id)
+      if (seq !== loadSeq) return
+      const d = (r && r.draft) ? r.draft : r
+      draft.value = d
+      initFromDraft(d)
+    } finally {
+      if (seq === loadSeq) loading.value = false
+    }
   }
 
   async function save() {

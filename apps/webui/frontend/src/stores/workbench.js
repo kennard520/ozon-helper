@@ -58,7 +58,7 @@ export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     groupKey: '', variants: [], selectedVariantIds: new Set(),
     currentVariantId: null, loading: false,
-    currentVariantVersion: 0,
+    currentVariantVersion: 0, loadRequestSeq: 0,
     taskByVariant: {}, taskCheckingIds: new Set(),
     focusTarget: null,
   }),
@@ -93,11 +93,13 @@ export const useWorkbenchStore = defineStore('workbench', {
   },
   actions: {
     async loadForDraft(draftId) {
+      const requestSeq = ++this.loadRequestSeq
       if (draftId == null) { this.reset(); return }
       this.loading = true
       const versionAtStart = this.currentVariantVersion
       try {
         const r = await api.variantGroup(draftId)
+        if (requestSeq !== this.loadRequestSeq) return
         const vs = r.variants || []
         this.groupKey = r.group || ''
         this.variants = vs.length ? vs : [{ id: draftId, spec: '', price: null, status: '', image: '', current: true }]
@@ -110,9 +112,12 @@ export const useWorkbenchStore = defineStore('workbench', {
           ? this.currentVariantId
           : (hasDraft ? draftId : (this.variants[0] ? this.variants[0].id : null))
         this.selectedVariantIds = new Set(this.variants.map(v => v.id))
-      } finally { this.loading = false }
+      } finally {
+        if (requestSeq === this.loadRequestSeq) this.loading = false
+      }
     },
     reset() {
+      this.loadRequestSeq += 1
       this.groupKey = ''
       this.variants = []
       this.selectedVariantIds = new Set()

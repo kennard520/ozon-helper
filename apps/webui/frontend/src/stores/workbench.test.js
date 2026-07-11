@@ -10,6 +10,12 @@ import { useWorkbenchStore } from './workbench.js'
 
 beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
 
+function deferred() {
+  let resolve
+  const promise = new Promise((r) => { resolve = r })
+  return { promise, resolve }
+}
+
 describe('workbench store', () => {
   it('loadForDraft 填变体 + 默认全选 + 当前变体', async () => {
     api.variantGroup.mockResolvedValue({ ok: true, group: 'G', count: 2,
@@ -114,6 +120,33 @@ describe('workbench store', () => {
     const wb = useWorkbenchStore()
     expect(wb.currentVariant).toBe(null)
     expect(wb.currentStepDone('understand')).toBe(false)
+  })
+  it('loadForDraft ignores an older response after a newer draft selection wins', async () => {
+    const oldReq = deferred()
+    const newReq = deferred()
+    api.variantGroup
+      .mockReturnValueOnce(oldReq.promise)
+      .mockReturnValueOnce(newReq.promise)
+    const wb = useWorkbenchStore()
+
+    const oldLoad = wb.loadForDraft(1428)
+    const newLoad = wb.loadForDraft(1417)
+
+    newReq.resolve({ ok: true, group: 'G', count: 2, variants: [
+      { id: 1417, spec: 'black 5-step' },
+      { id: 1428, spec: 'yellow 3-step' },
+    ] })
+    await newLoad
+    expect(wb.currentVariantId).toBe(1417)
+
+    oldReq.resolve({ ok: true, group: 'G', count: 2, variants: [
+      { id: 1417, spec: 'black 5-step' },
+      { id: 1428, spec: 'yellow 3-step' },
+    ] })
+    await oldLoad
+
+    expect(wb.currentVariantId).toBe(1417)
+    expect(wb.currentVariant.spec).toBe('black 5-step')
   })
 })
 
