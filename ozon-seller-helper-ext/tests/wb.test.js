@@ -143,7 +143,7 @@ describe('parseCard', () => {
     expect(d.source_raw.video_url).toBe('https://cdn.example.com/video.mp4')
   })
 
-  it('uses the already loaded WB mp4 resource when the page exposes one', () => {
+  it('uses the highest already loaded WB mp4 resource when the page exposes one', () => {
     const card = {
       imt_name: 'Mini printer',
       description: 'Test product',
@@ -154,14 +154,15 @@ describe('parseCard', () => {
       getEntriesByType: () => [
         { name: 'https://example.com/other.js' },
         { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4' },
+        { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/720p/1.mp4' },
         { name: 'https://mow-videofeedback-06-cdn-06.geobasket.ru/a496f298-917a-4230-ac69-03d77da254ca/preview.webp' }
       ]
     }
     try {
       const d = parseCard(card, 'basket-39.wbbasket.ru', '901541649')
-      expect(d.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+      expect(d.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/720p/1.mp4')
       expect(d.source_raw.has_video).toBe(true)
-      expect(d.source_raw.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+      expect(d.source_raw.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/720p/1.mp4')
     } finally {
       globalThis.performance = savedPerformance
     }
@@ -176,7 +177,49 @@ describe('parseCard', () => {
     expect(OzonHelperWb.videoUrlFromEntries(entries, '706528285')).toBe('')
   })
 
-  it('builds the WB product mp4 URL when card only marks that video exists', () => {
+  it('ignores low-resolution loaded WB videos for the current nm id', () => {
+    const entries = [
+      { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4' },
+      { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/480p/1.mp4' }
+    ]
+
+    expect(OzonHelperWb.videoUrlFromEntries(entries, '901541649')).toBe('')
+  })
+
+  it('chooses the highest-resolution loaded WB video for the current nm id', () => {
+    const entries = [
+      { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4' },
+      { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/480p/1.mp4' },
+      { name: 'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/720p/1.mp4' }
+    ]
+
+    expect(OzonHelperWb.videoUrlFromEntries(entries, '901541649')).toBe(
+      'https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/720p/1.mp4'
+    )
+  })
+
+  it('keeps loaded WB hls playlists as source metadata but not publishable video_url', () => {
+    const hls = 'https://videonme-basket-02.wbcontent.net/vol13/part72087/720876397/hls/1440p/index.m3u8'
+    const card = {
+      imt_name: 'Mini printer',
+      description: 'Test product',
+      media: { has_video: true, photo_count: 1 }
+    }
+    const savedPerformance = globalThis.performance
+    globalThis.performance = { getEntriesByType: () => [{ name: hls }] }
+    try {
+      const d = parseCard(card, 'basket-02.wbbasket.ru', '720876397')
+      expect(d.video_url).toBe('')
+      expect(d.source_raw.video_url).toBe('')
+      expect(d.source_raw.video_hls_url).toBe(hls)
+      expect(d.source_raw.video_hls_height).toBe(1440)
+      expect(d.source_raw.has_video).toBe(true)
+    } finally {
+      globalThis.performance = savedPerformance
+    }
+  })
+
+  it('does not guess a low-resolution WB product mp4 URL when card only marks that video exists', () => {
     const card = {
       imt_name: 'Mini printer',
       description: 'Test product',
@@ -186,7 +229,7 @@ describe('parseCard', () => {
     globalThis.performance = { getEntriesByType: () => [] }
     try {
       const d = parseCard(card, 'basket-39.wbbasket.ru', '901541649')
-      expect(d.video_url).toBe('https://videonme-basket-11.wbbasket.ru/vol129/part90154/901541649/mp4/360p/1.mp4')
+      expect(d.video_url).toBe('')
       expect(d.video_url).toBe(productVideoUrl('901541649'))
       expect(d.source_raw.has_video).toBe(true)
       expect(d.source_raw.video_url).toBe(d.video_url)

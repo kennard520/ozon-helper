@@ -136,7 +136,41 @@
     return ''
   }
 
+  function _videoHeight(url) {
+    const m = String(url || '').match(/\/(?:mp4|hls)\/(\d+)p(?:\/|$)/i)
+    return m ? parseInt(m[1], 10) || 0 : 0
+  }
+
   function videoUrlFromEntries(entries, nm) {
+    const id = String(nm || '').trim()
+    if (!id || !Array.isArray(entries)) return ''
+    const preferred = []
+    const isPublishableVideo = (url) => {
+      const h = _videoHeight(url)
+      return h === 0 || h >= 720
+    }
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const raw = typeof entries[i] === 'string' ? entries[i] : (entries[i] && entries[i].name)
+      if (typeof raw !== 'string') continue
+      const s = raw.trim()
+      if (!s) continue
+      let href = s
+      try {
+        href = new URL(s).href
+      } catch (e) {
+        href = s
+      }
+      if (!/\.(mp4|mov|webm|m4v)(?:\?|#|$)/i.test(href)) continue
+      if (!isPublishableVideo(href)) continue
+      if (href.includes(`/${id}/`) || href.includes(id)) {
+        preferred.push(href)
+      }
+    }
+    preferred.sort((a, b) => _videoHeight(b) - _videoHeight(a))
+    return preferred[0] || ''
+  }
+
+  function hlsUrlFromEntries(entries, nm) {
     const id = String(nm || '').trim()
     if (!id || !Array.isArray(entries)) return ''
     const preferred = []
@@ -151,11 +185,12 @@
       } catch (e) {
         href = s
       }
-      if (!/\.(mp4|mov|webm|m4v|m3u8)(?:\?|#|$)/i.test(href)) continue
+      if (!/\.m3u8(?:\?|#|$)/i.test(href)) continue
       if (href.includes(`/${id}/`) || href.includes(id)) {
         preferred.push(href)
       }
     }
+    preferred.sort((a, b) => _videoHeight(b) - _videoHeight(a))
     return preferred[0] || ''
   }
 
@@ -163,6 +198,15 @@
     if (typeof performance === 'undefined' || !performance.getEntriesByType) return ''
     try {
       return videoUrlFromEntries(performance.getEntriesByType('resource'), nm)
+    } catch (e) {
+      return ''
+    }
+  }
+
+  function loadedHlsUrl(nm) {
+    if (typeof performance === 'undefined' || !performance.getEntriesByType) return ''
+    try {
+      return hlsUrlFromEntries(performance.getEntriesByType('resource'), nm)
     } catch (e) {
       return ''
     }
@@ -190,9 +234,7 @@
   }
 
   function productVideoUrl(nm) {
-    const p = videoHostPart(nm)
-    if (!p) return ''
-    return `https://${p.host}/vol${p.vol}/part${p.part}/${parseInt(nm, 10)}/mp4/360p/1.mp4`
+    return ''
   }
 
   function _legacyBasketByVol(vol) {
@@ -312,6 +354,7 @@
     const selling = card.selling || {}
     const videoUrl = _videoUrlFromNode(card) || _videoUrlFromNode(media) || loadedVideoUrl(nm) ||
       (media.has_video ? productVideoUrl(nm) : '')
+    const videoHlsUrl = loadedHlsUrl(nm)
     const vg = variantGroup(card, nm)
     const vlist = variants(card, nm, sourceUrl)
     const ids = variantIds(card, nm)
@@ -358,6 +401,8 @@
         photo_count: media.photo_count,
         has_video: Boolean(media.has_video),
         video_url: videoUrl,
+        video_hls_url: videoHlsUrl,
+        video_hls_height: _videoHeight(videoHlsUrl),
         rich_content_json: richContent,
         basket_host: host
       }
@@ -399,6 +444,6 @@
     nmFromUrl, isWbProductPage, priceCandidateUrls, parseWbPrice,
     volPart, imageUrls, buildRichContent, variantIds, variantGroup, variantLink, variants,
     parseCard, basketCardUrls, cardJsonUrlFromEntries, loadedCardJsonUrl,
-    videoUrlFromEntries, loadedVideoUrl, videoHostPart, productVideoUrl
+    videoUrlFromEntries, hlsUrlFromEntries, loadedVideoUrl, loadedHlsUrl, videoHostPart, productVideoUrl
   }
 })
