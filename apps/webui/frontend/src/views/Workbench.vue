@@ -20,6 +20,9 @@ watch(() => store.selectedId, (id) => wb.loadForDraft(id), { immediate: true })
 onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
 
 const publishTarget = computed(() => wb.currentVariant || store.selectedDraft)
+const variantWarning = computed(() => String(
+  store.selectedDraft?.source_raw?.ozon_sync?.variant_warning || '',
+).trim())
 
 async function handleOzonImported(result) {
   const draft = result?.draft
@@ -84,6 +87,15 @@ function sourceLink(d) {
           <a v-if="sourceLink(store.selectedDraft)" class="wb-source__lk"
             :href="sourceLink(store.selectedDraft)" target="_blank" rel="noopener">打开来源链接 ↗</a>
         </section>
+        <section
+          v-if="variantWarning"
+          class="wb-variant-warning"
+          role="alert"
+          aria-live="polite"
+        >
+          <strong>Ozon 变体提醒：</strong>
+          <span>{{ variantWarning }}</span>
+        </section>
         <!-- 顶:变体组横排条 -->
         <section class="wb-group">
           <VariantGroupBar @variant-deleted="store.loadDrafts()" />
@@ -131,6 +143,8 @@ function sourceLink(d) {
 .wb-source__t{font-weight:600;color:var(--c-text-2);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wb-source__lk{color:var(--c-primary);text-decoration:none}
 .wb-source__lk:hover{text-decoration:underline}
+.wb-variant-warning{display:flex;align-items:flex-start;gap:var(--sp-2);padding:var(--sp-3) var(--sp-4);border:1px solid var(--c-warning);border-radius:var(--r-lg);background:rgba(245,158,11,.12);color:var(--c-warning);font-size:var(--fs-sm);line-height:1.5}
+.wb-variant-warning strong{flex:0 0 auto}
 .wb-publish-bar{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
 .wb-publish-result{display:flex;flex-wrap:wrap;gap:4px;font-size:var(--fs-sm)}
 .wb-publish-result .ok{color:var(--c-success)}

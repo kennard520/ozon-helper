@@ -79,7 +79,7 @@
         <div class="state-message is-done" role="status" aria-live="polite">
           <template v-if="completedAction === 'sync'">
             <div>
-              {{ syncFailed > 0 ? '同步部分完成' : '同步完成' }}：共拉取 {{ syncResult.pulled ?? 0 }} 个商品，新增 {{ syncResult.created ?? 0 }} 个，更新 {{ syncResult.updated ?? 0 }} 个，失败 {{ syncFailed }} 个。
+              {{ syncFailed > 0 ? '同步部分完成' : '同步完成' }}：共拉取 {{ syncResult.pulled ?? 0 }} 个商品，新增 {{ syncResult.created ?? 0 }} 个，更新 {{ syncResult.updated ?? 0 }} 个，保留 {{ syncResult.preserved ?? 0 }} 个，失败 {{ syncFailed }} 个。
             </div>
             <ul v-if="syncErrors.length" class="error-list">
               <li v-for="error in syncErrors" :key="error">{{ error }}</li>
@@ -183,6 +183,7 @@ function finishImport(result) {
     created: Boolean(result.created),
     warnings: result.warnings || [],
   })
+  emit('update:modelValue', false)
 }
 
 async function runImport(selected_fields) {

@@ -38,6 +38,44 @@ describe('Workbench 外壳', () => {
     expect(w.find('.wb-main').exists()).toBe(true)
   })
 
+  it('重新打开已导入草稿时显示持久的 Ozon 变体风险提示', () => {
+    setActivePinia(createPinia())
+    const store = useAppStore()
+    store.loadDrafts = vi.fn()
+    store.drafts = [{
+      id: 42,
+      source: 'ozon',
+      source_title: 'Imported Ozon product',
+      source_raw: {
+        ozon_sync: {
+          variant_warning: '该商品包含多个 SKU；当前仅导入选中 SKU，发布前请确认变体关系。',
+        },
+      },
+    }]
+    store.selectedId = 42
+    const wb = useWorkbenchStore()
+    wb.loadForDraft = vi.fn()
+
+    const w = mount(Workbench, {
+      global: {
+        stubs: {
+          DraftListPane: true,
+          VariantGroupBar: true,
+          PipelinePanel: true,
+          DetailTabs: true,
+          OzonImportDialog: true,
+          'el-button': ElButtonStub,
+        },
+      },
+    })
+
+    const warning = w.find('.wb-variant-warning')
+    expect(warning.exists()).toBe(true)
+    expect(warning.attributes('role')).toBe('alert')
+    expect(warning.text()).toContain('该商品包含多个 SKU')
+    expect(warning.text()).toContain('当前仅导入选中 SKU')
+  })
+
   it('从 Ozon 导入后刷新草稿并选中新草稿', async () => {
     setActivePinia(createPinia())
     const store = useAppStore()

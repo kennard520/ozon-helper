@@ -92,6 +92,7 @@ describe('OzonImportDialog', () => {
       created: true,
       warnings: ['部分属性未拉取'],
     })
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
   it('shows local and remote conflict values with every field unchecked by default', async () => {
@@ -115,6 +116,7 @@ describe('OzonImportDialog', () => {
     expect(wrapper.text()).toContain('属性信息不完整')
     expect(wrapper.findAll('.conflict-checkbox input').every((input) => !input.element.checked)).toBe(true)
     expect(wrapper.emitted('imported')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
   it('applies only checked conflict fields through selected_fields', async () => {
@@ -147,6 +149,7 @@ describe('OzonImportDialog', () => {
       created: false,
       warnings: ['已保留未选择字段'],
     })
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
   it('renders loading and error states', async () => {
@@ -165,6 +168,7 @@ describe('OzonImportDialog', () => {
     expect(wrapper.text()).toContain('Ozon 暂时不可用')
     expect(wrapper.find('.is-error').attributes('role')).toBe('alert')
     expect(wrapper.find('.is-error').attributes('aria-live')).toBe('assertive')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
   it('gives the SKU input an explicit accessible name', () => {
@@ -175,7 +179,7 @@ describe('OzonImportDialog', () => {
   })
 
   it('can synchronize all products for the current store', async () => {
-    api.syncOzonProducts.mockResolvedValueOnce({ pulled: 12, created: 3, updated: 9, failed: 0 })
+    api.syncOzonProducts.mockResolvedValueOnce({ pulled: 12, created: 3, updated: 5, preserved: 4, failed: 0 })
     const wrapper = mountDialog()
 
     await wrapper.find('.sync-store').trigger('click')
@@ -184,6 +188,7 @@ describe('OzonImportDialog', () => {
     expect(api.syncOzonProducts).toHaveBeenCalledWith('C-1')
     expect(wrapper.text()).toContain('同步完成')
     expect(wrapper.text()).toContain('12')
+    expect(wrapper.text()).toContain('保留 4 个')
   })
 
   it('treats a resolved fatal sync response with no progress as an error', async () => {
