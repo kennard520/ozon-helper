@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("/api/ozon/pull")
 def ozon_pull(body: OzonPullIn) -> dict:
     try:
-        return app_instance.APP.pull_ozon_products(body.visibility)
+        return app_instance.APP.pull_ozon_products(body.visibility, body.store_client_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc))
 
