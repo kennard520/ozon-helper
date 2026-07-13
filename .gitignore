@@ -33,3 +33,4 @@ _copy*.json
 *.log
 .idea/
 .vscode/
+.worktrees/
