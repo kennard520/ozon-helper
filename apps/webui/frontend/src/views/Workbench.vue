@@ -1,5 +1,5 @@
 <script setup>
-import { watch, onMounted, computed } from 'vue'
+import { watch, onMounted, computed, ref } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { useDraftBatchOps } from '../composables/useDraftBatchOps.js'
@@ -7,10 +7,12 @@ import DraftListPane from '../components/workbench/DraftListPane.vue'
 import VariantGroupBar from '../components/workbench/VariantGroupBar.vue'
 import PipelinePanel from '../components/workbench/PipelinePanel.vue'
 import DetailTabs from '../components/workbench/DetailTabs.vue'
+import OzonImportDialog from '../components/workbench/OzonImportDialog.vue'
 
 const store = useAppStore()
 const wb = useWorkbenchStore()
 const ops = useDraftBatchOps(store)
+const ozonImportOpen = ref(false)
 // 顶层解构让模板可自动解包 ref（Vue 3 setup 顶层 ref 自动 unwrap）
 const { publishResult, warehouses: draftWarehouses } = ops
 
@@ -18,6 +20,11 @@ watch(() => store.selectedId, (id) => wb.loadForDraft(id), { immediate: true })
 onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
 
 const publishTarget = computed(() => wb.currentVariant || store.selectedDraft)
+
+async function handleOzonImported(result) {
+  await store.loadDrafts()
+  if (result?.draft?.id != null) store.selectedId = result.draft.id
+}
 
 // 来源链接：优先采购链接，1688 回退 source_url
 function sourceLink(d) {
@@ -29,7 +36,16 @@ function sourceLink(d) {
 }
 </script>
 <template>
-  <div class="wb-grid">
+  <div class="wb-page">
+    <div class="wb-toolbar">
+      <el-button type="primary" size="small" @click="ozonImportOpen = true">从 Ozon 导入</el-button>
+    </div>
+    <OzonImportDialog
+      v-model="ozonImportOpen"
+      :store-client-id="store.currentStore"
+      @imported="handleOzonImported"
+    />
+    <div class="wb-grid">
     <aside class="wb-left">
       <DraftListPane
         :drafts="store.filteredDrafts"
@@ -85,10 +101,13 @@ function sourceLink(d) {
         </section>
       </template>
     </main>
+    </div>
   </div>
 </template>
 <style scoped>
 /* 高度自适应:整页随内容增高,由外层 .app__content 提供滚动条;不再固定 100vh */
+.wb-page{display:flex;flex-direction:column;gap:var(--sp-3)}
+.wb-toolbar{display:flex;align-items:center;justify-content:flex-end}
 .wb-grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:var(--sp-4);align-items:start}
 /* 左栏 sticky:页面滚动时驻留视口顶部、自身内部滚动,不随详情滚走 */
 .wb-left{position:sticky;top:0;max-height:calc(100vh - 56px - var(--sp-5)*2);min-width:0;background:#fff;border:1px solid var(--c-border);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column}
