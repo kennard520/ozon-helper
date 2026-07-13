@@ -6,6 +6,7 @@ import time
 import webui.media as _media
 from webui.draft_state import blocking_errors, build_draft_checks, warning_messages
 from webui.drafts import (
+    loads_json,
     missing_required_attributes,
     to_ozon_import_item,
     video_publish_skip_reason,
@@ -91,6 +92,15 @@ class PublishMixin:
         """
         checks = build_draft_checks(draft)
         warnings: list[str] = [*blocking_errors(checks), *warning_messages(checks)]
+        source_raw = draft.get("source_raw") or {}
+        if isinstance(source_raw, str):
+            source_raw = loads_json(source_raw, {})
+        ozon_sync = source_raw.get("ozon_sync") if isinstance(source_raw, dict) else {}
+        variant_warning = (
+            ozon_sync.get("variant_warning") if isinstance(ozon_sync, dict) else None
+        )
+        if variant_warning:
+            warnings.append(str(variant_warning))
         technical_errors: list[str] = []
         video_warning = video_publish_skip_reason(draft.get("video_url"), draft.get("source_raw"))
         if video_warning:

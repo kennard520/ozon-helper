@@ -155,6 +155,23 @@ class PublishPreviewOkTest(unittest.TestCase):
             self.assertTrue(any("视频" in w and "跳过" in w for w in result["warnings"]))
             _close_app(app)
 
+    def test_preview_surfaces_ozon_variant_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _make_app(tmp)
+            app._category_attrs = lambda c, t: []
+            warning = "该 Ozon 商品属于包含 3 个 SKU 的变体组；本次仅导入当前 SKU。"
+            draft = _draft(
+                app,
+                source_platform="ozon",
+                source_raw={"ozon_sync": {"variant_warning": warning}},
+            )
+
+            result = app.publish_preview(draft["id"])
+
+            self.assertTrue(result["ok"])
+            self.assertIn(warning, result["warnings"])
+            _close_app(app)
+
 
 class PublishPreviewSideEffectFreeTest(unittest.TestCase):
     def test_preview_does_not_write_status_on_error(self) -> None:
@@ -281,6 +298,34 @@ class PublishAfterRefactorTest(unittest.TestCase):
                 self.assertEqual(item["currency_code"], "CNY")
             finally:
                 svc.publish_items = orig
+                _close_app(app)
+
+    def test_publish_surfaces_variant_warning_and_still_submits_single_item(self) -> None:
+        import webui.app_service as svc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            app._category_attrs = lambda c, t: []
+            warning = "该 Ozon 商品属于包含 3 个 SKU 的变体组；本次仅导入当前 SKU。"
+            draft = _draft(
+                app,
+                source_platform="ozon",
+                source_raw={"ozon_sync": {"variant_warning": warning}},
+            )
+            called = {"n": 0}
+            original_publish = svc.publish_items
+
+            def fake_publish(settings, items):
+                called["n"] += 1
+                return {"result": {"task_id": 0}}
+
+            svc.publish_items = fake_publish
+            try:
+                result = app.publish(draft["id"])
+                self.assertEqual(called["n"], 1)
+                self.assertIn(warning, result["warnings"])
+            finally:
+                svc.publish_items = original_publish
                 _close_app(app)
 
     def test_publish_stops_when_media_rehost_fails(self) -> None:

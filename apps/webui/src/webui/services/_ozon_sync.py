@@ -131,6 +131,8 @@ class OzonSyncMixin:
             attributes=attributes,
             description=description,
         )
+        if snapshot.get("variant_warning"):
+            warnings.append(str(snapshot["variant_warning"]))
         return self._normalize_ozon_draft(
             draft,
             sku=sku,
@@ -206,7 +208,8 @@ class OzonSyncMixin:
             remote_value = pulled.get(field)
             if _empty(existing.get(field)) and not _empty(remote_value):
                 patch[field] = remote_value
-            elif selected is not None and field in selected:
+            elif (selected is not None and field in selected
+                  and not _empty(remote_value)):
                 patch[field] = remote_value
 
         if pulled.get("ozon_product_id") is not None:
@@ -228,6 +231,8 @@ class OzonSyncMixin:
         store_client_id: str,
         selected_fields: list[str] | None = None,
     ) -> dict:
+        from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
         sku = int(sku)
         if sku <= 0:
             raise ValueError("SKU 必须是正整数")
@@ -243,7 +248,30 @@ class OzonSyncMixin:
             offer_id=str(remote.get("offer_id") or ""),
         )
         if existing is None:
-            draft = self.store.insert_draft(remote)
+            try:
+                draft = self.store.insert_draft(remote)
+            except IntegrityError:
+                # Store 自开 session 时异常已由 session_scope 回滚；HTTP 请求有
+                # ambient UoW 时必须先解除 failed transaction，才能在同一请求中重读。
+                from ozon_common.dal.session import _current_session  # noqa: PLC0415
+
+                ambient_session = _current_session.get()
+                if ambient_session is not None:
+                    ambient_session.rollback()
+                draft = self.store.find_ozon_draft(
+                    store_client_id=scid,
+                    sku=str(sku),
+                    product_id=remote.get("ozon_product_id"),
+                    offer_id=str(remote.get("offer_id") or ""),
+                )
+                if draft is None:
+                    raise
+                return {
+                    "created": False,
+                    "draft": draft,
+                    "conflicts": self._diff_editable_fields(draft, remote),
+                    "warnings": warnings,
+                }
             return {
                 "created": True,
                 "draft": draft,
@@ -252,6 +280,14 @@ class OzonSyncMixin:
             }
 
         conflicts = self._diff_editable_fields(existing, remote)
+        if selected_fields is not None:
+            for field in selected_fields:
+                if (field in PROTECTED_OZON_FIELDS
+                        and not _empty(existing.get(field))
+                        and _empty(remote.get(field))):
+                    warnings.append(
+                        f"远端字段 {field} 本次未获取到有效值，已保留本地内容"
+                    )
         patch = self._merge_pulled_into_existing(existing, remote, selected_fields)
         draft = self.store.update_draft(existing["id"], patch)
         return {
