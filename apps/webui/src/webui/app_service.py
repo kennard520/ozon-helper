@@ -86,6 +86,7 @@ from webui.services._auth import AuthMixin  # noqa: E402
 from webui.services._settings import SettingsMixin  # noqa: E402
 from webui.services._category import CategoryMixin  # noqa: E402
 from webui.services._drafts import DraftMixin  # noqa: E402
+from webui.services._ozon_sync import OzonSyncMixin  # noqa: E402
 from webui.services._publish import PublishMixin  # noqa: E402
 from webui.services._ai_card import AiCardMixin  # noqa: E402
 from webui.services._ai_image import AiImageMixin  # noqa: E402
@@ -99,7 +100,7 @@ from webui.services._textjob import TextJobMixin  # noqa: E402
 from webui.services._pipeline import PipelineMixin  # noqa: E402
 
 
-class App(AuthMixin, SettingsMixin, CategoryMixin, DraftMixin, PublishMixin, AiCardMixin, AiImageMixin, AiVideoMixin, GalleryMixin, ExtMixin, GenJobMixin, PricingMixin, WarehouseMixin, TextJobMixin, PipelineMixin):
+class App(AuthMixin, SettingsMixin, CategoryMixin, DraftMixin, OzonSyncMixin, PublishMixin, AiCardMixin, AiImageMixin, AiVideoMixin, GalleryMixin, ExtMixin, GenJobMixin, PricingMixin, WarehouseMixin, TextJobMixin, PipelineMixin):
     def __init__(self) -> None:
         self.store = Store()
         self._cand_lock = threading.Lock()   # 候选区读-改-写串行化(图集并发出图时防丢候选)

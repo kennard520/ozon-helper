@@ -6,10 +6,8 @@ import time
 import webui.media as _media
 from webui.draft_state import blocking_errors, build_draft_checks, warning_messages
 from webui.drafts import (
-    NO_BRAND,
     missing_required_attributes,
     to_ozon_import_item,
-    utc_now_iso,
     video_publish_skip_reason,
 )
 from webui.media_rehost import needs_rehost, rehost_draft_media, rewrite_item_media
@@ -422,120 +420,15 @@ class PublishMixin:
                 "poll": poll, "task_id": task_id, "warnings": warnings, "rehost": rehost_stats,
                 "errors": item_errors}
 
-    def pull_ozon_products(self, visibility: str = "ALL") -> dict:
-        from webui.ozon_client_adapter import (  # noqa: PLC0415
-            get_ozon_attributes,
-            get_ozon_descriptions,
-            get_ozon_info,
-            list_ozon_products,
-            ozon_to_draft,
-        )
-        run = self.store.create_task_run(None, "ozon_product_pull", status="running", source="webui", result={"phase": "start", "visibility": visibility})
-        errors: list = []
-        try:
-            listing = list_ozon_products(self.store.get_settings(), visibility)
-        except Exception as exc:  # noqa: BLE001
-            self.store.update_task_run(run["id"], {"status": "failed", "error": str(exc)[:500], "result": {"phase": "list_products", "visibility": visibility}})
-            return {"pulled": 0, "drafts": self.store.list_drafts(), "errors": [str(exc)]}
-        offer_ids = [str(it.get("offer_id")) for it in listing if it.get("offer_id")]
-        info = get_ozon_info(self.store.get_settings(), offer_ids) if offer_ids else {}
-        try:
-            attrs = get_ozon_attributes(self.store.get_settings(), offer_ids) if offer_ids else {}
-        except Exception as exc:  # noqa: BLE001
-            attrs = {}
-            errors.append(f"属性拉取失败(尺寸/属性留空): {exc}")
-        try:
-            descriptions = get_ozon_descriptions(self.store.get_settings(), offer_ids) if offer_ids else {}
-        except Exception as exc:  # noqa: BLE001
-            descriptions = {}
-            errors.append(f"描述拉取失败(描述留空): {exc}")
-        pulled = 0
-        for oid in offer_ids:
-            if oid not in info:
-                continue
-            d = ozon_to_draft(info[oid], attrs.get(oid))
-            # 补全描述：/v3/product/info/list 不含描述，单独接口拉取
-            desc_text = descriptions.get(oid, "")
-            if desc_text:
-                d["description"] = desc_text
-            existing = self.store.find_by_offer_id(oid)
-            if existing:
-                # 再拉已存在草稿：非破坏式合并，只补空字段 + 刷新 Ozon 权威身份，
-                # 绝不覆盖用户手编的 description/price/supplier 等（否则每次拉单都丢编辑）。
-                self.store.update_draft(existing["id"], self._merge_pulled_into_existing(existing, d))
-            else:
-                self.store.insert_draft(self._normalize_ozon_draft(d, oid))
-            pulled += 1
-        self.store.update_task_run(run["id"], {"status": "done", "progress_current": 1, "progress_total": 1, "error": (errors[0] if errors else None), "result": {"phase": "done", "visibility": visibility, "pulled": pulled, "warnings": errors}})
-        return {"pulled": pulled, "drafts": self.store.list_drafts(), "errors": errors}
-
-    @staticmethod
-    def _merge_pulled_into_existing(existing: dict, pulled: dict) -> dict:
-        """再拉已存在草稿时，算出"只补空、不覆盖"的最小更新集（纯函数，可测）。
-
-        - 用户可能手编的字段：仅当现有草稿该字段为空/缺失时才用拉来的值填补；
-          已有非空值则一律保留，不传进更新集（让 store 维持原值）。
-        - Ozon 权威身份/元数据：用户不会手改 → 总是用拉来的最新值刷新。
-        - status 显式设为 "published"：从 Ozon 拉回的商品已上架，
-          update_draft 的 status 重算逻辑若不传 status 会将其降级为 "ready"，
-          故此处明确传入 "published" 保持已上架状态。
-        """
-        def _empty(v: object) -> bool:
-            if v is None:
-                return True
-            if isinstance(v, str):
-                return v.strip() == ""
-            if isinstance(v, (list, tuple, dict)):
-                return len(v) == 0
-            return False
-
-        patch: dict = {}
-        # 用户可能手编的字段：只在现有为空时补
-        user_editable = (
-            "description", "ozon_title", "price", "old_price", "stock",
-            "supplier", "purchase_url", "purchase_note", "cost_cny",
-            "category_id", "type_id",
-        )
-        for k in user_editable:
-            if k in pulled and _empty(existing.get(k)) and not _empty(pulled.get(k)):
-                patch[k] = pulled[k]
-
-        # 图片：仅当现有草稿一张都没有时才用拉来的
-        if _empty(existing.get("images")) and not _empty(pulled.get("images")):
-            patch["images"] = pulled["images"]
-
-        # 视频：仅当现有草稿没有视频时才用拉来的（Ozon 重新托管的 v.ozone.ru URL）
-        if _empty(existing.get("video_url")) and not _empty(pulled.get("video_url")):
-            patch["video_url"] = pulled["video_url"]
-
-        # Ozon 权威身份/元数据：总是刷新（用户不会手编）
-        if pulled.get("ozon_product_id") is not None:
-            patch["ozon_product_id"] = pulled["ozon_product_id"]
-        patch["source"] = pulled.get("source", "ozon")
-        patch["offer_id"] = existing.get("offer_id") or pulled.get("offer_id")
-        # 从 Ozon 拉回的商品已在平台上线，显式保持 published 状态（不让 update_draft 重算降级）
-        patch["status"] = "published"
-        return patch
-
-    @staticmethod
-    def _normalize_ozon_draft(draft: dict, offer_id: str) -> dict:
-        """补齐 store.insert_draft 要求但纯映射不产出的键。
-        source_url 在 drafts 表是 UNIQUE 主键约束（且 insert 按它去重），
-        Ozon 商品无 1688 链接，故用合成唯一键 ozon://product/<offer_id>。"""
-        now = utc_now_iso()
-        draft.setdefault("purchase_url", "")
-        draft.setdefault("purchase_note", "")
-        draft["brand_id"] = None
-        draft["brand_name"] = NO_BRAND
-        draft.setdefault("cost_cny", None)
-        draft.setdefault("video_url", "")
-        draft.setdefault("local_images", [])
-        draft.setdefault("validation_errors", [])
-        draft.setdefault("publish_response", None)
-        draft["source_url"] = f"ozon://product/{offer_id}"
-        draft["created_at"] = now
-        draft["updated_at"] = now
-        return draft
+    def pull_ozon_products(
+        self,
+        visibility: str = "ALL",
+        store_client_id: str | None = None,
+    ) -> dict:
+        """兼容旧调用顺序：visibility 在前，店铺 ID 在后。"""
+        settings = self._settings_for_store(store_client_id)
+        scid = str(store_client_id or settings.get("ozon_client_id") or "").strip()
+        return self.sync_ozon_products(scid, visibility)
 
     def _auto_map_safe(self, draft_id: int) -> None:
         """采集后尽力自动映射属性(类目对上才有效)：把采集的名值对填进 Ozon 上架属性。

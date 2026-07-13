@@ -4,6 +4,7 @@ import importlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 # 用 plan §11 已核实的字段形状构造假 info / attrs
@@ -256,6 +257,170 @@ class FindOzonDraftTest(unittest.TestCase):
                 self.assertEqual(by_legacy_url["id"], legacy["id"])
             finally:
                 store.close()
+
+
+class OzonSyncServiceTest(unittest.TestCase):
+    SKU = 4998185789
+
+    def _app(self, tmp: str):
+        import webui.store as store_mod  # noqa: PLC0415
+        store_mod.DEFAULT_DB = Path(tmp) / "sync.db"
+        import webui.app_service as svc  # noqa: PLC0415
+        importlib.reload(svc)
+        app = svc.App()
+        app.store.save_settings({
+            "ozon_client_id": "C-1",
+            "ozon_api_key": "K-1",
+            "ozon_stores": [
+                {"name": "Store 2", "client_id": "C-2", "api_key": "K-2"},
+            ],
+        })
+        return app
+
+    @staticmethod
+    def _sku_info(sku: int, *, offer_id: str = "A", product_id: int = 111,
+                  name: str = "Remote title") -> dict:
+        info = _fake_info(offer_id, product_id, name=name)
+        info.update({"sku": sku, "model_info": {"count": 1}})
+        return info
+
+    def test_import_creates_reuses_previews_and_selectively_applies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            info = self._sku_info(self.SKU)
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.get_ozon_info_by_skus",
+                          return_value={str(self.SKU): info}),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes",
+                          return_value={"A": _fake_attrs("A")}),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions",
+                          return_value={"A": "Remote description"}),
+                ):
+                    first = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                    self.assertTrue(first["created"])
+                    self.assertEqual(first["draft"]["source_offer_id"], str(self.SKU))
+                    self.assertEqual(first["draft"]["source_url"], f"ozon://product/{self.SKU}")
+                    self.assertEqual(first["draft"]["store_client_id"], "C-1")
+
+                    repeated = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                    self.assertFalse(repeated["created"])
+                    self.assertEqual(repeated["draft"]["id"], first["draft"]["id"])
+
+                    app.store.update_draft(first["draft"]["id"], {
+                        "ozon_title": "Local title",
+                    })
+                    preview = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                    self.assertEqual(preview["draft"]["ozon_title"], "Local title")
+                    self.assertIn("ozon_title", {x["field"] for x in preview["conflicts"]})
+
+                    empty_apply = app.import_ozon_product_by_sku(
+                        self.SKU, "C-1", selected_fields=[],
+                    )
+                    self.assertEqual(empty_apply["draft"]["ozon_title"], "Local title")
+
+                    applied = app.import_ozon_product_by_sku(
+                        self.SKU, "C-1", selected_fields=["ozon_title"],
+                    )
+                    self.assertEqual(applied["draft"]["ozon_title"], "Remote title")
+            finally:
+                app.store.close()
+
+    def test_import_uses_selected_store_credentials_for_every_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            info = self._sku_info(self.SKU)
+            seen: list[tuple[str, str]] = []
+
+            def remember(settings: dict) -> None:
+                seen.append((settings["ozon_client_id"], settings["ozon_api_key"]))
+
+            def get_info(settings: dict, skus: list[int]) -> dict:
+                remember(settings)
+                return {str(self.SKU): info}
+
+            def get_attrs(settings: dict, offer_ids: list[str]) -> dict:
+                remember(settings)
+                return {"A": _fake_attrs("A")}
+
+            def get_desc(settings: dict, offer_ids: list[str]) -> dict:
+                remember(settings)
+                return {"A": "Remote description"}
+
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.get_ozon_info_by_skus", get_info),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes", get_attrs),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions", get_desc),
+                ):
+                    result = app.import_ozon_product_by_sku(self.SKU, "C-2")
+                self.assertEqual(result["draft"]["store_client_id"], "C-2")
+                self.assertEqual(seen, [("C-2", "K-2")] * 3)
+            finally:
+                app.store.close()
+
+    def test_import_keeps_basic_draft_with_partial_warnings_and_variant_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            info = self._sku_info(self.SKU)
+            info["model_info"] = {"count": 3}
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.get_ozon_info_by_skus",
+                          return_value={str(self.SKU): info}),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes",
+                          side_effect=RuntimeError("attributes unavailable")),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions",
+                          side_effect=RuntimeError("description unavailable")),
+                ):
+                    result = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                self.assertTrue(result["created"])
+                self.assertEqual(len(result["warnings"]), 2)
+                snapshot = result["draft"]["source_raw"]["ozon_sync"]
+                self.assertIsNone(snapshot["attributes"])
+                self.assertEqual(snapshot["description"], "")
+                self.assertTrue(snapshot["variant_warning"])
+                self.assertEqual(len(app.store.list_drafts()), 1)
+            finally:
+                app.store.close()
+
+    def test_full_sync_continues_after_one_item_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            bad = self._sku_info(1001, offer_id="BAD", product_id=111)
+            good = self._sku_info(1002, offer_id="GOOD", product_id=222)
+            listing = [
+                {"product_id": 111, "offer_id": "BAD"},
+                {"product_id": 222, "offer_id": "GOOD"},
+            ]
+            from webui.ozon_client_adapter import ozon_to_draft as real_mapping  # noqa: PLC0415
+
+            def mapping(info: dict, attrs: dict | None) -> dict:
+                if info["offer_id"] == "BAD":
+                    raise ValueError("bad product payload")
+                return real_mapping(info, attrs)
+
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.list_ozon_products",
+                          return_value=listing),
+                    patch("webui.ozon_client_adapter.get_ozon_info",
+                          return_value={"BAD": bad, "GOOD": good}),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes",
+                          return_value={"BAD": _fake_attrs("BAD"), "GOOD": _fake_attrs("GOOD")}),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions",
+                          return_value={"BAD": "Bad", "GOOD": "Good"}),
+                    patch("webui.ozon_client_adapter.ozon_to_draft", mapping),
+                ):
+                    result = app.sync_ozon_products("C-2")
+                self.assertEqual(result["created"], 1)
+                self.assertEqual(result["failed"], 1)
+                self.assertEqual(len(result["errors"]), 1)
+                draft = app.store.list_drafts()[0]
+                self.assertEqual(draft["store_client_id"], "C-2")
+                self.assertEqual(draft["source_offer_id"], "1002")
+            finally:
+                app.store.close()
 
 
 class PullOzonProductsTest(unittest.TestCase):
