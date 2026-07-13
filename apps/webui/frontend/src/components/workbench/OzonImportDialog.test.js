@@ -157,10 +157,21 @@ describe('OzonImportDialog', () => {
     await wrapper.find('.sku-input').setValue('4998185789')
     await wrapper.find('.sku-submit').trigger('click')
     expect(wrapper.text()).toContain('正在导入')
+    expect(wrapper.find('.is-loading').attributes('role')).toBe('status')
+    expect(wrapper.find('.is-loading').attributes('aria-live')).toBe('polite')
 
     rejectImport(new Error('Ozon 暂时不可用'))
     await flushPromises()
     expect(wrapper.text()).toContain('Ozon 暂时不可用')
+    expect(wrapper.find('.is-error').attributes('role')).toBe('alert')
+    expect(wrapper.find('.is-error').attributes('aria-live')).toBe('assertive')
+  })
+
+  it('gives the SKU input an explicit accessible name', () => {
+    const wrapper = mountDialog()
+
+    expect(wrapper.find('label[for="ozon-sku-input"]').text()).toBe('Ozon SKU')
+    expect(wrapper.find('#ozon-sku-input').attributes('aria-label')).toBe('Ozon SKU')
   })
 
   it('can synchronize all products for the current store', async () => {
@@ -173,5 +184,55 @@ describe('OzonImportDialog', () => {
     expect(api.syncOzonProducts).toHaveBeenCalledWith('C-1')
     expect(wrapper.text()).toContain('同步完成')
     expect(wrapper.text()).toContain('12')
+  })
+
+  it('treats a resolved fatal sync response with no progress as an error', async () => {
+    api.syncOzonProducts.mockResolvedValueOnce({
+      created: 0,
+      updated: 0,
+      preserved: 0,
+      failed: 1,
+      pulled: 0,
+      drafts: [],
+      errors: ['商品列表请求失败'],
+      warnings: [],
+    })
+    const wrapper = mountDialog()
+
+    await wrapper.find('.sync-store').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.is-error').attributes('role')).toBe('alert')
+    expect(wrapper.text()).toContain('同步失败')
+    expect(wrapper.text()).toContain('失败 1 个')
+    expect(wrapper.text()).toContain('商品列表请求失败')
+    expect(wrapper.text()).not.toContain('同步完成')
+  })
+
+  it('discloses failed count and errors for a partially successful sync', async () => {
+    api.syncOzonProducts.mockResolvedValueOnce({
+      phase: 'done',
+      visibility: 'ALL',
+      store_client_id: 'C-1',
+      created: 1,
+      updated: 0,
+      preserved: 0,
+      failed: 1,
+      pulled: 1,
+      drafts: [{ id: 42 }],
+      errors: ['offer_id BAD: bad product payload'],
+      warnings: ['属性拉取失败，尺寸和商品属性留空'],
+    })
+    const wrapper = mountDialog()
+
+    await wrapper.find('.sync-store').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.is-done').attributes('role')).toBe('status')
+    expect(wrapper.text()).toContain('同步部分完成')
+    expect(wrapper.text()).toContain('失败 1 个')
+    expect(wrapper.text()).toContain('offer_id BAD: bad product payload')
+    expect(wrapper.text()).toContain('属性拉取失败，尺寸和商品属性留空')
+    expect(wrapper.text()).not.toContain('同步完成：')
   })
 })
