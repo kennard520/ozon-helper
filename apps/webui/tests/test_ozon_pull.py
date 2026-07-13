@@ -446,6 +446,48 @@ class GetOzonAttributesPaginationTest(unittest.TestCase):
         self.assertEqual(call_log[1]["last_id"], "L1")
 
 
+class GetOzonInfoBySkusTest(unittest.TestCase):
+    def test_returns_items_keyed_by_string_sku(self) -> None:
+        import webui.ozon_client_adapter as adapter  # noqa: PLC0415
+
+        item = {"sku": 4998185789, "offer_id": "A"}
+
+        class StubClient:
+            def get_products_info(self, *, skus=None):
+                return {"items": [item]}
+
+        original_build = adapter.build_client
+        adapter.build_client = lambda settings: StubClient()
+        try:
+            result = adapter.get_ozon_info_by_skus({}, [4998185789])
+        finally:
+            adapter.build_client = original_build
+
+        self.assertEqual(result, {"4998185789": item})
+
+    def test_batches_requests_at_one_thousand_skus(self) -> None:
+        import webui.ozon_client_adapter as adapter  # noqa: PLC0415
+
+        calls: list[list[int]] = []
+
+        class StubClient:
+            def get_products_info(self, *, skus=None):
+                chunk = list(skus or [])
+                calls.append(chunk)
+                return {"items": [{"sku": sku} for sku in chunk]}
+
+        original_build = adapter.build_client
+        adapter.build_client = lambda settings: StubClient()
+        try:
+            result = adapter.get_ozon_info_by_skus({}, list(range(1001)))
+        finally:
+            adapter.build_client = original_build
+
+        self.assertEqual([len(chunk) for chunk in calls], [1000, 1])
+        self.assertEqual(len(result), 1001)
+        self.assertEqual(result["1000"], {"sku": 1000})
+
+
 class FetchWarehousesPaginationTest(unittest.TestCase):
     """fetch_warehouses 必须跟踪 cursor/has_next 直到耗尽，合并所有页仓库。"""
 
