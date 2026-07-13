@@ -22,8 +22,14 @@ onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
 const publishTarget = computed(() => wb.currentVariant || store.selectedDraft)
 
 async function handleOzonImported(result) {
-  await store.loadDrafts()
-  if (result?.draft?.id != null) store.selectedId = result.draft.id
+  const draft = result?.draft
+  if (draft?.id == null) return
+  const originStore = String(store.currentStore || '')
+  store.filter = 'all'
+  store.page = 1
+  const refreshed = await store.loadDrafts()
+  if (!refreshed || String(store.currentStore || '') !== originStore) return
+  if (store.adoptDraft(draft)) store.selectedId = draft.id
 }
 
 // 来源链接：优先采购链接，1688 回退 source_url
