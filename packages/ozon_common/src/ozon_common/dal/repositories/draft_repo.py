@@ -168,6 +168,8 @@ class DraftRepo(BaseRepo):
             .where(D.c.id == int(draft_id))
             .values(
                 source_platform=updated.get("source_platform", "1688"),
+                source_url=updated["source_url"],
+                source_offer_id=updated.get("source_offer_id"),
                 source_title=updated["source_title"],
                 purchase_url=updated.get("purchase_url", ""),
                 purchase_note=updated.get("purchase_note", ""),

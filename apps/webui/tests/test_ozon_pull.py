@@ -359,6 +359,96 @@ class OzonSyncServiceTest(unittest.TestCase):
             finally:
                 app.store.close()
 
+    def test_existing_source_raw_keys_survive_preview_and_selective_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            info = self._sku_info(self.SKU)
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.get_ozon_info_by_skus",
+                          return_value={str(self.SKU): info}),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes",
+                          return_value={"A": _fake_attrs("A")}),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions",
+                          return_value={"A": "Remote description"}),
+                ):
+                    first = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                    source_raw = {
+                        **first["draft"]["source_raw"],
+                        "variant_group": "VG-1",
+                        "image_types": {"https://img/primary.jpg": "main"},
+                        "legacy_snapshot": {"origin": "old"},
+                    }
+                    app.store.update_draft(first["draft"]["id"], {
+                        "ozon_title": "Local title",
+                        "source_raw": source_raw,
+                    })
+                    preview = app.import_ozon_product_by_sku(self.SKU, "C-1")
+                    preview_raw = preview["draft"]["source_raw"]
+                    self.assertEqual(preview_raw["variant_group"], "VG-1")
+                    self.assertEqual(
+                        set(preview_raw["image_types"]), set(source_raw["image_types"]),
+                    )
+                    self.assertEqual(preview_raw["legacy_snapshot"], {"origin": "old"})
+                    self.assertEqual(preview_raw["ozon_sync"]["sku"], self.SKU)
+
+                    applied = app.import_ozon_product_by_sku(
+                        self.SKU, "C-1", selected_fields=["ozon_title"],
+                    )
+                    applied_raw = applied["draft"]["source_raw"]
+                    self.assertEqual(applied["draft"]["ozon_title"], "Remote title")
+                    self.assertEqual(applied_raw["variant_group"], "VG-1")
+                    self.assertEqual(
+                        set(applied_raw["image_types"]), set(source_raw["image_types"]),
+                    )
+                    self.assertEqual(applied_raw["legacy_snapshot"], {"origin": "old"})
+                    self.assertEqual(applied_raw["ozon_sync"]["sku"], self.SKU)
+            finally:
+                app.store.close()
+
+    def test_import_adopts_legacy_draft_into_numeric_sku_identity(self) -> None:
+        from webui.drafts import create_draft_from_url  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app(tmp)
+            info = self._sku_info(self.SKU)
+            legacy = create_draft_from_url(
+                "https://detail.1688.com/offer/123456789012.html"
+            )
+            legacy.update({
+                "source": "ozon",
+                "source_platform": "ozon",
+                "source_url": "ozon://product/A",
+                "source_offer_id": "A",
+                "store_client_id": "C-1",
+                "ozon_product_id": 111,
+                "offer_id": "A",
+            })
+            inserted = app.store.insert_draft(legacy)
+            try:
+                with (
+                    patch("webui.ozon_client_adapter.get_ozon_info_by_skus",
+                          return_value={str(self.SKU): info}),
+                    patch("webui.ozon_client_adapter.get_ozon_attributes",
+                          return_value={"A": _fake_attrs("A")}),
+                    patch("webui.ozon_client_adapter.get_ozon_descriptions",
+                          return_value={"A": "Remote description"}),
+                ):
+                    result = app.import_ozon_product_by_sku(self.SKU, "C-1")
+
+                self.assertFalse(result["created"])
+                self.assertEqual(result["draft"]["id"], inserted["id"])
+                self.assertEqual(result["draft"]["source_offer_id"], str(self.SKU))
+                self.assertEqual(
+                    result["draft"]["source_url"], f"ozon://product/{self.SKU}",
+                )
+                read_back = app.store.get_draft(inserted["id"])
+                self.assertEqual(read_back["source_offer_id"], str(self.SKU))
+                self.assertEqual(read_back["source_url"], f"ozon://product/{self.SKU}")
+                self.assertEqual(len(app.store.list_drafts()), 1)
+            finally:
+                app.store.close()
+
     def test_import_keeps_basic_draft_with_partial_warnings_and_variant_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             app = self._app(tmp)

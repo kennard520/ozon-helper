@@ -195,6 +195,10 @@ class OzonSyncMixin:
         selected_fields: list[str] | None = None,
     ) -> dict:
         selected = None if selected_fields is None else set(selected_fields)
+        source_raw = {
+            **(existing.get("source_raw") or {}),
+            **(pulled.get("source_raw") or {}),
+        }
         patch: dict[str, Any] = {}
         for field in PROTECTED_OZON_FIELDS:
             if field not in pulled:
@@ -210,7 +214,9 @@ class OzonSyncMixin:
         patch.update({
             "source": "ozon",
             "source_platform": "ozon",
-            "source_raw": pulled.get("source_raw") or {},
+            "source_offer_id": pulled.get("source_offer_id"),
+            "source_url": pulled.get("source_url"),
+            "source_raw": source_raw,
             "offer_id": existing.get("offer_id") or pulled.get("offer_id"),
             "status": "published",
         })
