@@ -156,6 +156,108 @@ class FindByOfferIdTest(unittest.TestCase):
                 store.close()
 
 
+class FindOzonDraftTest(unittest.TestCase):
+    def test_store_scoped_identity_returns_newest_matching_draft(self) -> None:
+        import webui.store as store_mod  # noqa: PLC0415
+        from webui.drafts import create_draft_from_url  # noqa: PLC0415
+
+        def ozon_draft(
+            source_url: str,
+            *,
+            store_client_id: str,
+            sku: str,
+            product_id: int | None,
+            offer_id: str,
+        ) -> dict:
+            draft = create_draft_from_url(
+                "https://detail.1688.com/offer/123456789012.html"
+            )
+            draft.update(
+                source_platform="ozon",
+                source_url=source_url,
+                source_offer_id=sku,
+                store_client_id=store_client_id,
+                ozon_product_id=product_id,
+                offer_id=offer_id,
+            )
+            return draft
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store_mod.DEFAULT_DB = Path(tmp) / "identity.db"
+            store = store_mod.Store()
+            try:
+                c1 = store.insert_draft(ozon_draft(
+                    "ozon://product/C-1-old",
+                    store_client_id="C-1",
+                    sku="4998185789",
+                    product_id=111,
+                    offer_id="A",
+                ))
+                c2_old = store.insert_draft(ozon_draft(
+                    "ozon://product/C-2-old",
+                    store_client_id="C-2",
+                    sku="4998185789",
+                    product_id=999,
+                    offer_id="A",
+                ))
+                legacy = store.insert_draft(ozon_draft(
+                    "ozon://product/A",
+                    store_client_id="C-2",
+                    sku="",
+                    product_id=222,
+                    offer_id="A",
+                ))
+
+                found_c1 = store.find_ozon_draft(
+                    store_client_id="C-1",
+                    sku="4998185789",
+                    product_id=111,
+                    offer_id="A",
+                )
+                found_c2 = store.find_ozon_draft(
+                    store_client_id="C-2",
+                    sku="4998185789",
+                    product_id=222,
+                    offer_id="A",
+                )
+
+                self.assertEqual(found_c1["id"], c1["id"])
+                self.assertEqual(found_c1["store_client_id"], "C-1")
+                self.assertGreater(legacy["id"], c2_old["id"])
+                self.assertEqual(found_c2["id"], legacy["id"])
+                self.assertEqual(found_c2["store_client_id"], "C-2")
+                self.assertIsNone(store.find_ozon_draft(
+                    store_client_id="C-3",
+                    sku="4998185789",
+                    product_id=222,
+                    offer_id="A",
+                ))
+
+                by_product_id = store.find_ozon_draft(
+                    store_client_id="C-2",
+                    sku="missing",
+                    product_id=222,
+                    offer_id="missing",
+                )
+                by_offer_id = store.find_ozon_draft(
+                    store_client_id="C-2",
+                    sku="missing",
+                    product_id=None,
+                    offer_id="A",
+                )
+                by_legacy_url = store.find_ozon_draft(
+                    store_client_id="C-2",
+                    sku="A",
+                    product_id=None,
+                    offer_id="missing",
+                )
+                self.assertEqual(by_product_id["id"], legacy["id"])
+                self.assertEqual(by_offer_id["id"], legacy["id"])
+                self.assertEqual(by_legacy_url["id"], legacy["id"])
+            finally:
+                store.close()
+
+
 class PullOzonProductsTest(unittest.TestCase):
     def _svc(self, tmp):
         import webui.store as store_mod  # noqa: PLC0415
