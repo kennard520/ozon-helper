@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import uvicorn  # noqa: E402
+from ozon_common.runtime import is_local_lite  # noqa: E402
 
 CANDIDATE_PORTS = [8585, 8787, 5050, 7373, 6464, 9911, 8123, 5151, 19283, 28282]
 
@@ -52,7 +53,7 @@ def pick_port(argv: list[str]) -> int | None:
 
 def main() -> int:
     # 服务器部署：WEBUI_HOST 一旦设置（如 0.0.0.0）就按固定 host/port 监听，不自动选端口
-    host_env = os.environ.get("WEBUI_HOST")
+    host_env = None if is_local_lite() else os.environ.get("WEBUI_HOST")
     log = logging.getLogger("ozon")
     if host_env:
         port = int(os.environ.get("WEBUI_PORT") or 8585)
@@ -65,6 +66,24 @@ def main() -> int:
         log.error("所有候选端口都无法绑定")
         return 1
     log.info(f"开发模式: 端口={port}")
+    if is_local_lite():
+        import threading
+        import time
+        import urllib.request
+        import webbrowser
+
+        def open_when_ready():
+            url = f"http://127.0.0.1:{port}"
+            for _ in range(60):
+                try:
+                    with urllib.request.urlopen(url + "/api/ext/ping", timeout=1):
+                        webbrowser.open(url)
+                    return
+                except OSError:
+                    time.sleep(1)
+            log.error("本地服务未就绪，请查看启动日志")
+
+        threading.Thread(target=open_when_ready, daemon=True).start()
     uvicorn.run("webui.main:app", host="127.0.0.1", port=port, reload=False)
     return 0
     uvicorn.run("webui.main:app", host="127.0.0.1", port=port, reload=False)

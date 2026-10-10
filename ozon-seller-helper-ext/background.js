@@ -28,14 +28,12 @@ async function getBackendOverride() {
 async function discoverBase() {
   // 开发自定义地址优先级最高：设了就直接用（绕过 DISCOVERED 缓存，切本地/生产即时生效）
   const override = await getBackendOverride()
-  if (override && (await _ping(override))) {
-    DISCOVERED = override
-    return override
-  }
-  if (!override && DISCOVERED && (await _ping(DISCOVERED))) return DISCOVERED
+  const st = await chrome.storage.local.get('ozon_backend_mode')
+  const mode = st.ozon_backend_mode || 'remote'
+  const bases = self.OzonHelperBridge.connectionBases(mode, override)
+  if (DISCOVERED && bases.includes(DISCOVERED) && (await _ping(DISCOVERED))) return DISCOVERED
   DISCOVERED = null
   // 顺序：生产写死服务器 → 本机端口探测(本地开发兜底)
-  const bases = [self.OzonHelperBridge.PROD_BASE, ...self.OzonHelperBridge.candidateBases()]
   for (const base of bases) {
     if (await _ping(base)) {
       DISCOVERED = base
@@ -221,6 +219,8 @@ async function rehostPending() {
     const jwt = await getValidJwt(base)
     if (!jwt) return
     const auth = self.OzonHelperBridge.authHeader(jwt)
+    const ping = await _fetchT(base + '/api/ext/ping', { headers: auth }, 15000)
+    const localLite = ping.ok && !!(await ping.json()).local_lite
     const r = await _fetchT(base + '/api/ext/pending-media-drafts', { headers: { ...auth } }, 15000)
     if (!r.ok) return
     const drafts = ((await r.json().catch(() => ({}))) || {}).drafts || []
@@ -229,9 +229,21 @@ async function rehostPending() {
       for (const u of (d.images || [])) if (u) urls.push(u)
       if (d.video_url) urls.push(d.video_url)
       // 已在我们 OSS(base 开头)的跳过，只传还是原始链接(ir.ozone.ru/1688 等)的
-      const raw = urls.filter((u) => u && String(u).indexOf(base) !== 0)
-      if (!raw.length) continue
-      const res = await uploadMediaOss(raw)
+      const raw = urls.filter((u) => u && (!localLite || !self.OzonHelperMedia.isOzonCdn(u)))
+      if (!raw.length) {
+        if (localLite) await _fetchT(base + '/api/ext/update-draft-media', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...auth },
+          body: JSON.stringify({ draft_id: d.id, media_map: {} })
+        }, 30000)
+        continue
+      }
+      const downloads = raw.map((u) => self.OzonHelperBridge.mediaDownloadUrl(u, base))
+      const res = localLite ? await uploadMedia(downloads) : await uploadMediaOss(downloads)
+      if (res && res.map) {
+        const mapped = {}
+        raw.forEach((u, i) => { if (res.map[downloads[i]]) mapped[u] = res.map[downloads[i]] })
+        res.map = mapped
+      }
       if (res && res.map && Object.keys(res.map).length) {
         try {
           await _fetchT(base + '/api/ext/update-draft-media', {

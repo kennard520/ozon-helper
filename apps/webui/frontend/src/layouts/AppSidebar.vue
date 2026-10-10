@@ -1,4 +1,6 @@
 <script setup>
+import { computed } from 'vue'
+import { allowedInLite } from '../local-lite.js'
 import { useAppStore } from '../stores/app.js'
 const store = useAppStore()
 const nav = [
@@ -10,12 +12,13 @@ const nav = [
   { to: '/fulfillment', label: '备货发货', icon: '🚚' },
   { to: '/settings', label: '系统设置', icon: '⚙️' },
 ]
+const visibleNav = computed(() => nav.filter(n => !store.localLite || allowedInLite(n.to)))
 </script>
 <template>
   <aside class="sb">
-    <div class="sb__brand">上品助手 <b>Pro</b><div class="sb__store"><span class="dot"></span>{{ store.currentStoreName || 'RU-Store' }}</div></div>
+    <div class="sb__brand">上品助手 <b>{{ store.localLite ? '本地版' : 'Pro' }}</b><div class="sb__store"><span class="dot"></span>{{ store.currentStoreName || 'RU-Store' }}</div></div>
     <nav class="sb__nav">
-      <router-link v-for="n in nav" :key="n.to" :to="n.to" class="sb__item" active-class="is-active" :exact="n.to==='/'">
+      <router-link v-for="n in visibleNav" :key="n.to" :to="n.to" class="sb__item" active-class="is-active" :exact="n.to==='/'">
         <span class="sb__ico">{{ n.icon }}</span>{{ n.label }}
       </router-link>
     </nav>

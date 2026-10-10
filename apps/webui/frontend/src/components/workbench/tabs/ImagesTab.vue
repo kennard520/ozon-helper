@@ -1,4 +1,5 @@
 <script setup>
+import { useAppStore } from '../../../stores/app.js'
 import { ref, computed, toRef } from 'vue'
 import JSZip from 'jszip'
 import { ElMessage, ElMessageBox, ElSelect, ElOption } from 'element-plus'
@@ -13,6 +14,7 @@ const props = defineProps({ draft: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['saved'])
 const draftRef = toRef(props, 'draft')
 const wb = useWorkbenchStore()
+const store = useAppStore()
 const g = useGallery(draftRef, { onChange: () => emit('saved') })
 
 const selMaterials = ref([])
@@ -240,8 +242,9 @@ const badgeText = { ok: '达标', warn: '注意', bad: '不达标', unknown: '�
 
 <template>
   <div class="images-tab">
+    <p v-if="store.localLite">来源图片需加入图集。新上传的本机图片由浏览器插件转存，请保持插件和卖家登录；失败时可在插件重试。</p>
     <div class="images-tab__actions">
-      <SButton variant="primary" @click="openGen">AI 生图</SButton>
+      <SButton v-if="!store.localLite" variant="primary" @click="openGen">AI 生图</SButton>
       <SButton v-if="siblings.length" :variant="copyOpen ? 'primary' : 'ghost'" @click="toggleCopyPanel">复制到别的变体</SButton>
     </div>
 

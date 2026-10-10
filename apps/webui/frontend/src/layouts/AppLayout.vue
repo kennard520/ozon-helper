@@ -21,7 +21,7 @@ onMounted(async () => {
   // 先解析当前店,再放行子路由——否则子页面(Vue 子 mounted 早于父)会先发一条不带店的请求
   await store.loadState()
   ready.value = true
-  loadWallet()
+  if (!store.localLite) loadWallet()
   if (!user.value) { try { const r = await api.me(); user.value = r.user; setAuth(getToken(), r.user) } catch (e) { /* 401→logout */ } }
 })
 </script>

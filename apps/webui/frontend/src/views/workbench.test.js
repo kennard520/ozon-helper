@@ -33,6 +33,26 @@ beforeEach(() => {
 })
 
 describe('Workbench shell', () => {
+  it('local mode hides AI and saves before publishing the current draft', async () => {
+    const store = useAppStore()
+    store.runtime = { local_lite: true }
+    store.loadDrafts = vi.fn()
+    store.selectedId = 1316
+    store.drafts = [{ id: 1316, source_title: 'local draft' }]
+    const saved = vi.fn().mockResolvedValue(undefined)
+    const w = mount(Workbench, { global: { stubs: {
+      DraftListPane: true, VariantGroupBar: true, PipelinePanel: true,
+      DetailTabs: { template: '<div/>', methods: { savePending: saved } },
+      'el-button': { template: '<button><slot/></button>' },
+    } } })
+    await flushPromises()
+    expect(w.find('pipeline-panel-stub').exists()).toBe(false)
+    await w.find('.wb-publish-bar button').trigger('click')
+    await flushPromises()
+    expect(saved).toHaveBeenCalled()
+    expect(ops.doPublish).toHaveBeenCalledWith(store.selectedDraft)
+    expect(ops.doPublishGroup).not.toHaveBeenCalled()
+  })
   it('renders sidebar and main containers', () => {
     useAppStore().loadDrafts = vi.fn()
     const w = mount(Workbench, { global: { stubs: { DraftListPane: true, VariantGroupBar: true, 'el-button': true } } })

@@ -134,6 +134,13 @@
       </div>
     </div>
 
+    <div class="card">
+      <label for="backend-mode">连接方式</label>
+      <select id="backend-mode">
+        <option value="local">本地软件（先双击 start-lite.bat）</option>
+        <option value="remote">远程管理端</option>
+      </select>
+    </div>
     <div id="bk-card" class="status">
       <div><span class="dot"></span><span id="bk-status">检测后端...</span></div>
       <span id="bk-port" class="sub"></span>
@@ -159,6 +166,7 @@
     <div id="user-box" class="card hidden">
       <p class="who" id="who"></p>
       <button id="open-admin">打开管理端</button>
+      <button id="retry-media" class="ghost">重试待上传图片</button>
       <button id="logout-btn" class="ghost">退出登录</button>
     </div>
 

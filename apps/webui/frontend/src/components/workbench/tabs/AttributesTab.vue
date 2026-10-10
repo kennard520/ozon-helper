@@ -84,6 +84,7 @@ function onTagsChange(v) {
 function onDescriptionChange() {
   emit('save-info')
 }
+defineExpose({ savePending: a.save })
 </script>
 
 <template>

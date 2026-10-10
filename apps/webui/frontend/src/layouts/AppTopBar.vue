@@ -1,10 +1,12 @@
 <script setup>
 import { ElDropdown, ElDropdownMenu, ElDropdownItem } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { useAppStore } from '../stores/app.js'
 import { clearAuth } from '../auth.js'
 defineProps({ balance: [Number, String], username: String, isAdmin: Boolean })
 const emit = defineEmits(['toggle'])
 const router = useRouter()
+const store = useAppStore()
 function onCmd(c) {
   if (c === 'logout') { clearAuth(); location.reload() }
   else router.push('/' + c)
@@ -14,13 +16,13 @@ function onCmd(c) {
   <header class="tb">
     <button class="tb__burger" @click="emit('toggle')">☰</button>
     <div class="tb__right">
-      <span v-if="balance != null" class="tb__wallet" @click="router.push('/wallet')">💰 ₽ {{ balance }}</span>
+      <span v-if="!store.localLite && balance != null" class="tb__wallet" @click="router.push('/wallet')">💰 ₽ {{ balance }}</span>
       <ElDropdown trigger="click" @command="onCmd">
         <span class="tb__acct">{{ username || '账号' }} ▾</span>
         <template #dropdown><ElDropdownMenu>
-          <ElDropdownItem command="wallet">💰 我的钱包</ElDropdownItem>
+          <ElDropdownItem v-if="!store.localLite" command="wallet">💰 我的钱包</ElDropdownItem>
           <ElDropdownItem command="settings">⚙️ 设置</ElDropdownItem>
-          <ElDropdownItem v-if="isAdmin" command="users">👥 用户管理</ElDropdownItem>
+          <ElDropdownItem v-if="isAdmin && !store.localLite" command="users">👥 用户管理</ElDropdownItem>
           <ElDropdownItem divided command="logout">退出登录</ElDropdownItem>
         </ElDropdownMenu></template>
       </ElDropdown>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from ozon_common.runtime import is_local_lite
 
 from webui.services._helpers import _models_url
 from webui.settings_migrate import migrate_ai, normalize_stores
@@ -39,6 +40,7 @@ class SettingsMixin:
             return out
 
         return {
+            "runtime": {"local_lite": is_local_lite()},
             "settings": {
                 "ozon_client_id": settings.get("ozon_client_id", ""),
                 "ozon_api_key_saved": bool(settings.get("ozon_api_key")),
@@ -56,7 +58,7 @@ class SettingsMixin:
                 # AI 卡片应用模式（功能③）：true=自动应用 / false=人工确认（默认）
                 "ai_auto_apply": bool(settings.get("ai_auto_apply")),
                 # 采集后自动发布到 Ozon：true=采集即自动发 / false=只建草稿（默认）
-                "auto_publish": bool(settings.get("auto_publish")),
+                "auto_publish": not is_local_lite() and bool(settings.get("auto_publish")),
                 # 卡片生成聊天引擎：remote=沿用翻译引擎配置(DeepSeek) / agnes=Agnes-2.0-Flash
                 "ai_chat_provider": settings.get("ai_chat_provider", "remote"),
                 # agnes 时是否把商品图发给模型做图片理解（标题/属性更贴图）

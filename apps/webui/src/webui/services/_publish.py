@@ -656,6 +656,9 @@ class PublishMixin:
         """采集/媒体就绪后，若用户开了 auto_publish 且草稿可发，则后台发布到 Ozon。
         守卫：开关开 + 草稿存在 + status!=published（幂等）+ media_status!=pending（等媒体）。
         best-effort：整段吞异常，发不出去的草稿原样留 webui 等人工。"""
+        from ozon_common.runtime import is_local_lite
+        if is_local_lite():
+            return
         try:
             if not bool((self.store.get_settings() or {}).get("auto_publish")):
                 return

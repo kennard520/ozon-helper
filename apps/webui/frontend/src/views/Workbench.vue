@@ -1,5 +1,8 @@
 <script setup>
-import { watch, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
+import { api } from '../api.js'
+import { ElMessage } from 'element-plus'
+import { publishLabel } from '../local-lite.js'
 import { useAppStore } from '../stores/app.js'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { useDraftBatchOps } from '../composables/useDraftBatchOps.js'
@@ -11,11 +14,26 @@ import DetailTabs from '../components/workbench/DetailTabs.vue'
 const store = useAppStore()
 const wb = useWorkbenchStore()
 const ops = useDraftBatchOps(store)
+const details = ref(null)
+const publishing = ref(false)
 // 顶层解构让模板可自动解包 ref（Vue 3 setup 顶层 ref 自动 unwrap）
 const { publishResult, warehouses: draftWarehouses, groupPublishing } = ops
 
 watch(() => store.selectedId, (id) => wb.loadForDraft(id), { immediate: true })
-onMounted(() => { store.loadDrafts(); ops.loadWarehouses() })
+onMounted(async () => {
+  await store.loadDrafts()
+  if (!store.localLite) ops.loadWarehouses()
+  const id = Number(new URL(window.location.href).searchParams.get('edit'))
+  if (id > 0) {
+    try {
+      const r = await api.getDraft(id)
+      const draft = r.draft || r
+      if (draft.store_client_id) { store.currentStore = String(draft.store_client_id); await store.loadDrafts() }
+      if (!store.drafts.some(d => d.id === id)) store.drafts.push(draft)
+      store.selectedId = id
+    } catch (e) { ElMessage.error('打开采集草稿失败：' + e.message) }
+  }
+})
 
 async function publishGroup() {
   if (wb.loading) return null
@@ -30,6 +48,16 @@ function currentPublishDraft() {
   if (id == null) return null
   if (store.selectedDraft && store.selectedDraft.id === id) return store.selectedDraft
   return store.drafts.find((d) => d.id === id) || wb.currentVariant || { id }
+}
+
+async function publishLite() {
+  if (publishing.value) return
+  publishing.value = true
+  try {
+    await details.value?.savePending?.()
+    await publishSelected()
+  } catch (e) { ElMessage.error("保存或发布失败：" + e.message) }
+  finally { publishing.value = false }
 }
 
 async function publishSelected() {
@@ -75,7 +103,7 @@ function sourceLink(d) {
     <main class="wb-main">
       <div v-if="!store.selectedDraft" class="wb-empty">
         <div class="wb-empty__i">📦</div>
-        <div class="wb-empty__t">选中左侧草稿后在此进入 AI 工作台</div>
+        <div class="wb-empty__t">{{ store.localLite ? '在 WB/Ozon 商品页采集后，选择草稿编辑并发布' : '选中左侧草稿后在此进入 AI 工作台' }}</div>
       </div>
       <template v-else>
         <!-- 顶:来源商品链接 -->
@@ -91,19 +119,20 @@ function sourceLink(d) {
         <!-- 中:流程(含发布条) -->
         <section class="wb-flow">
           <div class="wb-publish-bar">
-            <el-button type="primary" size="small" :loading="groupPublishing || wb.loading" :disabled="wb.loading" @click="publishGroup">
-              {{ store.selectedDraft.source === 'ozon' ? '同步回 Ozon' : '🚀 发布到 Ozon' }}
+            <el-button type="primary" size="small" :loading="publishing || groupPublishing || wb.loading" :disabled="wb.loading" @click="store.localLite ? publishLite() : publishGroup()">
+              {{ !store.localLite && store.selectedDraft.source === 'ozon' ? '同步回 Ozon' : '🚀 发布到 Ozon' }}
             </el-button>
             <div v-if="publishResult" class="wb-publish-result">
-              <span v-if="publishResult.published" class="ok">● 已发布</span>
+              <span :class="publishResult.published ? 'ok' : 'err'">{{ publishLabel(publishResult) }}</span>
+              <span v-if="publishResult.task_id">任务 #{{ publishResult.task_id }}</span>
               <span v-for="(e, i) in (publishResult.errors || [])" :key="i" class="err">▲ {{ typeof e === 'string' ? e : JSON.stringify(e) }}</span>
             </div>
           </div>
-          <PipelinePanel @publish-one="publishSelected" />
+          <PipelinePanel v-if="!store.localLite" @publish-one="publishSelected" />
         </section>
         <!-- 下:变体详情 -->
         <section class="wb-detail">
-          <DetailTabs />
+          <DetailTabs ref="details" />
         </section>
       </template>
     </main>

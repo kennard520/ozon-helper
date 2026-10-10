@@ -4,10 +4,29 @@ import re
 from urllib.parse import urlparse
 
 from ozon_common.oss import OssClient
+from ozon_common.runtime import is_local_lite
 from webui.services._helpers import _money_to_float, _to_int
 
 WB_PRICE_RULE = "cny_x3_sale_old_x3_v2"
 WB_PRICE_RULE_LEGACY = "cny_x3_v1"
+
+
+def prepare_collect_data(data: dict) -> dict:
+    if not is_local_lite():
+        return data
+    result = dict(data)
+    raw = dict(data.get("source_raw") or {})
+    if data.get("video_url"):
+        raw["collected_video_url"] = data["video_url"]
+    if raw.get("rich_content_json"):
+        raw["collected_rich_content_json"] = raw.pop("rich_content_json")
+    if data.get("rich_content_json"):
+        raw["collected_rich_content_json"] = data["rich_content_json"]
+    result.pop("rich_content_json", None)
+    result["video_url"] = ""
+    result["source_raw"] = raw
+    return result
+
 _WB_VIDEO_NM_RE = re.compile(r"/(\d+)/mp4/", re.IGNORECASE)
 _WB_CATALOG_NM_RE = re.compile(r"/catalog/(\d+)", re.IGNORECASE)
 
@@ -99,7 +118,8 @@ class ExtMixin:
             rate = float(rate) if rate not in (None, "") else None
         except (TypeError, ValueError):
             rate = None
-        return {"ok": True, "name": "ozon-listing-webui", "version": "1", "rub_cny": rate}
+        return {"ok": True, "name": "ozon-listing-webui", "version": "1", "rub_cny": rate,
+                "local_lite": is_local_lite()}
 
     def _ext_cache_video(self, draft_id: int, video_url: str) -> None:
         """为草稿下载视频本地副本（同 collect 流程）：Ozon/1688 CDN 的 <video> 跨域会卡死，
@@ -149,7 +169,7 @@ class ExtMixin:
         if not url:
             raise ValueError("url required")
         schema_version = str(payload.get("schema_version") or "").strip()
-        data = payload.get("data") or {}
+        data = prepare_collect_data(payload.get("data") or {})
         _has_media = bool((data.get("images") or [])) or bool(str(data.get("video_url") or "").strip())
         from webui.drafts import create_draft_from_url  # noqa: PLC0415
         scraped = {
@@ -224,7 +244,7 @@ class ExtMixin:
         new_draft["store_client_id"] = store_cid
         det = data.get("detail_images") or []
         rcj = data.get("rich_content_json") or incoming_sr.get("rich_content_json") or None
-        if not rcj and platform == "wb":
+        if not rcj and platform == "wb" and not is_local_lite():
             rcj = _build_wb_rich_content_from_images(scraped.get("images"))
         vars_ = data.get("variants") or []
         vg = data.get("variant_group") or ""
@@ -329,7 +349,7 @@ class ExtMixin:
             self._auto_map_safe(existing["id"])   # 采集后自动映射属性（已本地缓存化，快）
             self._maybe_auto_publish(existing["id"])   # 开了 auto_publish 则后台发布
             return {"created": [{"id": existing["id"], "source_title": existing.get("source_title")}], "errors": [], "deduped": True,
-                    "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
+                    "auto_publish": (not is_local_lite() and bool((self.store.get_settings() or {}).get("auto_publish")))}
         try:
             saved = self.store.insert_draft(new_draft)
         except Exception as exc:  # noqa: BLE001  兜底:并发同 url 重采等极端撞唯一键 → 找回同 url 已存在的,不再 500
@@ -339,7 +359,7 @@ class ExtMixin:
             if ex:
                 return {"created": [{"id": ex["id"], "source_title": ex.get("source_title")}],
                         "errors": [], "deduped": True,
-                        "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
+                        "auto_publish": (not is_local_lite() and bool((self.store.get_settings() or {}).get("auto_publish")))}
             raise
         self._promote_wb_images_to_gallery(saved["id"], new_draft)
         saved = self.store.get_draft(saved["id"]) or saved
@@ -348,7 +368,7 @@ class ExtMixin:
         self._auto_map_safe(saved["id"])   # 采集后自动映射属性（已本地缓存化，快）
         self._maybe_auto_publish(saved["id"])   # 开了 auto_publish 则后台发布
         return {"created": [{"id": saved["id"], "source_title": saved.get("source_title")}], "errors": [],
-                "auto_publish": bool((self.store.get_settings() or {}).get("auto_publish"))}
+                "auto_publish": (not is_local_lite() and bool((self.store.get_settings() or {}).get("auto_publish")))}
 
     def update_draft_media(self, payload: dict) -> dict:
         """插件后台把媒体传完 OSS 后回调：把草稿里命中的原 URL 换成 OSS URL，置 media_status=done。"""
@@ -368,6 +388,15 @@ class ExtMixin:
             more = f" 等 {len(missing)} 个" if len(missing) > 1 else ""
             raise ValueError(f"OSS 媒体尚未上传完成或对象不存在：{sample}{more}，请稍后重试上传")
         self.store.apply_media_oss(draft_id, dict(media_map))
+        if is_local_lite():
+            from webui.media_rehost import is_ozon_cdn
+            draft = self.store.get_draft(draft_id) or {}
+            urls = list(draft.get("images") or [])
+            urls.extend(m.get("url") for m in draft.get("materials") or [] if m.get("url"))
+            if draft.get("video_url"):
+                urls.append(draft["video_url"])
+            if any(not is_ozon_cdn(u) for u in urls):
+                self.store.set_media_status(draft_id, "pending")
         self._maybe_auto_publish(draft_id)   # 媒体传完 → 开了 auto_publish 则后台发布
         return {"ok": True}
 

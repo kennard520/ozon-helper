@@ -1,5 +1,14 @@
 const $ = (id) => document.getElementById(id)
 
+chrome.storage.local.get('ozon_backend_mode').then((st) => {
+  $('backend-mode').value = st.ozon_backend_mode || 'remote'
+})
+$('backend-mode').addEventListener('change', async () => {
+  await chrome.storage.local.set({ ozon_backend_mode: $('backend-mode').value })
+  await chrome.storage.local.remove(['ozon_backend_base', 'ozon_jwt', 'ozon_user', 'ozonCompanyId'])
+  location.reload()
+})
+
 function render(loggedIn, user) {
   $('login-box').classList.toggle('hidden', loggedIn)
   $('user-box').classList.toggle('hidden', !loggedIn)
@@ -38,6 +47,10 @@ $('logout-btn').addEventListener('click', async () => {
 
 $('open-admin').addEventListener('click', () => {
   OzonHelperBridge.bgCall('openAdmin')
+})
+$('retry-media').addEventListener('click', () => {
+  OzonHelperBridge.bgCall('rehostPending')
+  $('retry-media').textContent = '已请求重试，请稍后刷新草稿'
 })
 
 OzonHelperBridge.bgCall('ping').then((r) => {

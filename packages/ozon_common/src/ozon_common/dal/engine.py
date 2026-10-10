@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from ozon_common.runtime import is_local_lite
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
@@ -44,7 +46,7 @@ def mysql_url_from_env() -> str | None:
 
 def engine_for(sqlite_path: str | None) -> Engine:
     """优先 env MySQL;否则 SQLite 文件。"""
-    murl = mysql_url_from_env()
+    murl = None if is_local_lite() else mysql_url_from_env()
     if murl:
         return build_engine(murl)
     if not sqlite_path:

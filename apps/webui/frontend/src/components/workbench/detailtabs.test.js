@@ -34,6 +34,22 @@ async function tick() {
 }
 
 describe('DetailTabs', () => {
+  it('publish waits for a save already in progress', async () => {
+    useWorkbenchStore().currentVariantId = 7
+    const w = mount(DetailTabs)
+    await tick()
+    let finish
+    api.patchDraft.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const first = w.vm.savePending()
+    await tick()
+    let completed = false
+    const second = w.vm.savePending().then(() => { completed = true })
+    await tick()
+    expect(completed).toBe(false)
+    finish({})
+    await Promise.all([first, second])
+    expect(api.patchDraft).toHaveBeenCalledTimes(1)
+  })
   it('currentVariantId 有值时渲染 6 个 tab', async () => {
     const wb = useWorkbenchStore()
     wb.currentVariantId = 7

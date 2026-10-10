@@ -227,6 +227,7 @@ export function useDraftBatchOps(store) {
       if (r && r.draft) store.upsertDraft(r.draft)
       publishResult.value = {
         published: r.published,
+        submitted: r.submitted,
         errors: r.errors || [],
         poll: r.poll,
         response: r.response,
