@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.env.local
+.env.*.local
+
+# Node / 前端
+node_modules/
+apps/webui/frontend/dist/
+.vite/
+
+# 运行时数据（含密钥/草稿/媒体缓存，绝不入库）
+apps/webui/data/
+**/data/products.db
+# 数据库文件（任何位置都不入库，含密钥/运行时数据）
+products.db
+*.db
+*.sqlite
+*.sqlite3
+.auth/
+
+# 大体积 scratch / 构建产物（绝不入库）
+outputs/
+*.zip
+_copy*.json
+*.timestamp-*.mjs
+
+# 杂项
+.DS_Store
+*.log
+.idea/
+.vscode/
+.worktrees/
+
+# Local snapshots and tool caches
+apps/webui/src/data/
+ozon-listing-webui/data/
+_*.json
+.codex-run/
+.pytest_cache/
+.ruff_cache/
+.superpowers/

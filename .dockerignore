@@ -1,0 +1,10 @@
+**/__pycache__/
+**/*.pyc
+**/.venv/
+ozon-listing-webui/frontend/node_modules/
+ozon-listing-webui/data/
+**/_last.json
+.git/
+*.db
+*.sqlite
+.claude/

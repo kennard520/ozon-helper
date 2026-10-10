@@ -1,0 +1,14 @@
+{
+  "name": "wb-media-downloader-ext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone WB product image and video downloader extension",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vitest": "^2.1.8"
+  }
+}

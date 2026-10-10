@@ -1,0 +1,13 @@
+{
+  "name": "ozon-seller-helper-ext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ozon 助手浏览器插件（Phase 1：跟卖数显示）",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}
