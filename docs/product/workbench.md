@@ -16,14 +16,16 @@
 
 ## 1. 交互（页面结构与操作流程）
 
-**左栏草稿列表 + 右侧工作区纵向三段**布局（`views/Workbench.vue`，2026-06-28 重构，从旧三栏改来）。容器类名：`.wb-grid`（CSS grid，左 `320px` + 右 `1fr`）/ `.wb-left` / `.wb-main`；右侧三段自上而下 `.wb-group` / `.wb-flow` / `.wb-detail`。
+按 `ui-redesign-prototype/ozon-helper-redesign.html` 实现深色侧栏、紫色主题和三栏工作台（2026-10-10）。左栏为草稿列表，中栏为上架流程与发布按钮，右栏为来源、变体和详情编辑。宽屏三栏独立滚动，窄屏折为两栏或纵向排列；侧栏可收起为图标导航。
+
+本地模式中栏提供“编辑资料 / 检查特征 / 管理图片”入口，分别切换到对应编辑页；仅采集步骤标记完成，其余步骤由用户检查后手动发布。店铺与系统设置沿用同一主题，数据和发布规则不变。
 
 | 区域 | 组件 | 职责 |
 |---|---|---|
-| 左栏 `.wb-left` | `components/workbench/DraftListPane.vue` | 草稿列表（替代旧 DraftTable），**sticky 320px**，STabs 分状态 + SBadge 计数，点选一条草稿 |
+| 左栏 `.wb-left` | `components/workbench/DraftListPane.vue` | 草稿列表（替代旧 DraftTable），宽屏 280px，独立滚动，STabs 分状态 + SBadge 计数，点选一条草稿 |
 | 右·顶 `.wb-group` | `components/workbench/VariantGroupBar.vue` | **变体组横排条**：横向排列的变体胶囊，点选/删除当前变体（详见 §变体组横排条） |
-| 右·中 `.wb-flow` | 来源条 + 发布条 + `components/workbench/PipelinePanel.vue` | AI 流水线 7 步（**只对当前变体单跑**，详见 §3 规则） |
-| 右·下 `.wb-detail` | `components/workbench/DetailTabs.vue` | 当前变体详情多 tab |
+| 中栏 `.wb-flow` | 手动流程 + 发布条 / `components/workbench/PipelinePanel.vue` | 本地版手动编辑导航；完整版 AI 流水线 7 步（只对当前变体单跑） |
+| 右栏 `.wb-detail` | `components/workbench/DetailTabs.vue` | 当前变体详情多 tab |
 
 **主流程**：左栏选草稿 → 右·顶变体组横排条出该草稿所属**变体组**的全部变体胶囊 → 点胶囊选定「当前变体」→ 右·中流水线**对当前变体逐个**跑 AI 步骤 → 右·下 DetailTabs 展示/编辑「当前变体」明细。**无批量**：一次只操作一个当前变体（见 §3「只能逐个变体跑」）。
 

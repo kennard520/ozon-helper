@@ -44,7 +44,8 @@ const visibleGroups = computed(() => ({
 const categoryMissingIds = computed(() => a.missingIds.value.filter((id) => !systemAttrIds.has(Number(id))))
 
 function attrValues(id) {
-  const draftAttr = (props.draft.attributes || []).find((x) => Number(x.id) === Number(id))
+  const attrs = Array.isArray(props.draft.attributes) ? props.draft.attributes : []
+  const draftAttr = attrs.find((x) => x && Number(x.id) === Number(id))
   const vals = a.values[id] || (draftAttr && draftAttr.values) || []
   return Array.isArray(vals) ? vals : []
 }

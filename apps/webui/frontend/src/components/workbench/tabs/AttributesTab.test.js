@@ -34,6 +34,12 @@ function factory() {
 }
 
 describe('AttributesTab', () => {
+  it('空对象属性的采集草稿仍能打开特征页', async () => {
+    const w = factory()
+    await w.setProps({ draft: { id: 7, attributes: {} } })
+    await nextTick()
+    expect(w.text()).toContain('简介')
+  })
   it('渲三组 + missing banner', async () => {
     const w = factory()
     await nextTick(); await Promise.resolve(); await Promise.resolve(); await nextTick()

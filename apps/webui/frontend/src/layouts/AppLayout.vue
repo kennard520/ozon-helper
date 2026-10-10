@@ -26,7 +26,7 @@ onMounted(async () => {
 })
 </script>
 <template>
-  <div class="app" :class="{ collapsed }">
+  <div class="app app--redesign" :class="{ collapsed }">
     <AppSidebar class="app__sb" />
     <div class="app__main">
       <AppTopBar :balance="balance" :username="user && user.username" :is-admin="isAdmin" @toggle="collapsed = !collapsed" />

@@ -118,6 +118,16 @@ function sourceLink(d) {
         </section>
         <!-- 中:流程(含发布条) -->
         <section class="wb-flow">
+          <div v-if="store.localLite" class="manual-workflow">
+            <div class="manual-workflow__header"><h2>上架流程</h2><p>当前商品 · 手动编辑后发布</p></div>
+            <div class="manual-workflow__steps">
+              <div class="manual-step"><span class="manual-step__number">1</span><div><h3>采集商品</h3><p>来源数据已保存为草稿</p><span class="manual-step__saved">已采集</span></div></div>
+              <div class="manual-step"><span class="manual-step__number">2</span><div><h3>编辑商品信息</h3><p>俄语标题、类目、价格与尺寸</p><button @click="wb.requestFocus({ field: 'ozon_title' })">编辑资料</button></div></div>
+              <div class="manual-step"><span class="manual-step__number">3</span><div><h3>填写必填特征</h3><p>按所选 Ozon 类目补充属性</p><button @click="wb.requestFocus({ step: 'attributes' })">检查特征</button></div></div>
+              <div class="manual-step"><span class="manual-step__number">4</span><div><h3>准备商品图片</h3><p>加入图集，检查图片上传结果</p><button @click="wb.requestFocus({ field: 'images' })">管理图片</button></div></div>
+              <div class="manual-step"><span class="manual-step__number">5</span><div><h3>发布前检查</h3><p>点击下方发布，查看提交预览并确认</p></div></div>
+            </div>
+          </div>
           <div class="wb-publish-bar">
             <el-button type="primary" size="small" :loading="publishing || groupPublishing || wb.loading" :disabled="wb.loading" @click="store.localLite ? publishLite() : publishGroup()">
               {{ !store.localLite && store.selectedDraft.source === 'ozon' ? '同步回 Ozon' : '🚀 发布到 Ozon' }}
