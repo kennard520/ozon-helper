@@ -58,7 +58,7 @@ export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     groupKey: '', variants: [], selectedVariantIds: new Set(),
     currentVariantId: null, loading: false,
-    currentVariantVersion: 0, loadRequestSeq: 0,
+    currentVariantVersion: 0, loadRequestId: 0,
     taskByVariant: {}, taskCheckingIds: new Set(),
     focusTarget: null,
   }),
@@ -87,19 +87,25 @@ export const useWorkbenchStore = defineStore('workbench', {
     variantTaskRunning: (s) => (id) => {
       const job = id == null ? null : s.taskByVariant[id]
       const status = String((job && job.status) || '').toLowerCase()
-      return status && status !== 'done' && status !== 'failed'
+      return !!status && !['done', 'failed', 'cancelled', 'skipped'].includes(status)
     },
     variantTaskChecking: (s) => (id) => s.taskCheckingIds.has(id),
   },
   actions: {
     async loadForDraft(draftId) {
-      const requestSeq = ++this.loadRequestSeq
       if (draftId == null) { this.reset(); return }
+      const requestId = ++this.loadRequestId
       this.loading = true
+      this.groupKey = ''
+      this.variants = []
+      this.selectedVariantIds = new Set()
+      this.currentVariantId = null
+      this.taskByVariant = {}
+      this.taskCheckingIds = new Set()
       const versionAtStart = this.currentVariantVersion
       try {
         const r = await api.variantGroup(draftId)
-        if (requestSeq !== this.loadRequestSeq) return
+        if (requestId !== this.loadRequestId) return
         const vs = r.variants || []
         this.groupKey = r.group || ''
         this.variants = vs.length ? vs : [{ id: draftId, spec: '', price: null, status: '', image: '', current: true }]
@@ -112,16 +118,22 @@ export const useWorkbenchStore = defineStore('workbench', {
           ? this.currentVariantId
           : (hasDraft ? draftId : (this.variants[0] ? this.variants[0].id : null))
         this.selectedVariantIds = new Set(this.variants.map(v => v.id))
+        this.taskByVariant = {}
+        for (const v of this.variants) {
+          if (requestId !== this.loadRequestId) return
+          await this.checkVariantTaskForLoad(v.id, requestId)
+        }
       } finally {
-        if (requestSeq === this.loadRequestSeq) this.loading = false
+        if (requestId === this.loadRequestId) this.loading = false
       }
     },
     reset() {
-      this.loadRequestSeq += 1
+      this.loadRequestId += 1
       this.groupKey = ''
       this.variants = []
       this.selectedVariantIds = new Set()
       this.currentVariantId = null
+      this.loading = false
       this.currentVariantVersion += 1
       this.taskByVariant = {}
       this.taskCheckingIds = new Set()
@@ -152,6 +164,21 @@ export const useWorkbenchStore = defineStore('workbench', {
         return null
       } finally {
         this.setVariantTaskChecking(id, false)
+      }
+    },
+    async checkVariantTaskForLoad(id, requestId) {
+      if (id == null) return null
+      this.setVariantTaskChecking(id, true)
+      try {
+        const job = await api.getLatestTextJob(id)
+        if (requestId !== this.loadRequestId) return null
+        this.setVariantTask(id, job || null)
+        return job || null
+      } catch {
+        if (requestId === this.loadRequestId) this.setVariantTask(id, null)
+        return null
+      } finally {
+        if (requestId === this.loadRequestId) this.setVariantTaskChecking(id, false)
       }
     },
     // 翻页切换「当前查看的变体」(独立于批量勾选),在 variants 里循环

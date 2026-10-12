@@ -5,11 +5,6 @@
       <span class="vgb-head__title">🔗 变体组</span>
       <span class="vgb-head__count">共 {{ wb.variantCount }} 个变体</span>
       <span class="vgb-head__hint">（同组合并成一张 Ozon 多变体卡）</span>
-      <button
-        class="vgb-publish"
-        :disabled="!wb.groupKey || !wb.variantCount || publishing"
-        @click="emit('publish-group')"
-      >{{ publishing ? '发布中...' : `发布整组（${wb.variantCount} 个变体）` }}</button>
     </div>
 
     <!-- 横排胶囊 -->
@@ -37,7 +32,12 @@
         <!-- 完成度 N/7 -->
         <span class="vpill__done">{{ v.done || 0 }}/7</span>
         <span
-          v-if="wb.variantTaskChecking(v.id) || wb.variantTaskRunning(v.id)"
+          class="vpill__publish-status"
+          :class="publishStatusClass(v)"
+          :title="publishStatusLabel(v)"
+        >{{ publishStatusLabel(v) }}</span>
+        <span
+          v-if="wb.variantTaskChecking(v.id) || wb.variantTaskRunning(v.id) || isPublishing(v)"
           class="vpill__spinner"
           title="该变体有任务正在处理"
           aria-label="任务处理中"
@@ -56,8 +56,32 @@ import { useWorkbenchStore, variantColor, variantColorName } from '../../stores/
 import { api } from '../../api.js'
 
 const wb = useWorkbenchStore()
-defineProps({ publishing: { type: Boolean, default: false } })
-const emit = defineEmits(['variant-deleted', 'publish-group'])
+const emit = defineEmits(['variant-deleted'])
+
+function publishStatus(v) {
+  const status = String((v && v.status) || '').toLowerCase()
+  if (status === 'publishing') return 'publishing'
+  if (status === 'published') return 'published'
+  if (status === 'failed') return 'failed'
+  return 'unpublished'
+}
+
+function publishStatusLabel(v) {
+  return {
+    unpublished: '未发布',
+    publishing: '发布中',
+    published: '已发布',
+    failed: '发布失败',
+  }[publishStatus(v)]
+}
+
+function publishStatusClass(v) {
+  return `is-${publishStatus(v)}`
+}
+
+function isPublishing(v) {
+  return publishStatus(v) === 'publishing'
+}
 
 async function onSelect(v) {
   wb.setCurrentVariant(v.id)
@@ -111,20 +135,6 @@ async function onDelete(v) {
   font-size: var(--fs-xs);
   color: var(--c-text-3);
 }
-.vgb-publish {
-  margin-left: auto;
-  min-height: 32px;
-  padding: 0 var(--sp-4);
-  border: 0;
-  border-radius: var(--r-sm);
-  background: var(--c-primary);
-  color: #fff;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-.vgb-publish:hover:not(:disabled) { filter: brightness(.96); }
-.vgb-publish:disabled { opacity: .55; cursor: not-allowed; }
 
 /* 胶囊：自动折行铺满，不横向滚动 */
 .vgb-pills {
@@ -203,6 +213,36 @@ async function onDelete(v) {
   color: var(--c-text-3);
   flex: 0 0 auto;
   font-family: monospace;
+}
+
+.vpill__publish-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.vpill__publish-status.is-unpublished {
+  color: var(--c-text-3);
+  background: var(--c-bg);
+  border-color: var(--c-border);
+}
+.vpill__publish-status.is-publishing {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+.vpill__publish-status.is-published {
+  color: #047857;
+  background: #d1fae5;
+  border-color: #6ee7b7;
+}
+.vpill__publish-status.is-failed {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-color: #fecaca;
 }
 
 .vpill__spinner {

@@ -583,9 +583,11 @@ class Store:
         from ozon_common.dal.repositories.offer_snapshot_repo import OfferSnapshotRepo  # noqa: PLC0415
         return _in_scope(lambda: OfferSnapshotRepo().list_offer_snapshots(product_id, limit))
 
-    def list_drafts_by_variant_group(self, group: str) -> list[dict[str, Any]]:
+    def list_drafts_by_variant_group(
+        self, group: str, store_client_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """返回同组草稿（按 id 升序）。走 variant_group 索引列，只取同组那几行，不扫全表。"""
-        return _in_scope(lambda: _draft_repo().list_drafts_by_variant_group(group))
+        return _in_scope(lambda: _draft_repo().list_drafts_by_variant_group(group, store_client_id))
 
     def _unique_offer_id(self, base: str, exclude_id: int | None = None) -> str:
         """保证货号唯一：撞库就加 -2/-3。转调 DraftRepo（app_service.regenerate_offer_id 仍用）。"""

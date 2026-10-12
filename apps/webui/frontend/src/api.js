@@ -133,6 +133,23 @@ export const api = {
   syncOzonProducts: (store_client_id, visibility = 'ALL') => req(
     'POST', '/api/ozon-products/sync', { store_client_id, visibility },
   ),
+  // 广告活动 / Ozon Performance API
+  performanceCampaigns: (store_client_id) => req('GET', `/api/performance/campaigns${_sq(store_client_id)}`),
+  performanceCampaignProducts: (campaign_id, store_client_id, campaign_type = '') => {
+    const q = qs({ store_client_id, campaign_type })
+    return req('GET', `/api/performance/campaigns/${encodeURIComponent(campaign_id)}/products${q ? `?${q}` : ''}`)
+  },
+  performanceProductPromotions: (store_client_id, limit = 1000) => {
+    const q = qs({ store_client_id, limit })
+    return req('GET', `/api/performance/product-promotions${q ? `?${q}` : ''}`)
+  },
+  performanceDisableReviewsPromo: (items, store_client_id) => req(
+    'POST',
+    `/api/performance/reviews-promo/disable${_sq(store_client_id)}`,
+    { items },
+  ),
+  performanceOperationPreview: (p, store_client_id) => req('POST', `/api/performance/operations/preview${_sq(store_client_id)}`, p),
+  performanceOperationCommit: (p, store_client_id) => req('POST', `/api/performance/operations/commit${_sq(store_client_id)}`, p),
   // 鉴权 + 钱包
   login: (username, password) => req('POST', '/api/auth/login', { username, password }),
   me: () => req('GET', '/api/auth/me'),

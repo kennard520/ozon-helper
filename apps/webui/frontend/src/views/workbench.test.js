@@ -1,9 +1,31 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Workbench from './Workbench.vue'
 import { useAppStore } from '../stores/app.js'
 import { useWorkbenchStore } from '../stores/workbench.js'
+
+const ops = vi.hoisted(() => ({
+  doPublish: vi.fn().mockResolvedValue({ published: true }),
+  doPublishGroup: vi.fn().mockResolvedValue({ published: true }),
+  doDelete: vi.fn(),
+  doBatchUpdate: vi.fn(),
+  doBatchPublish: vi.fn(),
+  loadWarehouses: vi.fn(),
+  publishResult: null,
+  warehouses: [],
+  groupPublishing: false,
+}))
+
+vi.mock('../composables/useDraftBatchOps.js', () => ({
+  useDraftBatchOps: () => ops,
+}))
+
+vi.mock('../api.js', () => ({ api: {
+  variantGroup: vi.fn().mockResolvedValue({ ok: true, group: '', count: 0, variants: [] }),
+  getLatestTextJob: vi.fn().mockResolvedValue({ status: 'done' }),
+  getDraft: vi.fn().mockResolvedValue({ draft: { id: 7, source_title: 'd' } }),
+} }))
 
 function deferred() {
   let resolve
@@ -28,18 +50,51 @@ const OzonImportDialogStub = {
   `,
 }
 
-describe('Workbench 外壳', () => {
-  it('渲染左栏 + 右侧主区容器', () => {
-    setActivePinia(createPinia())
+beforeEach(() => {
+  setActivePinia(createPinia())
+  vi.clearAllMocks()
+})
+
+describe('Workbench shell', () => {
+  it('local mode hides AI and saves before publishing the current draft', async () => {
+    const store = useAppStore()
+    store.runtime = { local_lite: true }
+    store.loadDrafts = vi.fn()
+    store.selectedId = 1316
+    store.drafts = [{ id: 1316, source_title: 'local draft' }]
+    const saved = vi.fn().mockResolvedValue(undefined)
+    const w = mount(Workbench, { global: { stubs: {
+      DraftListPane: true, VariantGroupBar: true, PipelinePanel: true,
+      OzonImportDialog: true,
+      DetailTabs: { template: '<div/>', methods: { savePending: saved } },
+      'el-button': { template: '<button><slot/></button>' },
+    } } })
+    await flushPromises()
+    expect(w.find('pipeline-panel-stub').exists()).toBe(false)
+    const steps = w.findAll('.manual-step button')
+    await steps[0].trigger('click')
+    expect(useWorkbenchStore().focusTarget.field).toBe('ozon_title')
+    await steps[1].trigger('click')
+    expect(useWorkbenchStore().focusTarget.step).toBe('attributes')
+    await steps[2].trigger('click')
+    expect(useWorkbenchStore().focusTarget.field).toBe('images')
+    await w.find('.wb-publish-bar button').trigger('click')
+    await flushPromises()
+    expect(saved).toHaveBeenCalled()
+    expect(ops.doPublish).toHaveBeenCalledWith(store.selectedDraft)
+    expect(ops.doPublishGroup).not.toHaveBeenCalled()
+  })
+  it('renders sidebar and main containers', () => {
     useAppStore().loadDrafts = vi.fn()
     const w = mount(Workbench, { global: { stubs: { DraftListPane: true, VariantGroupBar: true, OzonImportDialog: true, 'el-button': true } } })
     expect(w.find('.wb-grid').exists()).toBe(true)
     expect(w.find('.wb-left').exists()).toBe(true)
     expect(w.find('.wb-main').exists()).toBe(true)
   })
+})
 
+describe('Workbench 外壳', () => {
   it('重新打开已导入草稿时显示持久的 Ozon 变体风险提示', () => {
-    setActivePinia(createPinia())
     const store = useAppStore()
     store.loadDrafts = vi.fn()
     store.drafts = [{
@@ -77,7 +132,6 @@ describe('Workbench 外壳', () => {
   })
 
   it('从 Ozon 导入后刷新草稿并选中新草稿', async () => {
-    setActivePinia(createPinia())
     const store = useAppStore()
     store.currentStore = 'store-7'
     store.filter = 'published'

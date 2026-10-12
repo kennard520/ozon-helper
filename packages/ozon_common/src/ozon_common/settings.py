@@ -5,6 +5,25 @@ from __future__ import annotations
 _KIND_ENGINE = {"text": "agnes", "multimodal": "agnes", "image": "gptimage", "video": "agnes"}
 
 
+def _engine_for_platform(kind: str, platform: str, base: str) -> str:
+    sig = f"{platform} {base}".lower()
+    if "nvidia" in sig:
+        return "nvidia"
+    if "deepseek" in sig or "openai" in sig or "gptplus" in sig:
+        return "openai"
+    if "agnes" in sig:
+        return "agnes"
+    return _KIND_ENGINE.get(kind, "agnes")
+
+
+def _model_for_platform(platform: str, base: str, model: str) -> str:
+    value = str(model or "").strip()
+    sig = f"{platform} {base}".lower()
+    if "deepseek" in sig and value.startswith("deepseek-ai/"):
+        return value.split("/", 1)[1]
+    return value
+
+
 def _ai_platforms(settings: dict) -> dict:
     out: dict = {}
     for p in settings.get("ai_platforms") or []:
@@ -25,9 +44,9 @@ def ai_config(settings: dict, kind: str) -> dict:
     if plat_name:
         p = _ai_platforms(settings).get(plat_name)
         if p:
-            return {"engine": _KIND_ENGINE.get(kind, "agnes"),
+            return {"engine": _engine_for_platform(kind, plat_name, p["base"]),
                     "base": p["base"], "key": p["key"],
-                    "model": str(slot.get("model") or "").strip()}
+                    "model": _model_for_platform(plat_name, p["base"], str(slot.get("model") or ""))}
     eng = str(slot.get("engine") or "").strip().lower()
     return {"engine": eng, "base": str(slot.get("api_base") or "").strip(),
             "key": str(slot.get("api_key") or "").strip(),

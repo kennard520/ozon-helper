@@ -50,8 +50,9 @@ class CategoryFallbackTest(unittest.TestCase):
 
     def test_fallback_true_when_navigation_index_unparseable(self):
         """某层 AI 返回无法解析的 index（重试后仍坏）→ 退到 index 0，category_fallback 为 True。"""
-        # 第一层返回坏 JSON（navigate 会重试一次，仍坏 → idx=0,fallback=True），第二层正常
-        chat = self._make_chat('not-json', 'not-json', '{"index":0}')
+        # broad/once 层坏 JSON（各重试仍坏）→ 落到逐层下钻；Авто 层坏 JSON 重试仍坏 → idx=0,fallback=True
+        chat = self._make_chat('not-json', 'not-json', 'not-json', 'not-json',
+                               'not-json', 'not-json', '{"index":0}')
         r = generate_card(
             {"title": "T", "params": [], "description_text": "D"},
             chat=chat,
@@ -73,8 +74,10 @@ class GenerateCardTest(unittest.TestCase):
         def chat(system, user):
             calls.append(user)
             if len(calls) == 1:
-                return '{"index":0}'                     # 一次性类目候选选择
+                return '{"index":0}'                     # broad: 根类目选择
             if len(calls) == 2:
+                return '{"index":0}'                     # broad: 类目候选选择
+            if len(calls) == 3:
                 return json.dumps({"ozon_title": "Автодержатель", "description": "Описание",
                                    "hashtags": []})       # 文案
             return json.dumps({"attributes": [{"id": 4180, "value": "металл"}],
@@ -99,12 +102,145 @@ class GenerateCardTest(unittest.TestCase):
         self.assertEqual(r["length_mm"], 200)
         self.assertEqual(r["width_mm"], 150)
         self.assertEqual(r["height_mm"], 100)
-        self.assertEqual(len(calls), 3)  # 类目选择 + 文案 + 属性
+        self.assertEqual(len(calls), 4)  # 根选择 + 类目选择 + 文案 + 属性
         # Fix 2: AI 类目在候选中时 category_fallback 为 False
         self.assertFalse(r["category_fallback"])
 
 
 class AiGenerateEndpointTest(unittest.TestCase):
+    def test_ai_generate_missing_category_blocks_without_llm(self):
+        import importlib
+        import tempfile
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        with tempfile.TemporaryDirectory() as tmp:
+            store_mod.DEFAULT_DB = Path(tmp) / "ai_missing_category.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            import webui.main as main_mod; importlib.reload(main_mod)
+            import webui.ai_card as aic
+            app = main_mod.APP
+            from webui.drafts import create_draft_from_url
+
+            d = app.store.insert_draft(create_draft_from_url("https://detail.1688.com/offer/123456789012.html"))
+            app.store.update_draft(d["id"], {"source_raw": {"title": "test item", "params": []}})
+
+            called = {"generate": False}
+
+            def fail_generate_card(*args, **kwargs):
+                called["generate"] = True
+                raise AssertionError("ai_generate must not call LLM without category")
+
+            _orig_gc = aic.generate_card
+            aic.generate_card = fail_generate_card
+            app._category_roots_zh = lambda settings: [
+                {"description_category_id": 1, "category_name": "A", "children": [
+                    {"type_id": 2, "type_name": "B", "description_category_id": 1}
+                ]}
+            ]
+            try:
+                resp = TestClient(main_mod.app).post(f"/api/drafts/{d['id']}/ai-generate")
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn("Ozon", str(resp.json().get("detail") or ""))
+                self.assertFalse(called["generate"])
+            finally:
+                aic.generate_card = _orig_gc
+                app.store.close()
+                import gc; gc.collect()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
+                importlib.reload(main_mod)
+
+    def test_ai_generate_wb_uses_existing_category_without_recognize(self):
+        import importlib
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        tmp = Path(tempfile.mkdtemp())
+        client = None
+        try:
+            store_mod.DEFAULT_DB = tmp / "ai_wb_existing_category.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            import webui.main as main_mod; importlib.reload(main_mod)
+            import webui.ai_card as aic
+            app = main_mod.APP
+            from webui.drafts import create_draft_from_url
+
+            d = app.store.insert_draft(create_draft_from_url(
+                "https://www.wildberries.ru/catalog/901541649/detail.aspx",
+                source_platform="wb",
+                scraped={
+                    "source_title": "Mini printer",
+                    "description": "Desc",
+                    "category_id": "11",
+                    "type_id": "22",
+                    "category_path": "Tools / Blowers",
+                },
+            ))
+            app.store.update_draft(d["id"], {
+                "source_raw": {"title": "Mini printer", "category_path": "Tools / Blowers"},
+                "category_path": "Tools / Blowers",
+            })
+
+            def fail_recognize(*args, **kwargs):
+                raise AssertionError("ai_generate must not call recognize_category")
+
+            captured = {}
+
+            def fake_generate_card(raw, *, chat, category_roots, fetch_required_attrs, resolve_values, understanding=None):
+                captured["roots"] = category_roots
+                return {
+                    "ok": True,
+                    "category_id": "11",
+                    "type_id": "22",
+                    "category_path": "Tools / Blowers",
+                    "category_fallback": False,
+                    "ozon_title": "Test title",
+                    "description": "Test desc",
+                    "attributes": [],
+                    "brand_id": None,
+                    "brand_name": "Нет бренда",
+                    "weight_g": 0,
+                    "length_mm": 0,
+                    "width_mm": 0,
+                    "height_mm": 0,
+                    "mapped": [],
+                    "unmapped": [],
+                }
+
+            app.recognize_category = fail_recognize
+            _orig_gc = aic.generate_card
+            aic.generate_card = fake_generate_card
+            app._category_attrs = lambda c, t: []
+            app._resolve_values = lambda c, t, aid, texts, coll: []
+            try:
+                client = TestClient(main_mod.app)
+                resp = client.post(f"/api/drafts/{d['id']}/ai-generate")
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(captured["roots"], [
+                    {"category_name": "Tools", "children": [
+                        {"category_name": "Blowers", "description_category_id": 11, "type_id": 22}
+                    ]}
+                ])
+            finally:
+                aic.generate_card = _orig_gc
+                if client is not None:
+                    client.close()
+                app.store.close()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
+                importlib.reload(main_mod)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_map_attributes_routes_wb_to_ai_fill(self):
         import importlib
         import tempfile
@@ -133,6 +269,7 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 scraped={"category_id": "1", "type_id": "2"},
             ))
             calls = []
+            app.recognize_category = lambda did: calls.append(("recognize", did)) or {"ok": True}
             app.ai_fill_attributes = lambda did: calls.append(("ai", did)) or {"ok": True}
             app.auto_map_attributes = lambda did: calls.append(("auto", did)) or {"ok": True}
             app.understand_draft = lambda did: calls.append(("understand", did)) or {"ok": True}
@@ -198,8 +335,11 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 result = app.recognize_category(d["id"])
                 self.assertTrue(result["ok"])
                 self.assertEqual(str(result["category_id"]), "1")
-                self.assertIn("Source category: Garden / Blowers", seen["user"])
-                self.assertIn("Air speed: 62 m/s", seen["user"])
+                self.assertIn("Title: Mini jet fan", seen["user"])
+                self.assertNotIn("Source category:", seen["user"])
+                self.assertNotIn("Air speed: 62 m/s", seen["user"])
+                self.assertNotIn("Cordless handheld blower.", seen["user"])
+                self.assertNotIn("Description:", seen["user"])
                 self.assertFalse(result["understood"])
             finally:
                 app.store.close()
@@ -207,6 +347,69 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 store_mod.DEFAULT_DB = orig_db
                 importlib.reload(svc)
                 importlib.reload(main_mod)
+
+    def test_recognize_category_uses_local_leaf_recall_first(self):
+        """WB recognition should recall flat leaf candidates locally before the final AI pick."""
+        import importlib
+        import tempfile
+        from pathlib import Path
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        with tempfile.TemporaryDirectory() as tmp:
+            store_mod.DEFAULT_DB = Path(tmp) / "wb_recall.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            app = svc.App()
+            from webui.drafts import create_draft_from_url
+            draft = create_draft_from_url(
+                "https://www.wildberries.ru/catalog/901541649/detail.aspx",
+                source_platform="wb",
+                scraped={"source_title": "Mini printer"},
+            )
+            d = app.store.insert_draft(draft)
+            app.store.update_draft(d["id"], {"source_raw": {"title": "Mini printer"}})
+
+            search_calls = []
+            recalled = {}
+            app.catalog_ru.recall = lambda client, q, limit=120: (
+                search_calls.append(("ru", q, limit)) or [
+                    {"description_category_id": 1, "type_id": 11, "path": "日化 / 洗涤剂和清洁剂 / 洗手液"},
+                    {"description_category_id": 2, "type_id": 22, "path": "电子产品 / 打印机 / 贴纸打印机"},
+                ]
+            )
+            app.catalog.recall = lambda client, q, limit=120: (
+                search_calls.append(("zh", q, limit)) or [
+                    {"description_category_id": 2, "type_id": 22, "path": "电子产品 / 打印机 / 贴纸打印机"},
+                    {"description_category_id": 3, "type_id": 33, "path": "日化 / 洗涤剂和清洁剂 / 洗衣皂"},
+                ]
+            )
+
+            from unittest import mock
+
+            def fake_choose(candidates, chat, profile):
+                recalled["candidates"] = candidates
+                return {
+                    "description_category_id": 2,
+                    "type_id": 22,
+                    "path": ["电子产品", "打印机", "贴纸打印机"],
+                    "category_fallback": False,
+                    "category_one_shot": True,
+                }
+
+            with mock.patch("ozon_common.text_pipeline.ai_card.navigate_leaf_candidates", fake_choose):
+                result = app.recognize_category(d["id"])
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["category_id"], 2)
+                self.assertEqual(result["type_id"], 22)
+                self.assertEqual(search_calls[0][0], "ru")
+                self.assertEqual(search_calls[0][1], "Mini printer")
+                self.assertEqual(search_calls[1][0], "zh")
+                self.assertEqual(recalled["candidates"][0]["path"], "日化 / 洗涤剂和清洁剂 / 洗手液")
+                self.assertEqual(recalled["candidates"][1]["path"], "电子产品 / 打印机 / 贴纸打印机")
+                self.assertEqual(len(recalled["candidates"]), 3)
+                app.store.close()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
 
     def test_ai_generate_endpoint(self):
         """ai_generate 应返回 mode/proposal（含 fields.category_id/ozon_title/brand_name），且不持久化主字段。"""
@@ -226,14 +429,18 @@ class AiGenerateEndpointTest(unittest.TestCase):
             app = main_mod.APP
             from webui.drafts import create_draft_from_url
             d = app.store.insert_draft(create_draft_from_url("https://detail.1688.com/offer/123456789012.html"))
-            app.store.update_draft(d["id"], {"source_raw": {"title": "车载支架", "params": [], "description_text": "铝"}})
+            app.store.update_draft(d["id"], {
+                "source_raw": {"title": "车载支架", "params": [], "description_text": "铝"},
+                "category_id": "1",
+                "type_id": "2",
+            })
             # 记录调用前草稿的类目（应为空）
             draft_before = app.store.get_draft(d["id"])
-            self.assertEqual(str(draft_before.get("category_id") or "").strip(), "",
-                             "前置条件：草稿 category_id 应为空")
+            self.assertEqual(str(draft_before.get("category_id") or "").strip(), "1")
             # 打桩：AI 三次、catalog、属性、resolve
             import webui.ai_card as aic
             seq = ['{"index":0}',
+                   '{"index":0}',
                    J.dumps({"ozon_title": "Держатель", "description": "Опис", "hashtags": []}),
                    J.dumps({"attributes": [{"id": 4180, "value": "металл"}]})]
             calls = {"i": 0}
@@ -266,8 +473,7 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 self.assertIn("report", body)
                 # 关键验证：草稿主字段在 DB 中未被修改（category_id 仍为空）
                 draft_after = app.store.get_draft(d["id"])
-                self.assertEqual(str(draft_after.get("category_id") or "").strip(), "",
-                                 "ai_generate 不应持久化主字段：category_id 应仍为空")
+                self.assertEqual(str(draft_after.get("category_id") or "").strip(), "1")
                 self.assertEqual(draft_after.get("ozon_title") or "", draft_before.get("ozon_title") or "",
                                  "ai_generate 不应持久化主字段：ozon_title 不应改变")
             finally:
@@ -278,6 +484,101 @@ class AiGenerateEndpointTest(unittest.TestCase):
                 store_mod.DEFAULT_DB = orig_db
                 importlib.reload(svc)
                 importlib.reload(main_mod)
+
+    def test_ai_generate_routes_wb_through_category_recognition(self):
+        """WB ai_generate 应先识别类目，再把类目树锁定后生成内容。"""
+        import importlib
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
+
+        import webui.store as store_mod
+        orig_db = store_mod.DEFAULT_DB
+        tmp = Path(tempfile.mkdtemp())
+        client = None
+        try:
+            store_mod.DEFAULT_DB = tmp / "ai_wb.db"
+            import webui.app_service as svc; importlib.reload(svc)
+            import webui.main as main_mod; importlib.reload(main_mod)
+            import webui.ai_card as aic
+            app = main_mod.APP
+            from webui.drafts import create_draft_from_url
+
+            d = app.store.insert_draft(create_draft_from_url(
+                "https://www.wildberries.ru/catalog/901541649/detail.aspx",
+                source_platform="wb",
+                scraped={
+                    "source_title": "Mini printer",
+                    "description": "Desc",
+                    "category_id": "11",
+                    "type_id": "22",
+                },
+            ))
+            app.store.update_draft(d["id"], {"source_raw": {"title": "Mini printer", "category_path": "Tools / Blowers"}})
+
+            calls = []
+            app.recognize_category = lambda did: calls.append(("recognize", did)) or {
+                "ok": True,
+                "matched": True,
+                "category_id": 11,
+                "type_id": 22,
+                "category_path": "Tools / Blowers",
+            }
+            app._category_roots_zh = lambda settings: [
+                {"description_category_id": 11, "category_name": "Tools", "children": [
+                    {"type_id": 22, "type_name": "Blowers", "description_category_id": 11}]}]
+            captured = {}
+
+            def fake_generate_card(raw, *, chat, category_roots, fetch_required_attrs, resolve_values, understanding=None):
+                calls.append(("generate", len(category_roots)))
+                captured["roots"] = category_roots
+                return {
+                    "ok": True,
+                    "category_id": "11",
+                    "type_id": "22",
+                    "category_path": "Tools / Blowers",
+                    "category_fallback": False,
+                    "ozon_title": "Test title",
+                    "description": "Test desc",
+                    "attributes": [],
+                    "brand_id": None,
+                    "brand_name": "Нет бренда",
+                    "weight_g": 0,
+                    "length_mm": 0,
+                    "width_mm": 0,
+                    "height_mm": 0,
+                    "mapped": [],
+                    "unmapped": [],
+                }
+
+            _orig_gc = aic.generate_card
+            aic.generate_card = fake_generate_card
+            app._category_attrs = lambda c, t: []
+            app._resolve_values = lambda c, t, aid, texts, coll: []
+            try:
+                client = TestClient(main_mod.app)
+                r = client.post(f"/api/drafts/{d['id']}/ai-generate")
+                self.assertEqual(r.status_code, 200)
+                body = r.json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(calls, [("generate", 1)])
+                self.assertEqual(captured["roots"], [
+                    {"category_name": "Tools", "children": [
+                        {"category_name": "Blowers", "description_category_id": 11, "type_id": 22}
+                    ]}
+                ])
+            finally:
+                aic.generate_card = _orig_gc
+                if client is not None:
+                    client.close()
+                app.store.close()
+                store_mod.DEFAULT_DB = orig_db
+                importlib.reload(svc)
+                importlib.reload(main_mod)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_brand_warning_when_no_brand_resolve_fails(self):
         """当无品牌(Нет бренда)字典值解析失败时，report.brand_warning 应非空，report.unmapped 应含品牌条目。"""
@@ -297,9 +598,14 @@ class AiGenerateEndpointTest(unittest.TestCase):
             app = main_mod.APP
             from webui.drafts import create_draft_from_url
             d = app.store.insert_draft(create_draft_from_url("https://detail.1688.com/offer/987654321012.html"))
-            app.store.update_draft(d["id"], {"source_raw": {"title": "测试品", "params": [], "description_text": "无"}})
+            app.store.update_draft(d["id"], {
+                "source_raw": {"title": "测试品", "params": [], "description_text": "无"},
+                "category_id": "1",
+                "type_id": "2",
+            })
             import webui.ai_card as aic
             seq = ['{"index":0}',
+                   '{"index":0}',
                    J.dumps({"ozon_title": "Держатель", "description": "Опис", "hashtags": []}),
                    J.dumps({"attributes": []})]
             calls = {"i": 0}

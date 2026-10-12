@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -68,5 +68,8 @@ async def upload_media(draft_id: int, file: UploadFile = File(...), kind: str = 
         source="uploaded",
         in_gallery=1,
     )
+    from ozon_common.runtime import is_local_lite
+    if is_local_lite():
+        app_instance.APP.store.set_media_status(draft_id, "pending")
     draft = app_instance.APP.store.get_draft(draft_id)
     return {"url": url, "kind": kind, "image_id": image_id, "draft": draft}

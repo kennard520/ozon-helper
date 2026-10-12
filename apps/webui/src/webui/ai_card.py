@@ -136,6 +136,11 @@ def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | No
     model = model or "deepseek-v4-flash"
     if not base or not key:
         raise RuntimeError("未配置 AI 引擎（设置里选 remote 并填 base/key/model）")
+    if cfg.get("engine") == "nvidia":
+        from ozon_common import nvidia as _nvidia  # noqa: PLC0415
+        if images:
+            return _nvidia.nvidia_vlm_chat(cfg, system, user, images=images)
+        return _nvidia.nvidia_chat(cfg, system, user)
     import json as _json  # noqa: PLC0415
     import time as _time  # noqa: PLC0415
     from urllib.error import HTTPError, URLError  # noqa: PLC0415
@@ -145,9 +150,12 @@ def deepseek_chat(settings: dict, system: str, user: str, images: list[str] | No
             {"type": "image_url", "image_url": {"url": u}} for u in images]
     else:
         content = user
-    body = _json.dumps({"model": model, "temperature": 0.3, "stream": False,
-                        "messages": [{"role": "system", "content": system},
-                                     {"role": "user", "content": content}]}).encode("utf-8")
+    payload = {"model": model, "temperature": 0.3, "stream": False,
+               "messages": [{"role": "system", "content": system},
+                            {"role": "user", "content": content}]}
+    if "deepseek" in f"{base} {model}".lower():
+        payload["thinking"] = {"type": "disabled"}
+    body = _json.dumps(payload).encode("utf-8")
     req = Request(base.rstrip("/") + "/chat/completions", data=body,
                   headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                   method="POST")

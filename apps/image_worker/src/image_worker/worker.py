@@ -64,7 +64,8 @@ def _sync_gen_task(job_id: int, *, status: str | None = None, error: str | None 
 
 
 def _gen_task_cancelled(job_id: int) -> bool:
-    run = TaskRunRepo().get_by_external("ai_image", "gen_jobs", job_id)
+    with session_scope():
+        run = TaskRunRepo().get_by_external("ai_image", "gen_jobs", job_id)
     return bool(run and str(run.get("status") or "") in {"cancel_requested", "cancelled"})
 
 
@@ -223,7 +224,8 @@ def handle_job(job_id: int, draft_id: int, target: int, mode: str = "plan") -> N
         img_cfg_data = ai_config(settings, "image")
         cfg = GenImageConfig(api_key=img_cfg_data.get("key") or None,
                              base_url=img_cfg_data.get("base") or None,
-                             model=img_cfg_data.get("model") or None)
+                             model=img_cfg_data.get("model") or None,
+                             engine=img_cfg_data.get("engine") or None)
 
         # 0. 幂等：读已有图片槽
         with session_scope():

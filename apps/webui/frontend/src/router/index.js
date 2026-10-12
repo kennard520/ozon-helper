@@ -1,5 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { isLoggedIn } from '../auth.js'
+import { useAppStore } from '../stores/app.js'
+import { allowedInLite } from '../local-lite.js'
 import AppLayout from '../layouts/AppLayout.vue'
 
 const routes = [
@@ -17,7 +19,12 @@ const routes = [
   ] },
 ]
 export const router = createRouter({ history: createWebHashHistory(), routes })
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (!to.meta.public && !isLoggedIn()) return { path: '/login' }
   if (to.path === '/login' && isLoggedIn()) return { path: '/' }
+  if (isLoggedIn() && !to.meta.public) {
+    const store = useAppStore()
+    if (!store.runtimeLoaded) { await store.loadState(); store.runtimeLoaded = true }
+    if (store.localLite && !allowedInLite(to.path)) return { path: '/' }
+  }
 })

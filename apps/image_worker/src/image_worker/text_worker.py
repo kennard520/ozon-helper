@@ -34,7 +34,7 @@ from ozon_common.text_pipeline.ai_card import (
 )
 from ozon_common.text_pipeline.card_gen import _SYS_ATTRS_PICK, _SYS_TITLE, _extract_json
 from ozon_common.text_pipeline.pipeline import run_text_pipeline
-from ozon_common.text_pipeline.understand import understand
+from ozon_common.text_pipeline.understand import build_understand_input, understand
 
 log = logging.getLogger("ozon.text_worker")
 
@@ -45,6 +45,8 @@ _HASHTAGS_ATTR_ID = 23171
 _TEXT_ATTR_OPTION_CAP = int(os.environ.get("TEXT_ATTR_OPTION_CAP") or "120")
 _TEXT_ATTR_MAX_ITEMS = int(os.environ.get("TEXT_ATTR_MAX_ITEMS") or "60")
 _TEXT_TOTAL_STEPS = 4
+_TEXT_JOB_LOOKUP_ATTEMPTS = int(os.environ.get("TEXT_JOB_LOOKUP_ATTEMPTS") or "6")
+_TEXT_JOB_LOOKUP_DELAY = float(os.environ.get("TEXT_JOB_LOOKUP_DELAY") or "0.5")
 
 
 def _sync_text_task(job: dict, **patch) -> None:
@@ -70,6 +72,18 @@ def _sync_text_task(job: dict, **patch) -> None:
 def _text_task_cancelled(job_id: int) -> bool:
     run = TaskRunRepo().get_by_external("ai_text", "text_jobs", job_id)
     return bool(run and str(run.get("status") or "") in {"cancel_requested", "cancelled"})
+
+
+def _get_text_job_with_retry(job_id: int) -> dict | None:
+    attempts = max(1, _TEXT_JOB_LOOKUP_ATTEMPTS)
+    for attempt in range(attempts):
+        with session_scope():
+            job = TextJobRepo().get(job_id)
+        if job is not None:
+            return job
+        if attempt < attempts - 1:
+            time.sleep(max(0.0, _TEXT_JOB_LOOKUP_DELAY))
+    return None
 
 
 def _to_int(value: object) -> int:
@@ -121,6 +135,11 @@ def _chat(settings: dict, system: str, user: str, images: list[str] | None = Non
         base = base[:-3].rstrip("/")
     if not key:
         raise RuntimeError(f"未配置 AI 引擎({kind})")
+    if cfg.get("engine") == "nvidia":
+        from ozon_common import nvidia as _nvidia  # noqa: PLC0415
+        if images:
+            return _nvidia.nvidia_vlm_chat(cfg, system, user, images=images[:4])
+        return _nvidia.nvidia_chat(cfg, system, user)
     model = (cfg.get("model") or "").strip() or ("agnes-2.0-flash" if cfg.get("engine") == "agnes" else "deepseek-v4-flash")
     content: object = user
     if images:
@@ -133,7 +152,10 @@ def _chat(settings: dict, system: str, user: str, images: list[str] | None = Non
         "stream": False,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
     }
-    if cfg.get("engine") == "agnes" or "agnes" in base.lower():
+    is_deepseek = "deepseek" in f"{base} {model}".lower()
+    if is_deepseek:
+        body["thinking"] = {"type": "disabled"}
+    if not is_deepseek and (cfg.get("engine") == "agnes" or "agnes" in base.lower()):
         body["chat_template_kwargs"] = {"enable_thinking": True}
     req = Request(
         base.rstrip("/") + "/v1/chat/completions",
@@ -175,6 +197,20 @@ def _get_draft(draft_id: int, user_id: int = _USER_ID) -> dict:
     if draft is None:
         raise RuntimeError(f"draft {draft_id} not found")
     return draft
+
+
+def _require_category_for_generation(draft: dict) -> tuple[int, int]:
+    cat = _to_int((draft or {}).get("category_id"))
+    typ = _to_int((draft or {}).get("type_id"))
+    if not cat or not typ:
+        raise RuntimeError("请先选择或识别 Ozon 分类，再生成内容")
+    return cat, typ
+
+
+def _confirm_category(draft_id: int) -> dict:
+    draft = _get_draft(draft_id)
+    cat, typ = _require_category_for_generation(draft)
+    return {"ok": True, "category_id": cat, "type_id": typ, "confirmed": True}
 
 
 def _validate_draft(draft: dict) -> list[str]:
@@ -338,13 +374,21 @@ def _run_understand(draft_id: int) -> dict:
         return {"ok": True, "skipped": True, "reason": "wb_text_features"}
     sr = dict(draft.get("source_raw") or {})
     cached = isinstance(sr.get("understanding"), dict) and bool(sr["understanding"])
+    if not cached and not build_understand_input(draft)[1]:
+        return {"ok": True, "skipped": True, "reason": "no_images"}
     if not cached:
         settings = _settings(int(draft.get("user_id") or _USER_ID))
-        u = understand(
-            draft,
-            lambda s, u, images: _chat(settings, s, u, images, kind="multimodal" if ai_config(settings, "multimodal").get("key") else "text"),
-            resolve_image=_resolve_image,
-        )
+        try:
+            u = understand(
+                draft,
+                lambda s, u, images: _chat(settings, s, u, images, kind="multimodal" if ai_config(settings, "multimodal").get("key") else "text"),
+                resolve_image=_resolve_image,
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "AI HTTP 403" in msg or "access_denied" in msg:
+                return {"ok": True, "skipped": True, "reason": "multimodal_access_denied", "error": msg[:500]}
+            raise
         sr["understanding"] = u
         _update_draft(draft_id, {"source_raw": sr}, int(draft.get("user_id") or _USER_ID))
     return {"ok": True, "cached": cached, "understanding": sr.get("understanding")}
@@ -554,11 +598,11 @@ def _make_on_step(job_id: int):
 def handle_text_job(job_id: int, draft_id: int) -> None:
     log.info("[text_job %s] start draft=%s", job_id, draft_id)
 
-    # 先检查任务是否存在，不存在直接 ack 丢弃，不消耗 token
-    with session_scope():
-        job = TextJobRepo().get(job_id)
+    # 先检查任务是否存在。MQ 消息可能比 MySQL 事务对 worker 可见更早到达，
+    # 因此短暂重试，避免把刚创建的任务 ack 掉。
+    job = _get_text_job_with_retry(job_id)
     if job is None:
-        log.warning("[text_job %s] job not found in DB, skipping (ack)", job_id)
+        log.warning("[text_job %s] job not found in DB after retry, skipping (ack)", job_id)
         return
     if str(job.get("status") or "").lower() in {"done", "failed", "cancelled"}:
         log.info("[text_job %s] already terminal (%s), skipping duplicate delivery", job_id, job.get("status"))
@@ -575,10 +619,12 @@ def handle_text_job(job_id: int, draft_id: int) -> None:
             _sync_text_task(updated, status="running")
 
     try:
+        draft = _get_draft(draft_id, int(job.get("user_id") or _USER_ID))
+        _require_category_for_generation(draft)
         run_text_pipeline(
             draft_id,
             run_understand=_run_understand,
-            run_category=_run_category,
+            run_category=_confirm_category,
             run_copy=_run_copy,
             run_attrs=_run_attrs,
             on_step=_make_on_step(job_id),

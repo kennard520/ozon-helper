@@ -94,6 +94,9 @@ async function save() {
   payload.ai_image = useBlock(aiUses.image)
   payload.ai_video = useBlock(aiUses.video)
   payload.translate_mode = 'ai'
+  if (store.localLite) {
+    for (const key of Object.keys(payload)) if (!['rub_cny', 'contract_currency'].includes(key)) delete payload[key]
+  }
   const r = await api.saveSettings(payload)
   if (r.settings) store.settings = r.settings
   if (r.status) store.status = r.status
@@ -171,12 +174,19 @@ defineExpose({
 </script>
 
 <template>
-  <div class="settings-page">
-    <header class="settings-hero">
+  <div v-if="store.localLite" class="setting-section" style="margin-bottom:16px">
+    <h2>开始使用</h2>
+    <p>首次登录：admin / admin。店铺管理填写 Client ID 和 API Key，然后保存汇率。</p>
+    <p>Chrome/Edge 扩展页加载 ozon-seller-helper-ext 文件夹，在插件选择“本地软件”并登录。</p>
+    <p>打开 WB/Ozon 商品页采集，编辑俄语标题、描述、类目、必填属性和图片后手动发布。</p>
+    <p>WB 图片上传需要在同一浏览器登录 seller.ozon.ru。图片上传失败请重试，不能将本机链接发布。</p>
+    </div>
+    <div class="settings-page">
+      <header class="settings-hero">
       <div>
         <p class="settings-hero__eyebrow">System Settings</p>
         <h1>系统设置</h1>
-        <p class="settings-hero__desc">统一管理汇率、AI 平台、店铺凭证和智能定价数据。</p>
+        <p class="settings-hero__desc">{{ store.localLite ? '本地采集、手动编辑和发布。店铺 API 凭证在店铺管理填写。' : '统一管理汇率、AI 平台、店铺凭证和智能定价数据。' }}</p>
       </div>
       <el-button type="primary" size="large" @click="save">保存设置</el-button>
     </header>
@@ -209,7 +219,7 @@ defineExpose({
               </div>
             </div>
           </div>
-          <div class="choice-box">
+          <div v-if="!store.localLite" class="choice-box">
             <div>
               <strong>AI 卡片应用</strong>
               <span>人工确认会先保存为待确认草稿，自动应用会直接合并生成结果。</span>
@@ -219,7 +229,7 @@ defineExpose({
               <el-radio-button :value="true">自动应用</el-radio-button>
             </el-radio-group>
           </div>
-          <div class="choice-box">
+          <div v-if="!store.localLite" class="choice-box">
             <div>
               <strong>采集后自动发布</strong>
               <span>开启后采集流程会尝试直接发布到 Ozon。</span>
@@ -232,7 +242,7 @@ defineExpose({
         </div>
       </section>
 
-      <section class="setting-section">
+      <section v-if="!store.localLite" class="setting-section">
         <div class="section-head">
           <div>
             <h2>AI 平台</h2>
@@ -284,7 +294,7 @@ defineExpose({
         </div>
       </section>
 
-      <section class="setting-section">
+      <section v-if="!store.localLite" class="setting-section">
         <div class="section-head">
           <div>
             <h2>智能定价数据</h2>

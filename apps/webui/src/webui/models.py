@@ -16,6 +16,8 @@ class AuthIn(BaseModel):
 class SettingsIn(BaseModel):
     ozon_client_id: str | None = None
     ozon_api_key: str | None = None
+    performance_client_id: str | None = None
+    performance_client_secret: str | None = None
     rub_cny: float | str | None = None
     contract_currency: str | None = None
     translate_engine: str | None = None

@@ -1,4 +1,5 @@
 <script setup>
+import { useAppStore } from '../../stores/app.js'
 import { ref, computed, nextTick, watch } from 'vue'
 import { useWorkbenchStore, variantColorName } from '../../stores/workbench.js'
 import { useDraftForm } from '../../composables/useDraftForm.js'
@@ -11,10 +12,12 @@ import AttributesTab from './tabs/AttributesTab.vue'
 import ImagesTab from './tabs/ImagesTab.vue'
 
 const wb = useWorkbenchStore()
+const store = useAppStore()
 const fm = useDraftForm(computed(() => wb.currentVariantId))
 const draftSafe = computed(() => fm.draft.value || {})
 const active = ref('info')
 const saving = ref(false)
+const attributesEditor = ref(null)
 
 const SYS_ATTR_IDS = new Set([9048, 23171, 85])
 const ready = computed(() => {
@@ -37,7 +40,7 @@ const TABS = computed(() => [
   { key: 'video', label: '视频', ready: ready.value.video },
   { key: 'richtext', label: '富文本', ready: ready.value.richtext },
   { key: 'purchase', label: '采购信息' },
-])
+].filter(t => !store.localLite || !['video', 'richtext'].includes(t.key)))
 
 const cur = computed(() => wb.currentVariant)
 const curSpec = computed(() => (cur.value && cur.value.spec) || variantColorName(cur.value) || '当前变体')
@@ -71,16 +74,24 @@ async function refreshDetail() {
   await wb.reload()
 }
 
-async function saveDetail() {
-  if (saving.value) return
+let savePromise = null
+function saveDetail() {
+  if (savePromise) return savePromise
+  if (detailLoading.value) return Promise.reject(new Error('商品正在加载，请稍后保存或发布'))
   saving.value = true
-  try {
-    await fm.save()
-    await fm.load()
-  } finally {
-    saving.value = false
-  }
+  savePromise = (async () => {
+    try {
+      await attributesEditor.value?.savePending?.()
+      await fm.save()
+      await fm.load()
+    } finally {
+      saving.value = false
+      savePromise = null
+    }
+  })()
+  return savePromise
 }
+defineExpose({ savePending: saveDetail })
 </script>
 
 <template>
@@ -106,7 +117,7 @@ async function saveDetail() {
       <PurchaseTab v-else-if="active === 'purchase'" :form="fm.form" />
       <VideoTab v-else-if="active === 'video'" :draft="draftSafe" @save="fm.save" />
       <RichTextTab v-else-if="active === 'richtext'" :draft="draftSafe" @saved="fm.load" />
-      <AttributesTab v-else-if="active === 'attrs'" :draft="draftSafe" :form="fm.form" @saved="fm.load" @save-info="fm.save" />
+      <AttributesTab v-else-if="active === 'attrs'" ref="attributesEditor" :draft="draftSafe" :form="fm.form" @saved="fm.load" @save-info="fm.save" />
       <ImagesTab v-else-if="active === 'images'" :draft="draftSafe" @saved="fm.load" />
     </div>
   </div>

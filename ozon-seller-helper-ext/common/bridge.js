@@ -28,6 +28,15 @@
     return CANDIDATE_PORTS.map((p) => 'http://127.0.0.1:' + p)
   }
 
+  function connectionBases(mode, override) {
+    if (override) return [String(override).replace(/\/+$/, '')]
+    return mode === 'local' ? candidateBases() : [PROD_BASE]
+  }
+
+  function mediaDownloadUrl(url, base) {
+    return new URL(url, base + '/').href
+  }
+
   // 返回相对请求；真实 base 由 background 探测后拼接
   function buildExtRequest(type, payload) {
     const p = PATHS[type]
@@ -64,5 +73,5 @@
     })
   }
 
-  return { CANDIDATE_PORTS, PROD_BASE, candidateBases, buildExtRequest, bgCall, authHeader }
+  return { CANDIDATE_PORTS, PROD_BASE, candidateBases, connectionBases, mediaDownloadUrl, buildExtRequest, bgCall, authHeader }
 })

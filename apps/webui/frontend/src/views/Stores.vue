@@ -110,8 +110,20 @@ async function persistStores(list) {
   if (r.paths) store.paths = r.paths
 }
 
-function switchStore(cid) {
-  store.setCurrentStore(String(cid))
+async function switchStore(cid) {
+  const target = String(cid)
+  const list = stores.value.map(s => ({
+    name: s.name,
+    client_id: s.client_id,
+    is_default: String(s.client_id) === target,
+  }))
+  try {
+    await persistStores(list)
+    store.setCurrentStore(target)
+    ElMessage.success('已切换默认店铺')
+  } catch (e) {
+    ElMessage.error(e.message || String(e))
+  }
 }
 
 async function removeStore(s) {

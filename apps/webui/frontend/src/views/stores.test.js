@@ -69,6 +69,7 @@ describe('Stores 页面', () => {
     const btn = w.findAll('button').find(b => b.text().includes('设为当前'))
     if (btn) {
       await btn.trigger('click')
+      await tick()
       expect(spy).toHaveBeenCalled()
     }
   })

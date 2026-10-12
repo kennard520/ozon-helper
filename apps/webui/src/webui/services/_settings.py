@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from ozon_common.runtime import is_local_lite
 
 from webui.services._helpers import _models_url
 from webui.settings_migrate import migrate_ai, normalize_stores
@@ -39,9 +40,12 @@ class SettingsMixin:
             return out
 
         return {
+            "runtime": {"local_lite": is_local_lite()},
             "settings": {
                 "ozon_client_id": settings.get("ozon_client_id", ""),
                 "ozon_api_key_saved": bool(settings.get("ozon_api_key")),
+                "performance_client_id": settings.get("performance_client_id", ""),
+                "performance_client_secret_saved": bool(settings.get("performance_client_secret")),
                 "rub_cny": settings.get("rub_cny", ""),
                 "rub_cny_at": settings.get("rub_cny_at", ""),
                 # 合同货币：草稿 price 字段按 RUB 录入，发布时换算成合同币提交（默认 CNY）
@@ -54,7 +58,7 @@ class SettingsMixin:
                 # AI 卡片应用模式（功能③）：true=自动应用 / false=人工确认（默认）
                 "ai_auto_apply": bool(settings.get("ai_auto_apply")),
                 # 采集后自动发布到 Ozon：true=采集即自动发 / false=只建草稿（默认）
-                "auto_publish": bool(settings.get("auto_publish")),
+                "auto_publish": not is_local_lite() and bool(settings.get("auto_publish")),
                 # 卡片生成聊天引擎：remote=沿用翻译引擎配置(DeepSeek) / agnes=Agnes-2.0-Flash
                 "ai_chat_provider": settings.get("ai_chat_provider", "remote"),
                 # agnes 时是否把商品图发给模型做图片理解（标题/属性更贴图）
@@ -160,6 +164,10 @@ class SettingsMixin:
             allowed["contract_currency"] = str(payload["contract_currency"]).strip().upper()
         if payload.get("ozon_api_key"):
             allowed["ozon_api_key"] = self._clean_secret(payload["ozon_api_key"])
+        if "performance_client_id" in payload:
+            allowed["performance_client_id"] = self._clean_secret(payload.get("performance_client_id"))
+        if payload.get("performance_client_secret"):
+            allowed["performance_client_secret"] = self._clean_secret(payload["performance_client_secret"])
         # 翻译引擎（功能③）：引擎名 / API base / model 非空才存；key 走 _clean_secret 且非空才存
         if payload.get("translate_engine"):
             allowed["translate_engine"] = str(payload["translate_engine"]).strip().lower()
@@ -299,6 +307,11 @@ class SettingsMixin:
             key2 = key2 or str(cfg.get("key") or "")
         if not b:
             return {"models": [], "error": "未配置接口地址"}
+        if "nvidia" in f"{platform} {b}".lower():
+            from ozon_common.nvidia import NVIDIA_TEXT_BASE, model_presets  # noqa: PLC0415
+            if kind != "text":
+                return {"models": model_presets(kind)}
+            b = NVIDIA_TEXT_BASE
         import time as _time  # noqa: PLC0415
         url = _models_url(b)
         req = urllib.request.Request(

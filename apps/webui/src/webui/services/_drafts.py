@@ -117,7 +117,8 @@ class DraftMixin:
         if path:
             patch["category_path"] = path
         n = 0
-        for sib in self.store.list_drafts_by_variant_group(group):
+        store_cid = str(draft.get("store_client_id") or "")
+        for sib in self.store.list_drafts_by_variant_group(group, store_cid):
             if int(sib["id"]) == int(draft["id"]):
                 continue
             if str(sib.get("category_id") or "") == cat_s and str(sib.get("type_id") or "") == typ_s:
@@ -161,7 +162,8 @@ class DraftMixin:
             sr = loads_json(sr, {})
         group = str((sr or {}).get("variant_group") or "").strip()
         if group and scope_norm in {"group", "auto", ""}:
-            siblings = self.store.list_drafts_by_variant_group(group)
+            store_cid = str(draft.get("store_client_id") or "")
+            siblings = self.store.list_drafts_by_variant_group(group, store_cid)
             sibling_ids = [int(d["id"]) for d in siblings]
             is_group_rep = bool(sibling_ids) and int(draft_id) == max(sibling_ids)
             if scope_norm == "group" or is_group_rep:
@@ -192,7 +194,8 @@ class DraftMixin:
         if not group:
             return {"ok": True, "group": "", "variants": [], "count": 0}
         out = []
-        for d in self.store.list_drafts_by_variant_group(group):
+        store_cid = str(draft.get("store_client_id") or "")
+        for d in self.store.list_drafts_by_variant_group(group, store_cid):
             dsr = d.get("source_raw")
             if isinstance(dsr, str):
                 dsr = loads_json(dsr, {})
@@ -207,6 +210,7 @@ class DraftMixin:
                 )
             out.append({"id": d.get("id"),
                         "spec": str(dsr.get("spec_attrs") or dsr.get("variant_label") or "").strip(),
+                        "source_platform": str(d.get("source_platform") or "").strip(),
                         "price": d.get("price"), "status": d.get("status"),
                         "image": preview_image,
                         "current": d.get("id") == draft_id,

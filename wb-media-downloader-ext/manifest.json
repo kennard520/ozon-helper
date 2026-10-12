@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "WB 图片视频下载器",
+  "version": "0.1.0",
+  "description": "一键下载 WB 商品轮播图和视频",
+  "background": { "service_worker": "service-worker.js" },
+  "permissions": ["downloads", "storage"],
+  "host_permissions": [
+    "https://www.wildberries.ru/*",
+    "https://*.wbbasket.ru/*",
+    "https://*.geobasket.ru/*",
+    "https://*.wb.ru/*"
+  ],
+  "content_scripts": [{
+    "matches": ["https://www.wildberries.ru/catalog/*/detail.aspx*"],
+    "js": [
+      "common/wb-card.js",
+      "common/media-resolver.js",
+      "common/file-path.js",
+      "common/download-plan.js",
+      "content/view.js",
+      "content/downloader.js"
+    ],
+    "css": ["content/downloader.css"],
+    "run_at": "document_idle"
+  }],
+  "action": { "default_title": "WB 图片视频下载器" }
+}

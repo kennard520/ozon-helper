@@ -1,8 +1,9 @@
-"""AuthMixin —— 鉴权 / 用户管理 / 钱包 / 媒体预签名 / 发布计费。"""
+﻿"""AuthMixin —— 鉴权 / 用户管理 / 钱包 / 媒体预签名 / 发布计费。"""
 from __future__ import annotations
 
 import webui.media as _media
 from ozon_common.oss import OssClient
+from ozon_common.runtime import is_local_lite
 from webui.services._helpers import _money_to_float
 
 # 钱包出口处 Decimal→float 的字段（DAL 内部保持 Decimal 精确，仅 API 边界转 number）
@@ -131,6 +132,8 @@ class AuthMixin:
 
     def publish_fee(self) -> float:
         """单次发布扣费，读全局设置 publish_fee，默认 0（不收费，旧行为不变）。"""
+        if is_local_lite():
+            return 0.0
         try:
             return float(self.store.get_settings().get("publish_fee") or 0)
         except (TypeError, ValueError):

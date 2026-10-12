@@ -63,7 +63,7 @@ export function useDraftForm(draftIdRef) {
   async function save() {
     const id = draftIdRef.value; if (id == null) return
     const r = await api.patchDraft(id, collectPatch())
-    if (r && r.draft) { draft.value = r.draft; store.upsertDraft(r.draft); wb.reload() }
+    if (r && r.draft) { draft.value = r.draft; store.upsertDraft(r.draft); await wb.reload() }
     return r
   }
 

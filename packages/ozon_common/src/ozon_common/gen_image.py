@@ -112,10 +112,15 @@ def build_infographic_prompt(*, role: str = "", heading: str = "", bullets: list
 
 class GenImageConfig:
     def __init__(self, *, api_key: str | None = None, base_url: str | None = None,
-                 model: str | None = None, image_field: str | None = None) -> None:
+                 model: str | None = None, image_field: str | None = None,
+                 engine: str | None = None) -> None:
         self.api_key = api_key or os.environ.get("GPTPLUS5_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
         self.base_url = (base_url or os.environ.get("GPTPLUS5_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self.model = model or os.environ.get("GPTPLUS5_IMAGE_MODEL") or DEFAULT_MODEL
+        self.engine = str(engine or "").strip().lower()
+        if self.engine == "nvidia":
+            self.model = model or os.environ.get("NVIDIA_IMAGE_MODEL") or "black-forest-labs/flux.1-kontext-dev"
+        else:
+            self.model = model or os.environ.get("GPTPLUS5_IMAGE_MODEL") or DEFAULT_MODEL
         self.image_field = image_field or os.environ.get("GPTPLUS5_IMAGE_FIELD") or DEFAULT_IMAGE_FIELD
 
     def auth_headers(self, content_type: str | None = None) -> dict[str, str]:
@@ -220,6 +225,34 @@ HttpPost = Callable[[str, dict[str, str], bytes], dict[str, Any]]
 Fetch = Callable[[str], bytes]
 
 
+class _DictResponse:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self) -> bytes:
+        return _json.dumps(self._data, ensure_ascii=False).encode("utf-8")
+
+
+def _opener_from_post(http_post: Optional[HttpPost]) -> Any:
+    if http_post is None:
+        return None
+
+    def opener(req, timeout=0):
+        return _DictResponse(http_post(req.full_url, dict(req.header_items()), req.data or b""))
+
+    return opener
+
+
+def _is_nvidia_cfg(cfg: GenImageConfig) -> bool:
+    return cfg.engine == "nvidia" or "nvidia.com" in cfg.base_url.lower()
+
+
 def images_from_response(resp: dict[str, Any], *, fetch: Optional[Fetch] = None) -> list[bytes]:
     """从接口返回里取图字节：优先 b64_json，否则 fetch(url)。"""
     fetch = fetch or _default_fetch
@@ -236,6 +269,14 @@ def images_from_response(resp: dict[str, Any], *, fetch: Optional[Fetch] = None)
 def create_image(cfg: GenImageConfig, prompt: str, *, n: int = 1, size: str | None = DEFAULT_SIZE,
                  quality: str | None = None, output_format: str | None = None,
                  background: str | None = None, http_post: Optional[HttpPost] = None) -> dict[str, Any]:
+    if _is_nvidia_cfg(cfg):
+        from ozon_common.nvidia import nvidia_generate_image  # noqa: PLC0415
+        return nvidia_generate_image(
+            {"base": cfg.base_url, "key": cfg.api_key, "model": cfg.model},
+            prompt,
+            size=size,
+            opener=_opener_from_post(http_post),
+        )
     http_post = http_post or _default_post
     payload = build_create_payload(cfg, prompt, n=n, size=size, quality=quality,
                                    output_format=output_format, background=background)
@@ -247,6 +288,16 @@ def edit_image(cfg: GenImageConfig, prompt: str, image_paths: Sequence[str], *,
                mask_path: str | None = None, n: int = 1, size: str | None = DEFAULT_SIZE,
                quality: str | None = None, output_format: str | None = None,
                background: str | None = None, http_post: Optional[HttpPost] = None) -> dict[str, Any]:
+    if _is_nvidia_cfg(cfg):
+        from ozon_common.nvidia import image_to_data_uri, nvidia_generate_image  # noqa: PLC0415
+        image_data_uri = image_to_data_uri(str(image_paths[0])) if image_paths else None
+        return nvidia_generate_image(
+            {"base": cfg.base_url, "key": cfg.api_key, "model": cfg.model},
+            prompt,
+            size=size,
+            image_data_uri=image_data_uri,
+            opener=_opener_from_post(http_post),
+        )
     http_post = http_post or _default_post
     url, fields, files = build_edit_request(cfg, prompt, image_paths, mask_path=mask_path, n=n,
                                             size=size, quality=quality,

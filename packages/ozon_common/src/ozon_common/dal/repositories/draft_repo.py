@@ -447,13 +447,18 @@ class DraftRepo(BaseRepo):
         ).first()
         return self._row_to_draft(row) if row else None
 
-    def list_drafts_by_variant_group(self, group: str) -> list[dict[str, Any]]:
+    def list_drafts_by_variant_group(
+        self, group: str, store_client_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """返回同组草稿(按 id 升序)。走 variant_group 索引列,只取同组那几行。"""
         group = str(group or "").strip()
         if not group:
             return []
+        conds = [D.c.variant_group == group]
+        if store_client_id is not None:
+            conds.append(D.c.store_client_id == str(store_client_id or ""))
         rows = self.s.execute(
-            select(D).where(D.c.variant_group == group).order_by(D.c.id.asc())
+            select(D).where(*conds).order_by(D.c.id.asc())
         ).all()
         imgs = self._load_draft_images_batch([r._mapping["id"] for r in rows])
         return [self._row_to_draft(r, imgs.get(r._mapping["id"], [])) for r in rows]

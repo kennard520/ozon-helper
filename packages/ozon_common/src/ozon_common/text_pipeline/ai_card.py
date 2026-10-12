@@ -25,6 +25,12 @@ _SYS_NAV_LEAF = ("You classify an Ozon product by choosing the SINGLE best final
                  "fundamentally is and does - not by secondary features, marketing claims, or "
                  "included accessories. Output only JSON {\"index\": int} (0-based). No explanation.")
 
+_SYS_NAV_ROOTS = ("You choose broad Ozon root categories for a product. Given a numbered list of "
+                  "root category options, choose 1 to 3 plausible broad roots that may contain the "
+                  "product's final leaf category. Judge by primary product purpose, not by "
+                  "ingredients, materials, or secondary marketing claims. Output only JSON "
+                  "{\"indices\": [int]} (0-based). No explanation.")
+
 
 def _extract_json(text: str) -> Any:
     s = str(text or "").strip()
@@ -53,6 +59,29 @@ def _parse_index(text: str, n: int) -> int | None:
         return idx if 0 <= idx < n else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _parse_indices(text: str, n: int, *, limit: int) -> list[int]:
+    try:
+        value = _extract_json(text)
+    except Exception:  # noqa: BLE001
+        return []
+    raw = value.get("indices") if isinstance(value, dict) else None
+    if raw is None and isinstance(value, dict) and value.get("index") is not None:
+        raw = [value.get("index")]
+    if not isinstance(raw, list):
+        return []
+    out: list[int] = []
+    for item in raw:
+        try:
+            idx = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < n and idx not in out:
+            out.append(idx)
+        if len(out) >= max(1, limit):
+            break
+    return out
 
 
 def _flatten_type_options(roots: list) -> list[dict]:
@@ -134,6 +163,39 @@ def navigate_leaf_candidates(candidates: list[dict], chat, profile: str) -> dict
     }
 
 
+def navigate_category_broad_then_leaf(
+    roots: list,
+    chat,
+    profile: str,
+    *,
+    max_roots: int = 3,
+) -> dict | None:
+    """First ask AI for broad root categories, then choose from those roots' leaves."""
+    root_entries: list[tuple[dict, list[dict]]] = []
+    for root in roots or []:
+        leaves = _flatten_type_options([root])
+        if leaves:
+            root_entries.append((root, leaves))
+    if not root_entries:
+        return None
+    options = [
+        {"index": i, "name": _node_name(root), "leaf_count": len(leaves)}
+        for i, (root, leaves) in enumerate(root_entries)
+    ]
+    user = ("Root categories:\n"
+            + json.dumps(options, ensure_ascii=False)
+            + "\n\nProduct:\n" + (profile or ""))
+    indices = _parse_indices(chat(_SYS_NAV_ROOTS, user), len(root_entries), limit=max_roots)
+    if not indices:
+        indices = _parse_indices(chat(_SYS_NAV_ROOTS, user), len(root_entries), limit=max_roots)
+    if not indices:
+        return None
+    candidates: list[dict] = []
+    for idx in indices:
+        candidates.extend(root_entries[idx][1])
+    return navigate_leaf_candidates(candidates, chat, profile)
+
+
 def navigate_category_once(roots: list, chat, profile: str, *, candidate_limit: int = 240) -> dict | None:
     """Pick the final type with a single AI call from locally shortlisted leaf categories."""
     leaves = _flatten_type_options(roots)
@@ -179,6 +241,9 @@ def _navigate_category_drilldown(roots: list, chat, profile: str, *, max_depth: 
 
 
 def navigate_category(roots: list, chat, profile: str, *, max_depth: int = 6) -> dict | None:
+    nav = navigate_category_broad_then_leaf(roots, chat, profile)
+    if nav:
+        return nav
     nav = navigate_category_once(roots, chat, profile)
     if nav:
         return nav
@@ -190,6 +255,7 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
     品类/材质/规格/卖点/场景/包装喂给文案,让简介基于图上卖点写(解决纯文本太薄)。"""
     raw = raw or {}
     parts = [f"Title: {raw.get('title') or raw.get('imt_name') or raw.get('source_title') or raw.get('name') or ''}"]
+    primary_type: str | None = None
     category_parts: list[str] = []
     category_path = str(raw.get("category_path") or "").strip()
     if category_path:
@@ -202,6 +268,7 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
     if category_parts:
         parts.append("Source category: " + " / ".join(category_parts))
     # 兼容两种格式：1688 {name, value} 和 Ozon {id, values: [{dictionary_value_id, value}]}
+    pairs: list[tuple[str, str]] = []
     for p in (raw.get("params") or raw.get("attributes") or []):
         k = p.get("k") or p.get("name") or str(p.get("id") or "")
         v = p.get("v") or p.get("value") or ""
@@ -211,7 +278,27 @@ def build_profile(raw: dict, *, budget: int = 6000, understanding: dict | None =
             if vals:
                 v = ", ".join(vals)
         if k and v:
-            parts.append(f"{k}: {v}")
+            pairs.append((str(k).strip(), str(v).strip()))
+
+    primary_type_idx: int | None = None
+    for i, (k, v) in enumerate(pairs):
+        low = k.lower()
+        if not (low == "type" or low.startswith("тип")):
+            continue
+        tail = k[3:].strip(" ：:-") if low.startswith("тип") else ""
+        if tail and tail.lower() not in {"товара", "продукта"}:
+            primary_type = f"{tail}; {v}".strip(" ;")
+        else:
+            primary_type = v.strip()
+        primary_type_idx = i
+        break
+    if primary_type:
+        parts.insert(1, f"Type: {primary_type}")
+
+    for i, (k, v) in enumerate(pairs):
+        if primary_type_idx is not None and i == primary_type_idx:
+            continue
+        parts.append(f"{k}: {v}")
     seen_pairs = set()
     for line in parts[1:]:
         if ": " in line:

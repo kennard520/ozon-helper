@@ -144,10 +144,7 @@ class AiCardMixin:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
-        cat = int(str(draft.get("category_id") or "0") or 0)
-        typ = int(str(draft.get("type_id") or "0") or 0)
-        if not cat or not typ:
-            return {"error": "请先选好类目（类别识别）再用 AI 填特征"}
+        cat, typ = self._require_category_for_generation(draft, "填特征")
         raw = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
         settings = self.store.get_settings()
         profile = build_profile(raw or {}, understanding=(raw or {}).get("understanding"))
@@ -517,6 +514,7 @@ class AiCardMixin:
             raise KeyError(f"draft {draft_id} not found")
         sr = draft.get("source_raw") if isinstance(draft.get("source_raw"), dict) else {}
         platform = str(draft.get("source_platform") or sr.get("source_platform") or "").strip().lower()
+        self._require_category_for_generation(draft, "填特征")
         if platform == "1688":
             if not (isinstance(sr.get("understanding"), dict) and sr.get("understanding")):
                 self.understand_draft(draft_id)
@@ -562,6 +560,30 @@ class AiCardMixin:
         """解析"无品牌"(Нет бренда)的字典值，attr 85。找不到返回 None。"""
         vals = self._resolve_values(cat, typ, 85, [NO_BRAND], False)
         return vals[0] if vals else None
+
+    def _require_category_for_generation(self, draft: dict, action: str = "生成内容") -> tuple[int, int]:
+        cat = _to_int((draft or {}).get("category_id"))
+        typ = _to_int((draft or {}).get("type_id"))
+        if not cat or not typ:
+            raise ValueError(f"请先选择或识别 Ozon 分类，再{action}")
+        return cat, typ
+
+    def _locked_category_roots_for_draft(self, draft: dict, cat: int, typ: int) -> list[dict]:
+        raw = (draft or {}).get("source_raw") if isinstance((draft or {}).get("source_raw"), dict) else {}
+        path = str((draft or {}).get("category_path") or raw.get("category_path") or "").strip()
+        parts = [p.strip() for p in path.split(" / ") if p.strip()]
+        if not parts:
+            parts = [str((draft or {}).get("source_title") or (draft or {}).get("ozon_title") or "Selected").strip() or "Selected"]
+        if len(parts) == 1:
+            return [{"category_name": parts[0], "description_category_id": cat, "type_id": typ}]
+        root: dict = {"category_name": parts[0], "children": []}
+        cur = root
+        for name in parts[1:-1]:
+            node = {"category_name": name, "children": []}
+            cur["children"] = [node]
+            cur = node
+        cur["children"] = [{"category_name": parts[-1], "description_category_id": cat, "type_id": typ}]
+        return [root]
 
     def _category_roots_ru(self, settings: dict) -> list:
         client = None if self.catalog_ru.has_tree_cache() else build_client(settings)
@@ -611,6 +633,7 @@ class AiCardMixin:
         draft = self.store.get_draft(draft_id)
         if draft is None:
             raise KeyError(f"draft {draft_id} not found")
+        cat, typ = self._require_category_for_generation(draft, "生成内容")
         raw_sr = draft.get("source_raw") or {}
         if isinstance(raw_sr, str):
             from webui.drafts import loads_json  # noqa: PLC0415
@@ -624,12 +647,21 @@ class AiCardMixin:
         if not str(raw.get("description_text", "")).strip():
             raw["description_text"] = draft.get("description") or ""
         settings = self.store.get_settings()
+        category_roots = self._locked_category_roots_for_draft(draft, cat, typ)
+        log.info(
+            "[ai_generate] draft=%s lock cat=%s type=%s path=%s title=%s",
+            draft_id,
+            cat,
+            typ,
+            str(draft.get("category_path") or ""),
+            str(raw.get("title") or raw.get("imt_name") or draft.get("source_title") or "")[:120],
+        )
         r = generate_card(
             raw,
             chat=self._card_chat(settings, draft),
             # AI 从根类目逐层下钻到末级类型（取代旧的"关键词→搜索候选→选一个"两步）。
             # 喂中文树：中文↔中文匹配，避免被电子卖点带偏类目（喂食器≠驱虫器）。
-            category_roots=self._category_roots_zh(settings),
+            category_roots=category_roots,
             fetch_required_attrs=self._category_attrs,
             resolve_values=self._resolve_values,
             # 理解层事实(若已生成)并入 profile：让文案基于图上卖点写，简介更厚

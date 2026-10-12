@@ -257,6 +257,7 @@ export function useDraftBatchOps(store) {
         poll: r.poll,
         response: r.response,
         task_id: r.task_id,
+        submitted: r.submitted,
       }
     } catch (err) {
       publishResult.value = { published: false, errors: [(err && err.message) || String(err)] }

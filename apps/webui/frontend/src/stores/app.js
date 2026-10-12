@@ -5,7 +5,7 @@ export const useAppStore = defineStore('app', {
   state: () => ({
     drafts: [], selectedId: null, selected: new Set(),
     filter: 'all', sourcePlatform: '1688',
-    settings: {}, status: {}, paths: {}, login: {},
+    settings: {}, status: {}, paths: {}, login: {}, runtime: { local_lite: false }, runtimeLoaded: false,
     // 当前操作店铺（client_id）：店铺级操作（发布默认目标，将来仓库/订单）都以它为上下文
     currentStore: '',
     // 后端分页：drafts 只存当前页；总数/计数由后端给（前端无法自算）
@@ -17,6 +17,7 @@ export const useAppStore = defineStore('app', {
     pendingOps: {},
   }),
   getters: {
+    localLite: (s) => !!s.runtime.local_lite,
     storeList: (s) => s.settings.ozon_stores || [],
     currentStoreName: (s) => {
       const hit = (s.settings.ozon_stores || []).find(x => String(x.client_id) === String(s.currentStore))
@@ -30,7 +31,7 @@ export const useAppStore = defineStore('app', {
     pageCount: (s) => Math.max(1, Math.ceil(s.total / s.pageSize)),
   },
   actions: {
-    async loadState() { const r = await api.state(); this.settings = r.settings; this.status = r.status; this.paths = r.paths; this.login = r.login || {}; this.ensureCurrentStore() },
+    async loadState() { const r = await api.state(); this.settings = r.settings; this.status = r.status; this.paths = r.paths; this.login = r.login || {}; this.runtime = r.runtime || { local_lite: false }; this.ensureCurrentStore() },
     // 选定当前店：已选且仍在列表里则保留；否则取上次保存(localStorage)，再否则默认店/列表第一个
     ensureCurrentStore() {
       const list = this.settings.ozon_stores || []

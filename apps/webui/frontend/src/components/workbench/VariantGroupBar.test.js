@@ -17,7 +17,7 @@ import { api } from '../../api.js'
 import { useWorkbenchStore } from '../../stores/workbench.js'
 import VariantGroupBar from './VariantGroupBar.vue'
 
-function setup(props = {}) {
+function setup() {
   setActivePinia(createPinia())
   const wb = useWorkbenchStore()
   wb.variants = [
@@ -26,8 +26,7 @@ function setup(props = {}) {
     { id: 3, spec: '哑黑·350ml', price: 1190, status: 'invalid', image: '', done: 0 },
   ]
   wb.currentVariantId = 1
-  wb.groupKey = 'G-1'
-  const w = mount(VariantGroupBar, { props })
+  const w = mount(VariantGroupBar)
   return { w, wb }
 }
 
@@ -40,24 +39,6 @@ describe('VariantGroupBar', () => {
     expect(w.text()).toContain('共 3 个变体')
     expect(w.text()).toContain('雾灰·350ml')
     expect(w.text()).toContain('3/7')
-  })
-
-  it('标题行只渲染一个带变体数量的整组发布按钮', () => {
-    const { w } = setup()
-    const buttons = w.findAll('.vgb-publish')
-    expect(buttons).toHaveLength(1)
-    expect(buttons[0].text()).toContain('发布整组（3 个变体）')
-  })
-
-  it('点击整组发布按钮发出 publish-group 事件', async () => {
-    const { w } = setup()
-    await w.find('.vgb-publish').trigger('click')
-    expect(w.emitted('publish-group')).toHaveLength(1)
-  })
-
-  it('发布中禁用整组按钮', () => {
-    const { w } = setup({ publishing: true })
-    expect(w.find('.vgb-publish').attributes('disabled')).toBeDefined()
   })
 
   it('点胶囊设当前变体', async () => {
@@ -74,6 +55,23 @@ describe('VariantGroupBar', () => {
     wb.setVariantTask(2, { job_id: 10, status: 'running' })
     await w.vm.$nextTick()
     expect(w.findAll('.vpill')[1].find('.vpill__spinner').exists()).toBe(true)
+  })
+
+  it('renders per-variant publish statuses', async () => {
+    const { w, wb } = setup()
+    wb.variants = [
+      { id: 1, spec: 'A', status: 'ready', done: 3 },
+      { id: 2, spec: 'B', status: 'publishing', done: 4 },
+      { id: 3, spec: 'C', status: 'published', done: 7 },
+      { id: 4, spec: 'D', status: 'failed', done: 6 },
+    ]
+    await w.vm.$nextTick()
+    const badges = w.findAll('.vpill__publish-status')
+    expect(badges).toHaveLength(4)
+    expect(badges[0].classes()).toContain('is-unpublished')
+    expect(badges[1].classes()).toContain('is-publishing')
+    expect(badges[2].classes()).toContain('is-published')
+    expect(badges[3].classes()).toContain('is-failed')
   })
 
   it('当前变体胶囊有高亮 class', () => {
@@ -117,6 +115,5 @@ describe('VariantGroupBar', () => {
     const w = mount(VariantGroupBar)
     expect(w.text()).toContain('暂无变体')
     expect(w.findAll('.vpill')).toHaveLength(0)
-    expect(w.find('.vgb-publish').attributes('disabled')).toBeDefined()
   })
 })
