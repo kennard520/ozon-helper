@@ -23,10 +23,10 @@ description: 把本地图片或远程图片 URL 上传到阿里云 OSS，拿公�
 
 | 意图 | 命令 |
 |---|---|
-| 传本地文件 | `python .Codex/skills/oss-upload/upload.py a.png b.jpg` |
-| 传远程 URL | `python .Codex/skills/oss-upload/upload.py https://x.com/img.png` |
-| 通配批量 | `python .Codex/skills/oss-upload/upload.py --glob "某目录/*.png"` |
-| 传 gen-image 刚出的图 | `python .Codex/skills/oss-upload/upload.py --from-genimage` |
+| 传本地文件 | `python .agents/skills/oss-upload/upload.py a.png b.jpg` |
+| 传远程 URL | `python .agents/skills/oss-upload/upload.py https://x.com/img.png` |
+| 通配批量 | `python .agents/skills/oss-upload/upload.py --glob "某目录/*.png"` |
+| 传 gen-image 刚出的图 | `python .agents/skills/oss-upload/upload.py --from-genimage` |
 
 Windows 下先 `$env:PYTHONIOENCODING="utf-8"`。
 
@@ -42,8 +42,8 @@ Windows 下先 `$env:PYTHONIOENCODING="utf-8"`。
 
 出图 → 上传一条龙：
 ```powershell
-python .Codex/skills/gen-image/generate.py "提示词" --name 主图
-python .Codex/skills/oss-upload/upload.py --from-genimage
+python .agents/skills/gen-image/generate.py "提示词" --name 主图
+python .agents/skills/oss-upload/upload.py --from-genimage
 ```
 
 ## 注意

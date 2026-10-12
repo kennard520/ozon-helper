@@ -61,7 +61,7 @@ description: 跨境一件代发盈亏测算 v3（4 平台 · 实时汇率 · 平
 ## 执行步骤
 
 1. 解析用户参数（中文关键词映射到 CLI 参数）
-2. 调用：`python .Codex/skills/price/calc.py --cost X --weight Y [--category ...] [--platform all] --output json`
+2. 调用：`python .agents/skills/price/calc.py --cost X --weight Y [--category ...] [--platform all] --output json`
    - **必须用 `--output json`** 拿结构化数据
    - 未指定类目时不传 `--category`（脚本自动跑全类目）
    - 汇率自动实时获取（离线自动回退缓存）
@@ -152,7 +152,7 @@ P_target = P_min / (1 - 0.30)
 
 ## 配置文件 params.json
 
-所有可变参数存储在 `.Codex/skills/price/params.json`：
+所有可变参数存储在 `.agents/skills/price/params.json`：
 - `exchange_rates`：汇率（运行时自动刷新）
 - `commission`：平台×类目 二维佣金表
 - `shipping_brackets`：各平台阶梯运费

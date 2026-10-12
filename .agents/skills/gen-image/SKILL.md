@@ -79,7 +79,7 @@ no discount, no contact information, no QR code, no watermark.
 推荐目录：
 
 ```text
-.Codex/skills/gen-image/
+.agents/skills/gen-image/
   generate.py
   SKILL.md
   _last.json        # 运行后自动生成，不提交
@@ -141,7 +141,7 @@ export GPTPLUS5_IMAGE_FIELD="image"
 ### 1. 创建：无参考图，生成场景/氛围
 
 ```bash
-python .Codex/skills/gen-image/generate.py \
+python .agents/skills/gen-image/generate.py \
   "Photorealistic Ozon ecommerce image, an electromagnetic lock installed on a transparent glass door in a modern office entrance, clean light background, realistic shadows, no text, no logo, no watermark." \
   --mode create --size 1024x1536 --quality high --n 3 --name 磁力锁_玻璃门场景
 ```
@@ -152,7 +152,7 @@ python .Codex/skills/gen-image/generate.py \
 ### 2. 修改：上传真实产品图，生成安装场景
 
 ```bash
-python .Codex/skills/gen-image/generate.py \
+python .agents/skills/gen-image/generate.py \
   "Use the uploaded electromagnetic lock as the exact product reference. Create a photorealistic Ozon product card image: the same lock installed on a transparent glass door in a modern office entrance. Keep the lock body shape, screw holes, color, proportions, wiring outlet, bracket structure and metal texture consistent with the reference. No text, no logo, no watermark." \
   --mode edit --image ./磁力锁.png --size 1024x1536 --quality high --n 3 --name 磁力锁_参考图安装
 ```
@@ -174,7 +174,7 @@ python .Codex/skills/gen-image/generate.py \
 ### 3. 蒙版：只换背景，产品不动
 
 ```bash
-python .Codex/skills/gen-image/generate.py \
+python .agents/skills/gen-image/generate.py \
   "Replace only the masked area with a clean modern glass door installation scene. Keep the unmasked electromagnetic lock completely unchanged. Realistic lighting, natural shadows, ecommerce product photo style, no text, no logo." \
   --mode mask --image ./原图.png --mask ./背景蒙版.png --size 1024x1536 --quality high --name 磁力锁_局部换背景
 ```
@@ -283,7 +283,7 @@ naturally. No added text, no watermark, no extra objects.
 先查模型：
 
 ```bash
-python .Codex/skills/gen-image/generate.py --list-models
+python .agents/skills/gen-image/generate.py --list-models
 ```
 
 或者改模型：

@@ -13,7 +13,7 @@ description: 跨境选品可行性分析(Ozon 版)。给一个产品关键词，
 3. **调用 ozon-profit-calculator** — 用进价+重量算 ZTO / OGL / China Post 各渠道的保本价、推荐售价、单件利润
 4. **对比出结论** — Ozon 竞品价 vs 我们成本，判断能不能做 + 推荐最优物流渠道
 
-> 定价依赖 `ozon-profit-calculator`（`E:\code\zqr\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py`）。
+> 定价依赖 `ozon-profit-calculator`（`E:\personal\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py`）。
 
 ## 调用格式
 
@@ -64,10 +64,10 @@ python -m ozon_scraper scout "{俄语关键词}" --limit 30
 
 ```bash
 # 反推目标售价(默认 10% 毛利)
-python E:\code\zqr\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py --cost {进价} --weight {重量} --target-margin 0.10 [--category car|other]
+python E:\personal\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py --cost {进价} --weight {重量} --target-margin 0.10 [--category car|other]
 
 # 用 Ozon 竞品价看实际利润
-python E:\code\zqr\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py --price {竞品主流价} --cost {进价} --weight {重量} [--category car|other]
+python E:\personal\ozon-helper\.agents\skills\ozon-profit-calculator\scripts\calc_profit.py --price {竞品主流价} --cost {进价} --weight {重量} [--category car|other]
 ```
 
 从输出拿（每渠道 ZTO/OGL/ChinaPost陆运/ChinaPost空运）：

@@ -82,6 +82,6 @@
 
 ## 七、本地参考数据
 
-- 项目 ZTO 种子: `E:\code\zqr\ozon-helper\apps\webui\src\webui\realfbs_routes_seed.json`(141 条, 含各物流商各档费率)
+- 项目 ZTO 种子: `E:\personal\ozon-helper\apps\webui\src\webui\realfbs_routes_seed.json`(141 条, 含各物流商各档费率)
 - 内置定价服务: `apps/webui/src/webui/services/_pricing.py`
 - 测试 fixture `apps/webui/tests/fixtures/calc_sample.json` 为**测试数据, 非真实费率**

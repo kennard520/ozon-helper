@@ -30,12 +30,12 @@ description: Ozon 店铺流量/转化数据速查。拉取曝光/会话/加购/�
 | 区间 | `python .agents/skills/ozon-stats/fetch.py --from 2026-06-01 --to 2026-06-05` |
 | 滚动 N 天 | `python .agents/skills/ozon-stats/fetch.py --days 7` |
 
-脚本把结果写到 `.Codex/skills/ozon-stats/_last.json` 并 print 一行状态（`OK ...` / `OK_EMPTY ...`）。
+脚本把结果写到 `.agents/skills/ozon-stats/_last.json` 并 print 一行状态（`OK ...` / `OK_EMPTY ...`）。
 **不要直接看脚本的 stdout 取数**（Windows 控制台会把俄语/中文打成乱码）——下一步用 Read 读 JSON。
 
 ### Step 2: Read `_last.json`
 
-用 Read 工具读 `.Codex/skills/ozon-stats/_last.json`。结构：
+用 Read 工具读 `.agents/skills/ozon-stats/_last.json`。结构：
 - `meta`：date_from/date_to、row_count、truncated（是否超 1000 行被截断）、api_timestamp
 - `totals`：全店汇总
 - `by_sku`：分 SKU（已按曝光降序），含 `name`（俄语标题，可能为空）

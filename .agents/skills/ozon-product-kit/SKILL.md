@@ -42,7 +42,7 @@ metadata:
 本 skill 依赖底层出图 skill：
 
 ```text
-.Codex/skills/gen-image/
+.agents/skills/gen-image/
   generate.py
   SKILL.md
 ```
@@ -61,7 +61,7 @@ metadata:
 默认调用方式：
 
 ```powershell
-python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
+python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
 ```
 
 ---
@@ -617,7 +617,7 @@ Create a clean layout base only. Leave empty space for later Russian text overla
 只要用户提供产品图，默认使用：
 
 ```powershell
-python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
+python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
 ```
 
 ### create 模式
@@ -631,7 +631,7 @@ python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PROD
 命令：
 
 ```powershell
-python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode create --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
+python .agents/skills/gen-image/generate.py "<PROMPT>" --mode create --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
 ```
 
 ### mask 模式
@@ -648,7 +648,7 @@ python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode create --size 1024x
 命令：
 
 ```powershell
-python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode mask --image "<SOURCE_IMAGE_PATH>" --mask "<MASK_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
+python .agents/skills/gen-image/generate.py "<PROMPT>" --mode mask --image "<SOURCE_IMAGE_PATH>" --mask "<MASK_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
 ```
 
 ### 多图合成
@@ -656,7 +656,7 @@ python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode mask --image "<SOUR
 如果有产品图和场景图，使用多个 `--image`：
 
 ```powershell
-python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --image "<SCENE_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
+python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --image "<SCENE_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
 ```
 
 ## Step 7：读取 _last.json
@@ -664,7 +664,7 @@ python .Codex/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PROD
 每次调用 `gen-image` 后，读取：
 
 ```text
-.Codex/skills/gen-image/_last.json
+.agents/skills/gen-image/_last.json
 ```
 
 记录：
