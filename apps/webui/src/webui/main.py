@@ -31,6 +31,7 @@ from webui.routers import (  # noqa: E402
     drafts as drafts_router,
     ext as ext_router,
     gallery as gallery_router,
+    ozon_products as ozon_products_router,
     pricing as pricing_router,
     publish as publish_router,
     settings as settings_router,
@@ -45,6 +46,7 @@ app.include_router(ai_text_router.router)
 app.include_router(ai_image_router.router)
 app.include_router(ai_video_router.router)
 app.include_router(gallery_router.router)
+app.include_router(ozon_products_router.router)
 app.include_router(ext_router.router)
 app.include_router(pricing_router.router)
 app.include_router(warehouse_router.router)

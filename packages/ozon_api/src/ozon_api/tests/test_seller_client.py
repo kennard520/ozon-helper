@@ -82,6 +82,21 @@ class OzonSellerClientTest(unittest.TestCase):
         self.assertEqual(transport.calls[0]["json"],
                          {"items": [{"sku": 123, "offer_id": "A1", "price": "2300"}]})
 
+    def test_get_products_info_can_query_skus(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        client.get_products_info(skus=[4998185789])
+
+        self.assertEqual(transport.calls[0]["json"], {"sku": [4998185789]})
+
+    def test_get_products_info_rejects_mixed_identifiers(self) -> None:
+        transport = FakeTransport()
+        client = OzonSellerClient("123", "secret", transport=transport)
+
+        with self.assertRaises(ValueError):
+            client.get_products_info(offer_ids=["A"], skus=[4998185789])
+
     def test_list_unfulfilled_fbs_builds_filter_payload(self) -> None:
         transport = FakeTransport()
         client = OzonSellerClient("123", "secret", transport=transport)

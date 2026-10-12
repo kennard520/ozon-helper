@@ -485,6 +485,23 @@ class Store:
         user_id = _uid(user_id)
         return _in_scope(lambda: _draft_repo().find_by_offer_id(str(offer_id), user_id))
 
+    def find_ozon_draft(
+        self,
+        *,
+        store_client_id: str,
+        sku: str,
+        product_id: int | None,
+        offer_id: str,
+    ) -> dict[str, Any] | None:
+        user_id = _uid(None)
+        return _in_scope(lambda: _draft_repo().find_ozon_draft(
+            user_id=user_id,
+            store_client_id=store_client_id,
+            sku=sku,
+            product_id=product_id,
+            offer_id=offer_id,
+        ))
+
     def update_draft(self, draft_id: int, patch: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
         user_id = _uid(user_id)
         def _do() -> dict[str, Any]:

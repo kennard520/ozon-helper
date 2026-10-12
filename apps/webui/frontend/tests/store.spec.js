@@ -1,7 +1,14 @@
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { useAppStore } from '../src/stores/app.js'
 import { api } from '../src/api.js'
+
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 beforeEach(() => { setActivePinia(createPinia()) })
 
@@ -50,6 +57,45 @@ describe('app store', () => {
     expect(s.pageSize).toBe(50)
     expect(s.page).toBe(1)  // 改页大小回到第 1 页
     expect(spy).toHaveBeenCalled()
+  })
+
+  it('切店后忽略旧店晚到的草稿列表响应', async () => {
+    const oldStoreResponse = deferred()
+    const newStoreResponse = deferred()
+    const spy = vi.spyOn(api, 'listDrafts')
+      .mockImplementationOnce(() => oldStoreResponse.promise)
+      .mockImplementationOnce(() => newStoreResponse.promise)
+    const s = useAppStore()
+    s.currentStore = 'store-7'
+
+    const oldLoad = s.loadDrafts()
+    s.setCurrentStore('store-8')
+
+    expect(spy.mock.calls[0][0].store_client_id).toBe('store-7')
+    expect(spy.mock.calls[1][0].store_client_id).toBe('store-8')
+
+    newStoreResponse.resolve({
+      drafts: [{ id: 99, store_client_id: 'store-8' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      counts: { all: 1, ready: 1, invalid: 0, failed: 0, published: 0 },
+    })
+    await flushPromises()
+    expect(s.drafts).toEqual([{ id: 99, store_client_id: 'store-8' }])
+
+    oldStoreResponse.resolve({
+      drafts: [{ id: 42, store_client_id: 'store-7' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      counts: { all: 1, ready: 0, invalid: 0, failed: 0, published: 1 },
+    })
+    await oldLoad
+
+    expect(s.currentStore).toBe('store-8')
+    expect(s.drafts).toEqual([{ id: 99, store_client_id: 'store-8' }])
+    expect(s.counts.ready).toBe(1)
   })
 
   it('upsertDraft 命中页内则就地更新并返回 true', () => {

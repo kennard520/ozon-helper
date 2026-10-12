@@ -375,11 +375,16 @@ class OzonSellerClient:
         return self.request("/v1/finance/cash-flow-statement/list", payload)
 
     def get_products_info(self, *, offer_ids: list[str] | None = None,
-                          product_ids: list[int] | None = None) -> dict[str, Any]:
+                          product_ids: list[int] | None = None,
+                          skus: list[int] | None = None) -> dict[str, Any]:
+        if sum(bool(ids) for ids in (offer_ids, product_ids, skus)) > 1:
+            raise ValueError("offer_ids, product_ids, and skus are mutually exclusive")
         if offer_ids:
             payload: dict[str, Any] = {"offer_id": [str(o) for o in offer_ids]}
         elif product_ids:
             payload = {"product_id": [int(p) for p in product_ids]}
+        elif skus:
+            payload = {"sku": [int(sku) for sku in skus]}
         else:
             payload = {"offer_id": []}
         return self.request("/v3/product/info/list", payload)

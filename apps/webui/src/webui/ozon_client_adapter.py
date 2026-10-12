@@ -169,6 +169,17 @@ def get_ozon_info(settings: dict, offer_ids: list[str]) -> dict[str, dict]:
     return out
 
 
+def get_ozon_info_by_skus(settings: dict, skus: list[int]) -> dict[str, dict]:
+    client = build_client(settings)
+    out: dict[str, dict] = {}
+    for i in range(0, len(skus), 1000):
+        chunk = skus[i:i + 1000]
+        r = client.get_products_info(skus=chunk)
+        for it in (r.get("items") or []):
+            out[str(it.get("sku"))] = it
+    return out
+
+
 def get_ozon_descriptions(settings: dict, offer_ids: list[str]) -> dict[str, str]:
     """逐 offer_id 调 /v1/product/info/description，返回 {offer_id: description_text}。
     单个失败不中断整体（返回空字符串占位）。"""

@@ -126,6 +126,13 @@ export const api = {
   fbsSetState: (id, purchase_state, note = '', store_client_id) => req('POST', `/api/fbs/procurement/${id}/state${_sq(store_client_id)}`, { purchase_state, note }),
   fbsShip: (posting_number, store_client_id) => req('POST', `/api/fbs/ship${_sq(store_client_id)}`, { posting_number }),
   fbsLabelUrl: (posting, store_client_id) => `/api/fbs/label?posting=${encodeURIComponent(posting)}${store_client_id ? '&store_client_id=' + encodeURIComponent(store_client_id) : ''}`,
+  importOzonBySku: (sku, store_client_id, selected_fields) => req(
+    'POST', '/api/ozon-products/import-by-sku',
+    { sku: Number(sku), store_client_id, ...(selected_fields ? { selected_fields } : {}) },
+  ),
+  syncOzonProducts: (store_client_id, visibility = 'ALL') => req(
+    'POST', '/api/ozon-products/sync', { store_client_id, visibility },
+  ),
   // 鉴权 + 钱包
   login: (username, password) => req('POST', '/api/auth/login', { username, password }),
   me: () => req('GET', '/api/auth/me'),

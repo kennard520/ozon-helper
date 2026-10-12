@@ -10,6 +10,7 @@ export const useAppStore = defineStore('app', {
     currentStore: '',
     // 后端分页：drafts 只存当前页；总数/计数由后端给（前端无法自算）
     page: 1, pageSize: 20, total: 0,
+    draftsRequestVersion: 0,
     serverCounts: { all: 0, invalid: 0, ready: 0, failed: 0, published: 0 },
     // 各草稿在途操作（按 草稿id→操作名→true）：loading 状态存这里而非组件内，
     // 切换草稿(DraftDetail 因 :key 重建)再切回，未完成的操作按钮仍能正确转圈。
@@ -48,16 +49,31 @@ export const useAppStore = defineStore('app', {
       try { localStorage.setItem('current_store', this.currentStore) } catch { /* ignore */ }
       this.selectedId = null   // 切店清空选中（旧店草稿不属于新店）
       this.page = 1
-      this.loadDrafts()
+      return this.loadDrafts()
     },
     async loadDrafts() {
+      const requestVersion = ++this.draftsRequestVersion
+      const requestContext = {
+        status: this.filter,
+        page: this.page,
+        page_size: this.pageSize,
+        store_client_id: this.currentStore,
+      }
       // 草稿绑定店：带当前店 → 只看当前店的货（currentStore 为空时 qs 自动省略=不按店过滤）
-      const r = await api.listDrafts({ status: this.filter, page: this.page, page_size: this.pageSize, store_client_id: this.currentStore })
+      const r = await api.listDrafts(requestContext)
+      if (
+        requestVersion !== this.draftsRequestVersion
+        || requestContext.status !== this.filter
+        || requestContext.page !== this.page
+        || requestContext.page_size !== this.pageSize
+        || String(requestContext.store_client_id) !== String(this.currentStore)
+      ) return false
       this.drafts = r.drafts || []
       this.total = r.total ?? this.drafts.length
       if (r.counts) this.serverCounts = r.counts
       if (r.page) this.page = r.page
       if (r.page_size) this.pageSize = r.page_size
+      return true
     },
     async setFilter(f) { this.filter = f; this.page = 1; await this.loadDrafts() },
     async setPage(p) { this.page = p; await this.loadDrafts() },
@@ -65,6 +81,15 @@ export const useAppStore = defineStore('app', {
     // 后端分页后 drafts 只是当前页：只就地更新已在页内的草稿；新草稿不 unshift（会撑破页大小、
     // total/counts 不同步），交给 loadDrafts 重新拉。返回是否命中，调用方可据此决定要不要 reload。
     upsertDraft(d) { const i = this.drafts.findIndex(x => x.id === d.id); if (i >= 0) { this.drafts[i] = d; return true } return false },
+    // 用户刚导入并明确要编辑的草稿必须进入可见集合；保持当前页上限，total/counts 仍以后端刷新结果为准。
+    adoptDraft(d) {
+      if (!d || d.id == null) return false
+      const draftStore = String(d.store_client_id || '')
+      if (draftStore && draftStore !== String(this.currentStore || '')) return false
+      if (this.upsertDraft(d)) return true
+      this.drafts = [d, ...this.drafts].slice(0, this.pageSize)
+      return true
+    },
     removeDraft(id) { this.drafts = this.drafts.filter(d => d.id !== id); this.selected.delete(id); if (this.selectedId === id) this.selectedId = null },
     // 在途操作标记：跨草稿切换持久（DraftDetail 重建后按钮仍能读回 loading 态）
     setOp(id, op, v) {

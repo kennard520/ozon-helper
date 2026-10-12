@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, update
 
 from ozon_common.dal.repositories.base import BaseRepo
 from ozon_common.dal.schema import draft_images as DI
@@ -168,6 +168,8 @@ class DraftRepo(BaseRepo):
             .where(D.c.id == int(draft_id))
             .values(
                 source_platform=updated.get("source_platform", "1688"),
+                source_url=updated["source_url"],
+                source_offer_id=updated.get("source_offer_id"),
                 source_title=updated["source_title"],
                 purchase_url=updated.get("purchase_url", ""),
                 purchase_note=updated.get("purchase_note", ""),
@@ -412,6 +414,34 @@ class DraftRepo(BaseRepo):
         row = self.s.execute(
             select(D)
             .where(D.c.offer_id == str(offer_id), D.c.user_id == int(user_id))
+            .order_by(D.c.id.desc())
+            .limit(1)
+        ).first()
+        return self._row_to_draft(row) if row else None
+
+    def find_ozon_draft(
+        self,
+        *,
+        user_id: int,
+        store_client_id: str,
+        sku: str,
+        product_id: int | None,
+        offer_id: str,
+    ) -> dict[str, Any] | None:
+        identities = [
+            D.c.source_offer_id == str(sku),
+            D.c.source_url == f"ozon://product/{sku}",
+            D.c.offer_id == str(offer_id),
+        ]
+        if product_id is not None:
+            identities.append(D.c.ozon_product_id == int(product_id))
+        row = self.s.execute(
+            select(D)
+            .where(and_(
+                D.c.user_id == int(user_id),
+                D.c.store_client_id == str(store_client_id),
+                or_(*identities),
+            ))
             .order_by(D.c.id.desc())
             .limit(1)
         ).first()

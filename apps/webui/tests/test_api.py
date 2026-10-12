@@ -24,6 +24,7 @@ class ApiGetTest(unittest.TestCase):
         import webui.app_service as svc  # noqa: PLC0415
         importlib.reload(svc)
         import webui.main as main_mod  # noqa: PLC0415
+        main_mod.APP.store.close()
         importlib.reload(main_mod)
         self._main_mod = main_mod
 
@@ -115,6 +116,110 @@ class ApiWriteTest(unittest.TestCase):
             finally:
                 main_mod.APP.store.close()
                 self._restore_app()
+
+
+class OzonProductRouteTest(unittest.TestCase):
+    SKU = 4998185789
+
+    def setUp(self) -> None:
+        from fastapi.testclient import TestClient  # noqa: PLC0415
+
+        import webui.app_instance as app_instance  # noqa: PLC0415
+        import webui.main as main_mod  # noqa: PLC0415
+
+        self.app = app_instance.APP
+        self.client = TestClient(main_mod.app)
+
+    def test_import_by_sku_forwards_validated_request(self) -> None:
+        from unittest.mock import patch  # noqa: PLC0415
+
+        expected = {"created": True, "draft": {"id": 42}, "conflicts": [], "warnings": []}
+        with patch.object(self.app, "import_ozon_product_by_sku", return_value=expected) as mocked:
+            response = self.client.post("/api/ozon-products/import-by-sku", json={
+                "sku": self.SKU,
+                "store_client_id": "C-1",
+                "selected_fields": ["ozon_title"],
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        mocked.assert_called_once_with(self.SKU, "C-1", ["ozon_title"])
+
+    def test_import_by_sku_rejects_non_positive_sku(self) -> None:
+        response = self.client.post("/api/ozon-products/import-by-sku", json={
+            "sku": 0,
+            "store_client_id": "C-1",
+        })
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_import_by_sku_rejects_empty_store_client_id(self) -> None:
+        response = self.client.post("/api/ozon-products/import-by-sku", json={
+            "sku": self.SKU,
+            "store_client_id": "",
+        })
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_import_by_sku_maps_missing_sku_to_404(self) -> None:
+        from unittest.mock import patch  # noqa: PLC0415
+
+        with patch.object(
+            self.app,
+            "import_ozon_product_by_sku",
+            side_effect=KeyError(f"SKU {self.SKU} not found"),
+        ):
+            response = self.client.post("/api/ozon-products/import-by-sku", json={
+                "sku": self.SKU,
+                "store_client_id": "C-1",
+            })
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_import_by_sku_maps_configuration_error_without_leaking_secret(self) -> None:
+        from unittest.mock import patch  # noqa: PLC0415
+
+        secret = "TOP-SECRET-API-KEY"
+        with patch.object(
+            self.app,
+            "import_ozon_product_by_sku",
+            side_effect=ValueError(f"invalid credential {secret}"),
+        ):
+            response = self.client.post("/api/ozon-products/import-by-sku", json={
+                "sku": self.SKU,
+                "store_client_id": "C-1",
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn(secret, response.text)
+
+    def test_sync_forwards_store_and_visibility(self) -> None:
+        from unittest.mock import patch  # noqa: PLC0415
+
+        expected = {"pulled": 2, "created": 1, "updated": 1}
+        with patch.object(self.app, "sync_ozon_products", return_value=expected) as mocked:
+            response = self.client.post("/api/ozon-products/sync", json={
+                "store_client_id": "C-1",
+                "visibility": "VISIBLE",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        mocked.assert_called_once_with("C-1", "VISIBLE")
+
+    def test_compatibility_pull_forwards_store_client_id(self) -> None:
+        from unittest.mock import patch  # noqa: PLC0415
+
+        expected = {"pulled": 3}
+        with patch.object(self.app, "pull_ozon_products", return_value=expected) as mocked:
+            response = self.client.post("/api/ozon/pull", json={
+                "visibility": "ALL",
+                "store_client_id": "C-1",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        mocked.assert_called_once_with("ALL", "C-1")
 
 
 class MediaRouteTest(unittest.TestCase):

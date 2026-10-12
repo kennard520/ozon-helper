@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
+
+
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class AuthIn(BaseModel):
@@ -96,6 +99,18 @@ class CommissionMapIn(BaseModel):
 
 
 class OzonPullIn(BaseModel):
+    visibility: str = "ALL"
+    store_client_id: str | None = None
+
+
+class OzonProductImportIn(BaseModel):
+    sku: int = Field(gt=0)
+    store_client_id: NonEmptyStr
+    selected_fields: list[str] | None = None
+
+
+class OzonProductSyncIn(BaseModel):
+    store_client_id: NonEmptyStr
     visibility: str = "ALL"
 
 
