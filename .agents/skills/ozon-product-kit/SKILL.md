@@ -1,14 +1,14 @@
 ---
 name: ozon-product-kit
-description: "Ozon 商品卡一键生成总控：根据产品图、商品链接或简单说明，自动提取图片文字/尺寸/卖点，设计并生成 10 张 Ozon 商品图、俄语 listing、标签和富文本结构。"
-version: 1.1.0
+description: "Ozon 商品卡一键生成总控：根据产品图、商品链接或简单说明，自动提取图片文字/尺寸/卖点，设计并生成 10 张 Ozon 商品图、AI 商品视频、俄语 listing、标签和富文本结构。"
+version: 2.0.0
 author: User
 license: MIT
 platforms: [windows, linux, macos]
 metadata:
   hermes:
-    tags: [ozon, ecommerce, product-card, listing, rich-content, product-images, russian, ocr]
-    related_skills: [gen-image]
+    tags: [ozon, ecommerce, product-card, listing, rich-content, product-images, product-video, russian, ocr]
+    image_backend: doubao_native  # 直接用豆包内置 image_gen / image_edit（Seedream），不再依赖外部 gen-image 脚本
 ---
 
 # ozon-product-kit — Ozon 商品卡一键生成 Skill
@@ -29,40 +29,50 @@ metadata:
 2. 提取图片里的尺寸、参数、卖点、型号、材质、包装清单等文字信息
 3. 区分“已确认 / 图片识别待核对 / 待确认”
 4. 设计 10 张 Ozon 商品卡图片方案
-5. 调用 `gen-image` skill 逐张生成图片
+5. 调用豆包内置图片工具（`image_gen` 文生图 / `image_edit` 参考图编辑）逐张生成图片
 6. 生成俄语 Ozon 标题、简介、卖点、商品描述、营销文本
 7. 生成 30 个以内俄语主题标签
 8. 生成 Ozon 富文本内容结构
 9. 输出完整路径、文案和复核清单
+10. 设计并生成 AI 商品视频（默认 1 条主视频/视频封面，可选场景/功能视频），遵守"Ozon 视频要求"
 
 ---
 
-# 依赖
+# 依赖（出图后端）
 
-本 skill 依赖底层出图 skill：
+本 skill **不依赖任何外部出图脚本**（已弃用旧的 `gen-image/generate.py` 及其第三方 API）。
+直接使用豆包内置图片工具：
 
-```text
-.agents/skills/gen-image/
-  generate.py
-  SKILL.md
-```
+- `image_gen`：文生图。无产品图时做概念图 / 场景氛围图 / 干净排版底图。
+- `image_edit`：参考图编辑（图生图）。**有产品图时一律走这条**，把产品实拍图作为参考锚点，保持产品外观一致。
 
-`gen-image` 必须支持：
+入参映射（旧 gen-image CLI → 豆包工具）：
 
-- `--mode create`
-- `--mode edit`
-- `--mode mask`
-- `--image`
-- `--mask`
-- `--size`
-- `--n`
-- `--name`
+| 旧 gen-image 参数 | 豆包工具对应 |
+|---|---|
+| `--mode create` | `image_gen(prompt, width, height, model_version)` |
+| `--mode edit --image X` | `image_edit(prompt, image_reference_url_list=[X_url], width, height, model_version)` |
+| `--mode mask`（去水印 / 换背景 / 局部改） | `image_edit`，在 prompt 里用自然语言圈定只改哪一块，无独立 mask 参数 |
+| `--size 1024x1536` | `width=1024, height=1536`（3:4 竖版） |
+| `--n 1` | 每次 request 只出 1 张 |
+| `--name 01_main.png` | 生成后把返回 URL 落盘为该文件名 |
 
-默认调用方式：
+固定出图参数：
 
-```powershell
-python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
-```
+- `width=1024, height=1536`（Ozon 3:4 竖版；用户指定其它比例时再改）。
+- `model_version` 默认 `seedream_5.0_flash`；主图 / 高质量场景图可升级 `seedream_5.0_pro`。
+
+本地产品图是参考图时的前置步骤（必须）：
+
+1. 本地图片不能直接塞进 `image_edit.image_reference_url_list`，必须先调用 `FileBatchUpload` 把本地产品图上传，拿到 `https://` URL。
+2. 把该 URL 填进 `image_reference_url_list`。
+3. `image_reference_url_list` 最多 10 张；产品图 + 场景图可一起传入做多图参考。
+
+落盘（必须）：
+
+1. 生图工具返回的是图片 URL，不是本地路径。
+2. 用 `curl -L -o "<输出目录>/images/<文件名>" "<图片URL>"` 下载到 `images/` 目录。
+3. 以落盘后的本地路径为准写入 image_results.md / run_report.md；不要把临时 URL 当最终产物交付。
 
 ---
 
@@ -89,6 +99,10 @@ Ozon一键生成：
 
 ```text
 这个产品上架 Ozon。
+```
+
+```text
+Ozon一键生成：这个产品上架 Ozon，图片 + 视频一起做。
 ```
 
 ---
@@ -127,8 +141,8 @@ Ozon一键生成：
 4. 将清晰可见且合理的信息列入“已确认信息”。
 5. 将模糊、不完整、有遮挡或可能识别错误的信息列入“图片识别待核对”。
 6. 将图片无法确认的信息列入“待确认信息”。
-7. 生成图片时优先使用 `edit` 模式，并把产品图作为参考图。
-8. 不要用纯 `create` 重新画产品主图。
+7. 生成图片时优先使用 `image_edit`，并把产品图作为参考图。
+8. 不要用纯 `image_gen` 重新画产品主图。
 9. 不要虚构图片中不存在的配件、功能、品牌和参数。
 
 ## 2. 链接模式
@@ -178,7 +192,7 @@ Ozon一键生成：
 2. 用户参数作为已确认信息。
 3. 图片中文字和参数作为补充来源。
 4. 根据商品类型自动设计 10 张图。
-5. 调用 `gen-image` 逐张出图。
+5. 调用豆包 `image_edit` 逐张出图。
 6. 生成俄语商品资料。
 
 ---
@@ -355,6 +369,21 @@ Ozon一键生成：
 
 # Ozon 图片硬性要求
 
+## 官方规格（来源：Ozon 帮助中心《对图片的要求》）
+
+本地知识库：`ozon-help-kb/markdown/products/requirements/media/image-requirements.md`
+
+| 参数 | 要求 |
+|---|---|
+| 格式 | JPEG / JPG / PNG / HEIC / WEBP |
+| 比例 | 全部类目竖版 3:4（主图不符会被 8 点拉伸或上下留白） |
+| 分辨率 | 服装/鞋子/配饰 ≥900×1200px；其他类目 200×200 ~ 4320×7680px |
+| 大小 | ≤10MB |
+| 数量 | 主图 1 张；附加图 ≤29 张（建议 ≥2 张）；**商品图片总数不得低于 6 张（用户业务硬性要求）** |
+| 主图 | 1 张、彩色、清晰、无水印、无文字，商品完整正面展示 |
+| 附加图 | 无水印；与主图商品一致；不得含联系方式/链接/促销 |
+| 禁止 | 黑白/模糊/低质照片、家居背景（地毯/家具阴影）、3D 草图、酒类、不含商品的图、他人商品图、暴力内容；18+ 商品私密部位须模糊处理 |
+
 所有商品图必须遵守：
 
 1. 单张独立图片，不要拼宫格。
@@ -385,6 +414,103 @@ Ozon一键生成：
 
 ---
 
+# Ozon 视频要求
+
+来源：Ozon 帮助中心《对视频的要求》《视频封面要求》
+本地知识库：`ozon-help-kb/markdown/products/requirements/media/video-requirements.md`、`videocover-requirements.md`
+
+## 商品视频（卡片内视频）
+
+| 参数 | 要求 |
+|---|---|
+| 格式 | MP4 / MOV |
+| 分辨率 | 长边 1080 ~ 1920px |
+| 大小 | 电脑经个人中心上传 ≤100MB；其他 ≤5GB |
+| 时长 | 8 秒 ~ 5 分钟 |
+| 编码 | H.264 / HEVC(H.265) / VP9 / MPEG-4 等常见编码 |
+| 上传来源 | 仅 VK Video / Yandex.Disk / Rutube；最多 5 个视频 |
+| 内容 | 必须包含所属商品，展示优点和使用示例；音质良好 |
+
+视频内容禁止：
+
+- 脏话、侮辱性言辞；
+- 酒、烟；
+- 价格、折扣、联系方式、社交网站文字；
+- 提及 Instagram / Facebook（Meta，俄罗斯禁止）；
+- 物流及退货条件（如"快速物流""明日送到"）；
+- 其它平台或店铺广告；
+- 个人信息（银行卡号、护照照片等）；
+- 身体私密部位、色情声音；
+- 俄罗斯法律禁止的信息；
+- Ozon 禁售商品。
+
+## 视频封面（代替主图展示的短视频）
+
+| 参数 | 要求 |
+|---|---|
+| 格式 | MP4 / MOV |
+| 大小 | ≤20MB |
+| 时长 | 8 ~ 30 秒 |
+| 比例 | 竖版 3:4（勿用 16:9 / 9:16，会被大裁剪） |
+| 边框/底板 | 禁用 |
+| 内容 | 第一帧必须清晰；关键文字大而清晰、防裁剪；无需音轨也能看懂；焦点在商品上 |
+
+注意：视频封面仅显示在商品卡片，不显示在搜索结果页和类目页。
+
+---
+
+# Ozon 视频生成（AI 设计）
+
+listing 默认包含 AI 商品视频（视频封面 / 主视频）。所有视频生成必须遵守上方"Ozon 视频要求"，并配合全局 skill `doubao-creative-video` 执行。
+
+## 调用前置（必须）
+
+1. 生成前必须先完整读取全局 skill `doubao-creative-video` 的 SKILL.md，按其实行：参数确认 → 分镜表 → `interaction.ask` 生成确认 → 委派生成。
+2. 用户明确指定 seedance 2.5 时，同时读取 `seedance-25` skill。
+3. 视频工具：`image_to_video`（有产品图时图生视频，保持产品外观一致）/ `text_to_video`（无产品图时做概念/场景）。
+4. 本地产品图先 `FileBatchUpload` 上传拿 URL，再作为参考图传入。
+
+## 默认视频方案
+
+| 项 | 默认 |
+|---|---|
+| 数量 | 1 条主视频（视频封面位）；场景/功能视频按需，一轮最多 2 条 |
+| 时长 | 8~15 秒（seedance 2.0 fast）；封面场景如需更长（≤30 秒）须用户明确指定 2.5 |
+| 比例 | 3:4（Ozon 商品卡/封面）；用户指定信息流投放时可 9:16 |
+| 模型 | seedance 2.0 fast（默认）；seedance 2.5 仅用户明确指定 |
+| 字幕/文字 | 默认无字幕；画面文字不使用中文（合规） |
+| 语言 | 与用户指令语言一致；无中文文字上屏 |
+
+## 视频方案设计（video_plan.md）
+
+与图片方案同目录输出 video_plan.md，每条视频包含：
+
+- 视频编号与用途（主视频 / 场景视频 / 功能演示）
+- 叙事节拍（B01...，围绕商品卖点组织）
+- 生成提示词（英文，按 doubao-creative-video 的五段式规则编译）
+- 工具：`image_to_video` / `text_to_video`
+- 参考图 URL（产品图，如有）
+- 时长、比例、模型
+- 禁止事项（无中文、无价格、无水印、无品牌侵权）
+
+## 落盘与记录
+
+1. 视频工具返回视频 URL。
+2. 下载到 `outputs/ozon/<商品名>_<日期>/video/`（用 curl -L -o）。
+3. 写 video_results.md：编号、工具、参考图、落盘路径、时长、重试记录。
+4. 交付以落盘本地路径为准，不用临时 URL。
+
+## 视频合规检查
+
+- 时长/比例/格式符合"Ozon 视频要求"（3:4、8~30 秒封面、MP4/MOV）
+- 画面无中文、无价格/折扣、无联系方式、无水印、无品牌侵权
+- 内容包含商品本身，展示优点和使用示例
+- 无脏话/酒烟、无 Meta 平台提及、无物流履约条件、无个人信息、无色情内容等红线
+- 主视频首帧清晰（封面位）
+- 失败重新生成，每条最多重试 2 次
+
+---
+
 # 图片文字规则
 
 AI 图片生成不适合直接生成准确俄文、中文、尺寸数字和参数表。
@@ -402,7 +528,7 @@ AI 图片生成不适合直接生成准确俄文、中文、尺寸数字和参�
 
 # 产品一致性规则
 
-如果用户提供产品图，默认所有图片都使用 `edit` 模式。
+如果用户提供产品图，默认所有图片都使用 `image_edit` 参考图编辑。
 
 必须尽量保持：
 
@@ -455,6 +581,10 @@ outputs/ozon/<商品名>_<日期>/
     09_package.png
     10_rich_content_base.png
 
+  video/
+      01_main.mp4
+      02_scene.mp4（可选）
+
   product_brief.md
   image_extracted_info.md
   image_plan.md
@@ -493,8 +623,8 @@ outputs/ozon/<商品名>_<日期>/
 - 目标语言：俄语
 - 图片尺寸：`1024x1536`
 - 图片比例：3:4
-- 图片数量：10 张
-- 出图方式：优先 `edit`
+- 图片数量：10 张（硬性下限 6 张，商品图片总数不得低于 6 张）
+- 出图方式：优先 `image_edit`（有产品图时）
 
 ## Step 2：提取图片信息 image_extracted_info.md
 
@@ -574,7 +704,7 @@ outputs/ozon/<商品名>_<日期>/
 - 图片编号
 - 图片名称
 - 用途
-- 推荐模式：create / edit / mask
+- 推荐工具：`image_gen`（文生图）/ `image_edit`（参考图编辑）
 - 是否使用产品参考图
 - 英文生成提示词
 - 禁止事项
@@ -610,77 +740,53 @@ outputs/ozon/<商品名>_<日期>/
 Create a clean layout base only. Leave empty space for later Russian text overlay. Do not generate readable text, numbers, labels or parameter tables.
 ```
 
-## Step 6：调用 gen-image 出图
+## Step 6：调用豆包图片工具出图
 
-### 默认 edit 模式
+### 前置：本地产品图先上传拿 URL
 
-只要用户提供产品图，默认使用：
+如果用户给的是本地产品图路径，先调用 `FileBatchUpload` 上传该图，拿到 `https://` URL，记作 `PRODUCT_URL`。无产品图则跳过本步。
 
-```powershell
-python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
-```
-
-### create 模式
-
-只有以下情况可使用：
-
-- 用户没有产品图，只做概念图或场景示意图
-- 背景氛围图
-- 不要求产品 100% 一致
-
-命令：
-
-```powershell
-python .agents/skills/gen-image/generate.py "<PROMPT>" --mode create --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
-```
-
-### mask 模式
-
-以下情况使用：
-
-- 只去中文
-- 只去水印
-- 只换背景
-- 只改局部
-- 只修产品瑕疵
-- 只替换某一块区域
-
-命令：
-
-```powershell
-python .agents/skills/gen-image/generate.py "<PROMPT>" --mode mask --image "<SOURCE_IMAGE_PATH>" --mask "<MASK_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
-```
-
-### 多图合成
-
-如果有产品图和场景图，使用多个 `--image`：
-
-```powershell
-python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRODUCT_IMAGE_PATH>" --image "<SCENE_IMAGE_PATH>" --size 1024x1536 --n 1 --name "<IMAGE_NAME>"
-```
-
-## Step 7：读取 _last.json
-
-每次调用 `gen-image` 后，读取：
+### 默认 image_edit（有产品图）
 
 ```text
-.agents/skills/gen-image/_last.json
+image_edit(
+  prompt="<英文 PROMPT>",
+  image_reference_url_list=["<PRODUCT_URL>"],
+  width=1024, height=1536,
+  model_version="seedream_5.0_flash"
+)
 ```
 
-记录：
+多图合成（产品图 + 场景参考图）：把多张参考图 URL 一起放进 `image_reference_url_list`（最多 10 张）。
 
-- `mode`
-- `model`
-- `prompt`
-- `image_in`
-- `size`
-- `n`
-- `images[].path`
-- `images[].bytes`
-- `tokens.total`
-- `ts`
+### image_gen（无产品图）
 
-不要从 stdout 解析图片路径。以 `_last.json` 为准。
+仅用于：概念图、场景氛围图、纯干净排版底图——即不要求产品 100% 一致时。
+
+```text
+image_gen(
+  prompt="<英文 PROMPT>",
+  width=1024, height=1536,
+  model_version="seedream_5.0_flash"
+)
+```
+
+### 局部修改（去水印 / 换背景 / 修瑕疵）
+
+豆包无独立 mask 参数，改用 `image_edit` + prompt 用自然语言圈定只改哪一块，例如：
+
+```text
+Keep the product exactly unchanged. Only replace the background with pure white.
+```
+
+## Step 7：落盘并记录
+
+每次生图工具调用后：
+
+1. 工具返回图片 URL。
+2. 用 `curl -L -o "outputs/ozon/<商品>_<日期>/images/<IMAGE_NAME>" "<图片URL>"` 下载到本地 `images/` 目录。
+3. 在 image_results.md 记录：图片编号、所用工具（`image_gen` / `image_edit`）、参考图 URL、落盘本地路径、文件字节数。
+4. 以落盘本地路径为最终产物；不要把工具返回的临时 URL 直接交付给用户。
 
 ## Step 8：图片质量检查
 
@@ -851,11 +957,11 @@ python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRO
 
 ## 生成图片列表
 
-## 每张图调用模式
+## 每张图调用工具（image_gen / image_edit）与参考图
 
 ## 失败与重试记录
 
-## Token 用量
+## 产物落盘路径清单
 
 ## Ozon 合规检查
 
@@ -863,6 +969,19 @@ python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRO
 
 ## 建议人工复核项
 ```
+
+---
+
+## Step 13：生成 AI 商品视频（默认）
+
+按"# Ozon 视频生成（AI 设计）"章节执行：
+
+1. 设计 video_plan.md：默认 1 条主视频（视频封面位），可选场景/功能视频（一轮最多 2 条）。
+2. 生成前先完整读取全局 skill `doubao-creative-video` 的 SKILL.md，按其执行参数确认与生成确认（interaction.ask）；用户指定 seedance 2.5 时同时读取 `seedance-25`。
+3. 有产品图用 `image_to_video`（产品图为参考，保持一致性）；无产品图用 `text_to_video`（概念/场景）。
+4. 默认比例 3:4、时长 8~15 秒、模型 seedance 2.0 fast；封面场景如需更长（≤30 秒）须用户明确指定 2.5。
+5. 视频返回 URL 后下载到 video/ 目录，写 video_results.md（编号、工具、参考图、落盘路径、时长）。
+6. 按"视频合规检查"逐条复核；失败重新生成，最多重试 2 次。
 
 ---
 
@@ -920,6 +1039,15 @@ python .agents/skills/gen-image/generate.py "<PROMPT>" --mode edit --image "<PRO
 ## 8. 待确认信息
 
 ## 9. 建议人工复核
+
+## 10. 视频结果（AI 生成）
+
+主视频：
+路径：
+
+场景/功能视频（如有）：
+路径：
+
 ```
 
 如果没有成功生成图片，必须说明原因，并给出下一步操作建议。
@@ -952,7 +1080,7 @@ Ozon一键生成：
 卖点：【核心卖点】
 包装：【包装清单】
 禁止：【不要写的内容】
-生成10张Ozon商品图、俄语标题、描述、标签、富文本。
+生成10张Ozon商品图、1条AI商品视频、俄语标题、描述、标签、富文本。
 ```
 
 ---
@@ -1045,6 +1173,11 @@ Ozon一键生成：
 13. 产品图严重变形仍交付。
 14. 忽略待确认信息。
 15. 输出结果时只说“完成”而不列路径。
+16. 再去调用外部 gen-image/generate.py 脚本或第三方 gpt-image API；出图一律走豆包内置 image_gen / image_edit。
+17. 商品图片总数不得低于 6 张（用户业务硬性要求）。
+18. 生成视频跳过 doubao-creative-video 流程或未经生成确认直接调用视频工具。
+19. 视频出现中文、价格、折扣、联系方式、水印或品牌侵权内容。
+20. 视频时长/比例/格式不符合"Ozon 视频要求"（如视频封面用 16:9）。
 
 ---
 

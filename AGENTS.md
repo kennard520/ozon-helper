@@ -40,3 +40,23 @@ Git history follows Conventional Commit-style messages with scopes, for example 
 ## Security & Configuration Tips
 
 Do not commit Ozon API keys, cookies, seller credentials, database snapshots, or generated archives. Treat `products.db`, `ozon-listing-webui/data/`, local `_*.json`, and captured HTML files as sensitive unless explicitly sanitized. Prefer environment variables for secrets and document required values in deployment notes rather than source files.
+## Skill Usage Guide
+
+Project-specific Skills live in .agents/skills/ (scout, ozon-profit-calculator, ozon-card, ozon-desc, ozon-product-kit, ozon-stats, oss-upload, ozon-help-sync, ozon-skill-router). For any Ozon business task, route global Doubao Skills per .agents/skills/ozon-skill-router/SKILL.md (e.g. sheet for CSV/report work, doubao-data-analysis for metric attribution, doubao-visualization for charts, doubao-creative-design for product images). Full integration matrix: docs/skill-integration.md. Note: profit calculation covers Ozon commission + logistics only — do not attach tax/compliance Skills.
+
+## Ozon Scraping / Anti-bot Notes
+
+Ozon product HTML pages block plain HTTP clients (requests / Invoke-WebRequest) with 403 at the TLS-fingerprint level -- adding Chrome headers or pre-warming cookies does **not** help. Use the project-venv stealth browser instead:
+
+```python
+from cloakbrowser import launch_persistent_context
+ctx = launch_persistent_context(
+    user_data_dir=r"packages/ozon_api/src/ozon_api/data/.auth/ozon_profile",
+    headless=True, locale="ru-RU", timezone="Europe/Moscow",
+)
+page = ctx.pages[0] if ctx.pages else ctx.new_page()
+page.goto(product_url, wait_until="domcontentloaded", timeout=45000)
+# scroll to lazy-load images, then page.content()
+```
+
+Reusing the same `user_data_dir` persists antibot cookies across runs. After you have the HTML, product images live on `ir-*.ozonstatic.cn/s3/multimedia-*/wc{width}/{id}.jpg` (**not** `cdn*.ozone.ru`) -- the image CDN is public and downloadable with plain `requests` once you have the URL. Reference script: `packages/ozon_api/src/ozon_api/competition_probe.py`. Never commit scraped competitor HTML or image dumps; treat them as throwaway intermediates under `picks_output/`.
