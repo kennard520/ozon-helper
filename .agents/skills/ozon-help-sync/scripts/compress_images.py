@@ -10,7 +10,7 @@ from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None  # 允许超大图（源站有 2.4 亿像素大图）
 
-BASE = Path(r"E:\code\zqr\ozon-helper\ozon-help-kb")
+BASE = Path(r"E:\personal\ozon-helper\ozon-help-kb")
 HTML_DIR = BASE / "html"
 MD_DIR = BASE / "markdown"
 IMG_DIR = HTML_DIR / "images"

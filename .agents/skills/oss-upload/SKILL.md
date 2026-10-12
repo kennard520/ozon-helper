@@ -14,7 +14,7 @@ description: 把本地图片或远程图片 URL 上传到阿里云 OSS，拿公�
 ## 凭证来源（复用已有配置）
 
 - 直接读 `tools/ozon-listing-webui/data/products.db` 的 `settings` 表（`oss_*` 全局键，user_id=0）——**就是 webui 设置页里配好的那套**，无需再填。
-- 复用 `tools/ozon-listing-webui/backend/oss.py` 的 `OssClient`（与发布 rehost 链路完全一致：`ozon-media/<md5>.<ext>` 命名、幂等去重）。
+- 复用 `packages/ozon_common/src/ozon_common/oss.py` 的 `OssClient`（与发布 rehost 链路完全一致：`ozon-media/<md5>.<ext>` 命名、幂等去重）。
 - 依赖 `oss2`（本机已装 2.19.1）。
 
 ## 执行步骤

@@ -5,7 +5,7 @@ description: "重新抓取并更新 Ozon Global 卖家帮助中心的中文版�
 
 # Ozon Help Sync
 
-把 Ozon 帮助中心（中文版，region=CHN）全站重新抓取为本地知识库 `E:\code\zqr\ozon-helper\ozon-help-kb`。
+把 Ozon 帮助中心（中文版，region=CHN）全站重新抓取为本地知识库 `E:\personal\ozon-helper\ozon-help-kb`。
 
 ## 工作流
 
@@ -54,7 +54,7 @@ python "<skill>\scripts\check_links.py"
 ## 关键约束
 
 - **四步顺序固定**：convert → mirror_images → compress_images → check_links。顺序错会导致 HTML 引用回退为远程 URL 或断链。
-- 所有脚本路径硬编码指向 `E:\code\zqr\ozon-helper\ozon-help-kb`；如目录迁移，先改脚本内路径常量。
+- 所有脚本路径硬编码指向 `E:\personal\ozon-helper\ozon-help-kb`；如目录迁移，先改脚本内路径常量。
 - 反爬关键点：**不要用 curl/web_fetch 直接抓页面或 API**，必须在浏览器会话内 fetch（详见 references/fetch-workflow.md）。
 - 环境：Windows 主机，用 PowerShell 工具运行脚本（无 Bash）。
 

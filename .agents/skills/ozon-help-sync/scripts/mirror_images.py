@@ -12,7 +12,7 @@ import urllib.parse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BASE = Path(r"E:\code\zqr\ozon-helper\ozon-help-kb")
+BASE = Path(r"E:\personal\ozon-helper\ozon-help-kb")
 HTML_DIR = BASE / "html"
 MD_DIR = BASE / "markdown"
 IMG_DIR = HTML_DIR / "images"

@@ -11,8 +11,8 @@ import re
 import html as html_mod
 from pathlib import Path
 
-RAW = Path(r"E:\code\zqr\ozon-helper\ozon-help-kb\raw\ozon_help_zh_raw.json")
-OUT = Path(r"E:\code\zqr\ozon-helper\ozon-help-kb")
+RAW = Path(r"E:\personal\ozon-helper\ozon-help-kb\raw\ozon_help_zh_raw.json")
+OUT = Path(r"E:\personal\ozon-helper\ozon-help-kb")
 MD_DIR = OUT / "markdown"
 HTML_DIR = OUT / "html"
 ASSETS_DIR = HTML_DIR / "assets"

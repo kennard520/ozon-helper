@@ -15,7 +15,7 @@ description: Ozon 店铺流量/转化数据速查。拉取曝光/会话/加购/�
 
 ## 数据来源
 
-- 抓数脚本：`.Codex/skills/ozon-stats/fetch.py`（纯标准库，无依赖）
+- 抓数脚本：`.agents/skills/ozon-stats/fetch.py`（纯标准库，无依赖）
 - API key：自动从 `tools/ozon-listing-webui/data/products.db` 的 `settings` 表读
 - 接口：`/v1/analytics/data`（限 **1 分钟 1 次**，脚本一次性拿全维度）+ `/v3/product/info/list`（反查标题）
 
@@ -25,10 +25,10 @@ description: Ozon 店铺流量/转化数据速查。拉取曝光/会话/加购/�
 
 | 用户意图 | 命令 |
 |---|---|
-| 昨天（默认） | `python .Codex/skills/ozon-stats/fetch.py` |
-| 单日 | `python .Codex/skills/ozon-stats/fetch.py --date 2026-06-05` |
-| 区间 | `python .Codex/skills/ozon-stats/fetch.py --from 2026-06-01 --to 2026-06-05` |
-| 滚动 N 天 | `python .Codex/skills/ozon-stats/fetch.py --days 7` |
+| 昨天（默认） | `python .agents/skills/ozon-stats/fetch.py` |
+| 单日 | `python .agents/skills/ozon-stats/fetch.py --date 2026-06-05` |
+| 区间 | `python .agents/skills/ozon-stats/fetch.py --from 2026-06-01 --to 2026-06-05` |
+| 滚动 N 天 | `python .agents/skills/ozon-stats/fetch.py --days 7` |
 
 脚本把结果写到 `.Codex/skills/ozon-stats/_last.json` 并 print 一行状态（`OK ...` / `OK_EMPTY ...`）。
 **不要直接看脚本的 stdout 取数**（Windows 控制台会把俄语/中文打成乱码）——下一步用 Read 读 JSON。

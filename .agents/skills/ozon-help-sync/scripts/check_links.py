@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-BASE = Path(r"E:\code\zqr\ozon-helper\ozon-help-kb")
+BASE = Path(r"E:\personal\ozon-helper\ozon-help-kb")
 IMG_DIR = BASE / "html" / "images"
 
 referenced = set()
