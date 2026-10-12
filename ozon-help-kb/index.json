@@ -1,0 +1,4019 @@
+{
+  "name": "Ozon Global 卖家知识库 (中文)",
+  "region": "CHN",
+  "fetched_at": "2026-10-11T08:51:51.758Z",
+  "total_articles": 267,
+  "tree": [
+    {
+      "path": "/launch",
+      "title": "在 Ozon 注册并开始使用",
+      "url": "/launch",
+      "id": 72559,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/launch/steps",
+          "title": "账号注册操作指南",
+          "url": "/launch/steps",
+          "id": 72560,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/launch/steps/step-1",
+              "title": "第1步：注册激活账户",
+              "id": 72562
+            },
+            {
+              "url": "/launch/steps/step-2",
+              "title": "第2步。接受要约",
+              "id": 72563
+            },
+            {
+              "url": "/launch/steps/step-3",
+              "title": "第3步.上传产品或服务",
+              "id": 72564
+            },
+            {
+              "url": "/launch/steps/step-4",
+              "title": "第4步.如何设置快递并开始售卖？",
+              "id": 72565
+            }
+          ]
+        }
+      ],
+      "articles": []
+    },
+    {
+      "path": "/contracts-for-sellers",
+      "title": "Ozon平台卖家所有协议",
+      "url": "/contracts-for-sellers",
+      "id": 72474,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/contracts-for-sellers/dogovor",
+          "title": "来自国外货物添加到 Ozon 平台上的协议（cross-border）",
+          "id": 72478
+        },
+        {
+          "url": "/contracts-for-sellers/anticorrupzionnaya-ogovorka",
+          "title": "对遵守反贪污及规管法例的保留",
+          "id": 72476
+        },
+        {
+          "url": "/contracts-for-sellers/spisok-izmenenii-v-dogovore",
+          "title": "国外卖家协议更改列表",
+          "id": 72479
+        },
+        {
+          "url": "/contracts-for-sellers/tax-residency-certificate",
+          "title": "税收居民身份证明",
+          "id": 72480
+        }
+      ]
+    },
+    {
+      "path": "/commissions",
+      "title": "Ozon的佣金和费率",
+      "url": "/commissions",
+      "id": 72460,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/commissions/ozon-fees",
+          "title": "Ozon的佣金和费率",
+          "url": "/commissions/ozon-fees",
+          "id": 72461,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/commissions/ozon-fees/commissions",
+              "title": "各类商品销售佣金标准",
+              "id": 72464
+            },
+            {
+              "url": "/commissions/ozon-fees/ogl-rates",
+              "title": "OGL费用",
+              "id": 80266
+            },
+            {
+              "url": "/commissions/ozon-fees/partner-delivery-rates",
+              "title": "Ozon 合作伙伴物流的成本",
+              "id": 72468
+            },
+            {
+              "url": "/commissions/ozon-fees/fbp-rates",
+              "title": "FBP半托管服务模式费用",
+              "id": 72466
+            },
+            {
+              "url": "/commissions/ozon-fees/commissions-for-other-services",
+              "title": "其他服务开支",
+              "id": 72463
+            },
+            {
+              "url": "/commissions/ozon-fees/returns-expenses",
+              "title": "退货、未认购及取消相关费用",
+              "id": 72469
+            },
+            {
+              "url": "/commissions/ozon-fees/volume-weight-for-partner-delivery",
+              "title": "运费计算",
+              "id": 72470
+            },
+            {
+              "url": "/commissions/ozon-fees/fines",
+              "title": "罚款",
+              "id": 72467
+            },
+            {
+              "url": "/commissions/ozon-fees/archive-komisii",
+              "title": "已归档的销售佣金",
+              "id": 72462
+            },
+            {
+              "url": "/commissions/ozon-fees/poryadok-opredeleniya-koefficienta-vozmeshcheniya",
+              "title": "赔偿系数确定程序",
+              "id": 78084
+            }
+          ]
+        },
+        {
+          "path": "/commissions/ozon-technology-fees",
+          "title": "奥宗科技佣金与费率",
+          "url": "/commissions/ozon-technology-fees",
+          "id": 86100,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/commissions/ozon-technology-fees/expenses-for-other-services",
+              "title": "奥宗科技服务费率\n",
+              "id": 86102
+            }
+          ]
+        }
+      ],
+      "articles": []
+    },
+    {
+      "path": "/policies",
+      "title": "政策与规则",
+      "url": "/policies",
+      "id": 72587,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/policies/product-rules-and-documents",
+          "title": "销售规则与所需文件",
+          "url": "/policies/product-rules-and-documents",
+          "id": 72590,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/policies/product-rules-and-documents/product-rules",
+              "title": "销售规则",
+              "url": "/policies/product-rules-and-documents/product-rules",
+              "id": 72606,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/policies/product-rules-and-documents/product-rules/refurbished-smartphones",
+                  "title": "出售翻新智能手机",
+                  "id": 72607
+                },
+                {
+                  "url": "/policies/product-rules-and-documents/product-rules/special-categories",
+                  "title": "商品类别和文件的限制",
+                  "id": 72608
+                }
+              ]
+            },
+            {
+              "path": "/policies/product-rules-and-documents/documents",
+              "title": "销售所需文件",
+              "url": "/policies/product-rules-and-documents/documents",
+              "id": 72593,
+              "isSection": true,
+              "childView": "card",
+              "sections": [
+                {
+                  "path": "/policies/product-rules-and-documents/documents/originality-confirmation",
+                  "title": "正品认证",
+                  "url": "/policies/product-rules-and-documents/documents/originality-confirmation",
+                  "id": 72595,
+                  "isSection": true,
+                  "childView": "card",
+                  "sections": [],
+                  "articles": [
+                    {
+                      "url": "/policies/product-rules-and-documents/documents/originality-confirmation/brand",
+                      "title": "商标授权证明文件",
+                      "id": 72596
+                    },
+                    {
+                      "url": "/policies/product-rules-and-documents/documents/originality-confirmation/original-badge",
+                      "title": "\"品牌已认证\"徽章",
+                      "id": 72597
+                    },
+                    {
+                      "url": "/policies/product-rules-and-documents/documents/originality-confirmation/security-deposit",
+                      "title": "保证金",
+                      "id": 72598
+                    }
+                  ]
+                }
+              ],
+              "articles": [
+                {
+                  "url": "/policies/product-rules-and-documents/documents/safety-passport",
+                  "title": "安全数据表",
+                  "id": 72600
+                },
+                {
+                  "url": "/policies/product-rules-and-documents/documents/faq",
+                  "title": "常见问题",
+                  "id": 72594
+                },
+                {
+                  "url": "/policies/product-rules-and-documents/documents/quality-certificate",
+                  "title": "产品质保书",
+                  "id": 72599
+                }
+              ]
+            }
+          ],
+          "articles": []
+        }
+      ],
+      "articles": [
+        {
+          "url": "/policies/content-policy",
+          "title": "Ozon 平台内容发布政策",
+          "id": 72589
+        },
+        {
+          "url": "/policies/communication",
+          "title": "与买家和Ozon的沟通规则",
+          "id": 72588
+        }
+      ]
+    },
+    {
+      "path": "/personal-account",
+      "title": "个人帐户设置",
+      "url": "/personal-account",
+      "id": 72581,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/personal-account/showcase",
+          "title": "橱窗",
+          "id": 72584
+        },
+        {
+          "url": "/personal-account/user-management",
+          "title": "用户管理",
+          "id": 72586
+        },
+        {
+          "url": "/personal-account/notification",
+          "title": "Ozon 通知",
+          "id": 72582
+        },
+        {
+          "url": "/personal-account/ozon-id",
+          "title": "Ozon ID",
+          "id": 72583
+        },
+        {
+          "url": "/personal-account/store-name",
+          "title": "店铺名称和标志",
+          "id": 72585
+        }
+      ]
+    },
+    {
+      "path": "/products",
+      "title": "创建和编辑商品卡片",
+      "url": "/products",
+      "id": 72616,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/products/upload",
+          "title": "商品上传",
+          "url": "/products/upload",
+          "id": 72647,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/products/upload/upload-types",
+              "title": "商品上传方法",
+              "url": "/products/upload/upload-types",
+              "id": 72674,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/upload/upload-types/xls",
+                  "title": "通过模板上传",
+                  "id": 72680
+                },
+                {
+                  "url": "/products/upload/upload-types/online-sheets",
+                  "title": "通过在线表格",
+                  "id": 72678
+                },
+                {
+                  "url": "/products/upload/upload-types/account",
+                  "title": "手动添加",
+                  "id": 72675
+                },
+                {
+                  "url": "/products/upload/upload-types/creating-product-cards",
+                  "title": "在新版商品卡片创建表单中手动创建",
+                  "id": 72677
+                },
+                {
+                  "url": "/products/upload/upload-types/copying",
+                  "title": "通过复制添加",
+                  "id": 72676
+                }
+              ]
+            },
+            {
+              "path": "/products/upload/adding-content",
+              "title": "媒体操作",
+              "url": "/products/upload/adding-content",
+              "id": 72648,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/upload/adding-content/images",
+                  "title": "图片上传",
+                  "id": 72650
+                },
+                {
+                  "url": "/products/upload/adding-content/video",
+                  "title": "视频上传",
+                  "id": 72653
+                },
+                {
+                  "url": "/products/upload/adding-content/videocover",
+                  "title": "视频封面上传",
+                  "id": 72654
+                },
+                {
+                  "url": "/products/upload/adding-content/editing-photo",
+                  "title": "图片编辑",
+                  "id": 72649
+                },
+                {
+                  "url": "/products/upload/adding-content/rich-content",
+                  "title": "添加JSON富内容",
+                  "id": 72651
+                },
+                {
+                  "url": "/products/upload/adding-content/size-table-constructor",
+                  "title": "尺码表格构造函数",
+                  "id": 72652
+                }
+              ]
+            },
+            {
+              "path": "/products/upload/created-pdp",
+              "title": "处理已创建的商品",
+              "url": "/products/upload/created-pdp",
+              "id": 72656,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/upload/created-pdp/product-list",
+                  "title": "商品列表管理",
+                  "id": 72660
+                },
+                {
+                  "url": "/products/upload/created-pdp/editing-products",
+                  "title": "商品卡片编辑",
+                  "id": 72658
+                },
+                {
+                  "url": "/products/upload/created-pdp/status",
+                  "title": "商品的状态和可售数量",
+                  "id": 72662
+                },
+                {
+                  "url": "/products/upload/created-pdp/archive",
+                  "title": "商品归档库",
+                  "id": 72657
+                },
+                {
+                  "url": "/products/upload/created-pdp/purchase-multiplicity",
+                  "title": "购买倍数",
+                  "id": 72661
+                },
+                {
+                  "url": "/products/upload/created-pdp/pdp-transfer",
+                  "title": "商品卡片转移",
+                  "id": 72659
+                }
+              ]
+            },
+            {
+              "path": "/products/upload/merging-products",
+              "title": "合并商品",
+              "url": "/products/upload/merging-products",
+              "id": 72663,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/upload/merging-products/intro",
+                  "title": "型号",
+                  "id": 72665
+                },
+                {
+                  "url": "/products/upload/merging-products/merging-into-series",
+                  "title": "相似 商品",
+                  "id": 72666
+                },
+                {
+                  "url": "/products/upload/merging-products/products-on-photos",
+                  "title": "照片上的商品",
+                  "id": 72667
+                },
+                {
+                  "url": "/products/upload/merging-products/sets-merging",
+                  "title": "套装合并",
+                  "id": 72668
+                },
+                {
+                  "url": "/products/upload/merging-products/creating-a-bundle",
+                  "title": "商品套装创建",
+                  "id": 72664
+                }
+              ]
+            },
+            {
+              "path": "/products/upload/moderation",
+              "title": "商品审核要求",
+              "url": "/products/upload/moderation",
+              "id": 72669,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/upload/moderation/intro",
+                  "title": "审核",
+                  "id": 72671
+                },
+                {
+                  "url": "/products/upload/moderation/unpopular-products",
+                  "title": "自动归档",
+                  "id": 72672
+                },
+                {
+                  "url": "/products/upload/moderation/errors-with-pdps",
+                  "title": "商品卡片操作错误",
+                  "id": 72670
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/products/upload/archive",
+              "title": "商品归档库",
+              "id": 72790
+            },
+            {
+              "url": "/products/upload/barcode-upload",
+              "title": "条形码上传",
+              "id": 72655
+            },
+            {
+              "url": "/products/upload/upload-limit",
+              "title": "商品上传与编辑限额",
+              "id": 72673
+            }
+          ]
+        },
+        {
+          "path": "/products/requirements",
+          "title": "商品描述及相关规范",
+          "url": "/products/requirements",
+          "id": 72620,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/products/requirements/product-info",
+              "title": "商品信息",
+              "url": "/products/requirements/product-info",
+              "id": 72625,
+              "isSection": true,
+              "childView": "card",
+              "sections": [
+                {
+                  "path": "/products/requirements/product-info/guidebooks",
+                  "title": "手册",
+                  "url": "/products/requirements/product-info/guidebooks",
+                  "id": 72629,
+                  "isSection": true,
+                  "childView": "card",
+                  "sections": [],
+                  "articles": [
+                    {
+                      "url": "/products/requirements/product-info/guidebooks/clothes-shoes-accesories",
+                      "title": "服饰商品手册",
+                      "id": 72630
+                    }
+                  ]
+                }
+              ],
+              "articles": [
+                {
+                  "url": "/products/requirements/product-info/product-description",
+                  "title": "商品描述",
+                  "id": 72635
+                },
+                {
+                  "url": "/products/requirements/product-info/category",
+                  "title": "商品类目",
+                  "id": 72627
+                },
+                {
+                  "url": "/products/requirements/product-info/product-characteristics",
+                  "title": "商品特性",
+                  "id": 72634
+                },
+                {
+                  "url": "/products/requirements/product-info/naming-requirements",
+                  "title": "商品标题",
+                  "id": 72633
+                },
+                {
+                  "url": "/products/requirements/product-info/sku",
+                  "title": "货号",
+                  "id": 72639
+                },
+                {
+                  "url": "/products/requirements/product-info/identifiers",
+                  "title": "商品代码和Ozon ID",
+                  "id": 72632
+                },
+                {
+                  "url": "/products/requirements/product-info/hashtags",
+                  "title": "话题标签",
+                  "id": 72631
+                },
+                {
+                  "url": "/products/requirements/product-info/brands",
+                  "title": "品牌",
+                  "id": 72626
+                },
+                {
+                  "url": "/products/requirements/product-info/clothing-and-accessories-size",
+                  "title": "服装和配饰的尺码",
+                  "id": 72628
+                },
+                {
+                  "url": "/products/requirements/product-info/trend",
+                  "title": "趋势",
+                  "id": 72640
+                },
+                {
+                  "url": "/products/requirements/product-info/volume-weight-characteristics",
+                  "title": "体积和重量特征",
+                  "id": 72641
+                },
+                {
+                  "url": "/products/requirements/product-info/volume-whd",
+                  "title": "WHD仓库订单体积计算",
+                  "id": 77968
+                }
+              ]
+            },
+            {
+              "path": "/products/requirements/media",
+              "title": "媒体要求",
+              "url": "/products/requirements/media",
+              "id": 72621,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/products/requirements/media/image-requirements",
+                  "title": "对图片的要求",
+                  "id": 72622
+                },
+                {
+                  "url": "/products/requirements/media/videocover-requirements",
+                  "title": "视频封面要求",
+                  "id": 72624
+                },
+                {
+                  "url": "/products/requirements/media/video-requirements",
+                  "title": "对视频的要求",
+                  "id": 72623
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/products/requirements/export_regulations",
+              "title": "销售受限的商品",
+              "id": 72776
+            }
+          ]
+        },
+        {
+          "path": "/products/selling-pdp",
+          "title": "创建吸引人的商品卡片",
+          "url": "/products/selling-pdp",
+          "id": 72642,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/products/selling-pdp/good-pdps",
+              "title": "商品卡片正确填写示例",
+              "id": 72645
+            },
+            {
+              "url": "/products/selling-pdp/content-rating",
+              "title": "内容评级",
+              "id": 72643
+            },
+            {
+              "url": "/products/selling-pdp/display-of-products",
+              "title": "Ozon上的商品显示",
+              "id": 72644
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/products/price-reduction",
+          "title": "仓库转售商品减价处理",
+          "id": 72619
+        }
+      ]
+    },
+    {
+      "path": "/prices",
+      "title": "价格",
+      "url": "/prices",
+      "id": 72611,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/prices/price-control",
+          "title": "价格管理",
+          "id": 72613
+        },
+        {
+          "url": "/prices/price-quarantine",
+          "title": "价格锁定",
+          "id": 72614
+        },
+        {
+          "url": "/prices/regional-price",
+          "title": "区域价格系数",
+          "id": 72615
+        },
+        {
+          "url": "/prices/customs-duties",
+          "title": "海关税费",
+          "id": 72612
+        },
+        {
+          "url": "/prices/changes-in-pricing",
+          "title": "个人账户变更列表",
+          "id": 82739
+        }
+      ]
+    },
+    {
+      "path": "/fulfillment",
+      "title": "仓库配置、订单处理与退货操作",
+      "url": "/fulfillment",
+      "id": 72481,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/fulfillment/ogl",
+          "title": "OGL仓库的销售",
+          "url": "/fulfillment/ogl",
+          "id": 76404,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/fulfillment/ogl/logistic-settings-ogl",
+              "title": "物流设置",
+              "url": "/fulfillment/ogl/logistic-settings-ogl",
+              "id": 76410,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/ogl/logistic-settings-ogl/warehouse-setting-ogl",
+                  "title": "OGL仓库设置",
+                  "id": 76411
+                },
+                {
+                  "url": "/fulfillment/ogl/logistic-settings-ogl/delivery-methods-ogl",
+                  "title": "OGL配送方式设置",
+                  "id": 80043
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/ogl/shipping-from-your-warehouse",
+              "title": "从卖家仓库发货",
+              "url": "/fulfillment/ogl/shipping-from-your-warehouse",
+              "id": 76412,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/shipment-preparation",
+                  "title": "货件备货",
+                  "id": 76413
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/video-recording",
+                  "title": "订单备货的视频记录",
+                  "id": 76415
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/shipment-formation",
+                  "title": "生成发运",
+                  "id": 76417
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/label-and-packaging",
+                  "title": "货物交接入库手续",
+                  "id": 76426
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/shipping-to-drop-off-point",
+                  "title": "通过Self-Drop方法发运货件",
+                  "id": 76427
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/pick-up-shipping",
+                  "title": "通过Pick-up方法发运",
+                  "id": 79943
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/order-status",
+                  "title": "订单状态",
+                  "id": 76429
+                },
+                {
+                  "url": "/fulfillment/ogl/shipping-from-your-warehouse/drop-off-points-ogl",
+                  "title": "集运仓库地址",
+                  "id": 76408
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/ogl/dispute",
+              "title": "有争议的订单",
+              "url": "/fulfillment/ogl/dispute",
+              "id": 80027,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/ogl/dispute/disputed-orders",
+                  "title": "转交OGL物流时的有争议的订单",
+                  "id": 80252
+                },
+                {
+                  "url": "/fulfillment/ogl/dispute/compensation-for-shortage-of-goods",
+                  "title": "OGL订单中商品短缺的赔偿",
+                  "id": 80261
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/fulfillment/ogl/ogl-work-scheme",
+              "title": "OGL工作模式",
+              "id": 76406
+            }
+          ]
+        },
+        {
+          "path": "/fulfillment/fbp",
+          "title": "FBP半托管服务模式（合作伙伴仓库）",
+          "url": "/fulfillment/fbp",
+          "id": 72490,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/fulfillment/fbp/logistics",
+              "title": "物流费用和设置",
+              "url": "/fulfillment/fbp/logistics",
+              "id": 72492,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/fbp/logistics/available-services",
+                  "title": "可用的配送服务",
+                  "id": 72493
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/fbp/warehouse",
+              "title": "可用仓库",
+              "url": "/fulfillment/fbp/warehouse",
+              "id": 72510,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/fbp/warehouse/cel-warehouse",
+                  "title": "CEL仓库",
+                  "id": 72512
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/ets-warehouse",
+                  "title": "RETS仓库",
+                  "id": 72514
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/ural-warehouse",
+                  "title": "Ural仓库",
+                  "id": 72518
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/xinguan-warehouse",
+                  "title": "Xingyuan仓库",
+                  "id": 72520
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/guoo-warehouse",
+                  "title": "GUOO仓库",
+                  "id": 72516
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/wbbs",
+                  "title": "DEX仓库",
+                  "id": 72519
+                },
+                {
+                  "url": "/fulfillment/fbp/warehouse/bonded-warehouse",
+                  "title": "保税仓库特点",
+                  "id": 72511
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/fbp/supplies",
+              "title": "仓库工作",
+              "url": "/fulfillment/fbp/supplies",
+              "id": 72497,
+              "isSection": true,
+              "childView": "card",
+              "sections": [
+                {
+                  "path": "/fulfillment/fbp/supplies/supply-work",
+                  "title": "交货申请处理",
+                  "url": "/fulfillment/fbp/supplies/supply-work",
+                  "id": 72504,
+                  "isSection": true,
+                  "childView": "card",
+                  "sections": [],
+                  "articles": [
+                    {
+                      "url": "/fulfillment/fbp/supplies/supply-work/create-supply",
+                      "title": "创建供应申请",
+                      "id": 72507
+                    },
+                    {
+                      "url": "/fulfillment/fbp/supplies/supply-work/cancel",
+                      "title": "取消或编辑申请",
+                      "id": 72506
+                    },
+                    {
+                      "url": "/fulfillment/fbp/supplies/supply-work/application-cancelled",
+                      "title": "如果申请被拒绝",
+                      "id": 72505
+                    },
+                    {
+                      "url": "/fulfillment/fbp/supplies/supply-work/status",
+                      "title": "申请状态",
+                      "id": 72509
+                    },
+                    {
+                      "url": "/fulfillment/fbp/supplies/supply-work/mark",
+                      "title": "为盒子粘贴标志",
+                      "id": 72508
+                    }
+                  ]
+                },
+                {
+                  "path": "/fulfillment/fbp/supplies/add-warehouse",
+                  "title": "添加仓库",
+                  "url": "/fulfillment/fbp/supplies/add-warehouse",
+                  "id": 72498,
+                  "isSection": true,
+                  "childView": "card",
+                  "sections": [],
+                  "articles": []
+                }
+              ],
+              "articles": [
+                {
+                  "url": "/fulfillment/fbp/supplies/fbp-utilization",
+                  "title": "销毁受损商品",
+                  "id": 72500
+                },
+                {
+                  "url": "/fulfillment/fbp/supplies/stock-report",
+                  "title": "FBP 模式下的库存管理",
+                  "id": 72503
+                },
+                {
+                  "url": "/fulfillment/fbp/supplies/pick-up",
+                  "title": "面向FBP的上门揽收服务",
+                  "id": 72501
+                },
+                {
+                  "url": "/fulfillment/fbp/supplies/change-delivery-service",
+                  "title": "更改配送服务",
+                  "id": 72499
+                },
+                {
+                  "url": "/fulfillment/fbp/supplies/product-availability",
+                  "title": "商品可售性和错失的销售",
+                  "id": 72502
+                },
+                {
+                  "url": "/fulfillment/fbp/supplies/partner-warehouse-returns",
+                  "title": "从合作伙伴仓库退货",
+                  "id": 77147
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/fulfillment/fbp/fulfilment-by-partner",
+              "title": "FBP物流介绍",
+              "id": 72491
+            },
+            {
+              "url": "/fulfillment/fbp/order-management",
+              "title": "处理订单",
+              "id": 72494
+            },
+            {
+              "url": "/fulfillment/fbp/returns-",
+              "title": "买家取消与退货处理",
+              "id": 72496
+            },
+            {
+              "url": "/fulfillment/fbp/rates",
+              "title": "FBP服务费用",
+              "id": 72495
+            }
+          ]
+        },
+        {
+          "path": "/fulfillment/rfbs",
+          "title": "realFBS 卖家自配送物流",
+          "url": "/fulfillment/rfbs",
+          "id": 72526,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/fulfillment/rfbs/logistic-settings",
+              "title": "物流设置",
+              "url": "/fulfillment/rfbs/logistic-settings",
+              "id": 72532,
+              "isSection": true,
+              "childView": "card",
+              "sections": [
+                {
+                  "path": "/fulfillment/rfbs/logistic-settings/partner-delivery-ozon",
+                  "title": "合作伙伴配送",
+                  "url": "/fulfillment/rfbs/logistic-settings/partner-delivery-ozon",
+                  "id": 72539,
+                  "isSection": true,
+                  "childView": "card",
+                  "sections": [],
+                  "articles": []
+                }
+              ],
+              "articles": [
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/warehouse",
+                  "title": "仓库管理",
+                  "id": 72545
+                },
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/delivery-methods",
+                  "title": "配送方式管理",
+                  "id": 72534
+                },
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/order-management",
+                  "title": "订单管理",
+                  "id": 72535
+                },
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/packaging-time",
+                  "title": "订单准备时间",
+                  "id": 72538
+                },
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/pick-up-service",
+                  "title": "Pick-up — 揽收服务",
+                  "id": 72543
+                },
+                {
+                  "url": "/fulfillment/rfbs/logistic-settings/ozon-rating",
+                  "title": "Ozon评级",
+                  "id": 72537
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/rfbs/cancellations",
+              "title": "订单取消",
+              "url": "/fulfillment/rfbs/cancellations",
+              "id": 72527,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/rfbs/cancellations/cancel-by-customer",
+                  "title": "由买家取消的订单",
+                  "id": 72528
+                },
+                {
+                  "url": "/fulfillment/rfbs/cancellations/cancel-by-seller",
+                  "title": "由卖家取消的订单",
+                  "id": 72530
+                },
+                {
+                  "url": "/fulfillment/rfbs/cancellations/cancel-by-ozon",
+                  "title": "由Ozon取消的订单",
+                  "id": 72529
+                }
+              ]
+            },
+            {
+              "path": "/fulfillment/rfbs/refunds",
+              "title": "退货",
+              "url": "/fulfillment/rfbs/refunds",
+              "id": 72546,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/rfbs/refunds/pick-up-point-returns",
+                  "title": "通过Ozon取货点的退货",
+                  "id": 72552
+                },
+                {
+                  "url": "/fulfillment/rfbs/refunds/returns-3pl",
+                  "title": "退货",
+                  "id": 72553
+                },
+                {
+                  "url": "/fulfillment/rfbs/refunds/money",
+                  "title": "退款政策",
+                  "id": 72548
+                },
+                {
+                  "url": "/fulfillment/rfbs/refunds/deviation",
+                  "title": "纠纷",
+                  "id": 72547
+                },
+                {
+                  "url": "/fulfillment/rfbs/refunds/partial-refunds",
+                  "title": "部分补偿",
+                  "id": 72549
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/fulfillment/rfbs/fulfillment-by-seller",
+              "title": "realFBS 物流介绍",
+              "id": 72531
+            },
+            {
+              "url": "/fulfillment/rfbs/replacement-number",
+              "title": "虚拟号码",
+              "id": 72554
+            }
+          ]
+        },
+        {
+          "path": "/fulfillment/fbp-rfbs-returns-cancellations",
+          "title": "FBP与realFBS取消及退货处理",
+          "url": "/fulfillment/fbp-rfbs-returns-cancellations",
+          "id": 72522,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns",
+              "title": "客户退货",
+              "url": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns",
+              "id": 86816,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/time-conditions",
+                  "title": "退货期限和条件",
+                  "id": 86870
+                },
+                {
+                  "url": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/process-requests",
+                  "title": "处理退货申请",
+                  "id": 87019
+                },
+                {
+                  "url": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/partial-compensation",
+                  "title": "部分赔偿",
+                  "id": 87021
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/fulfillment/fbp-rfbs-returns-cancellations/order-cancellation",
+              "title": "订单取消",
+              "id": 72524
+            },
+            {
+              "url": "/fulfillment/fbp-rfbs-returns-cancellations/where-send-returns",
+              "title": "取消、未认购、客户退货的去向",
+              "id": 72525
+            },
+            {
+              "url": "/fulfillment/fbp-rfbs-returns-cancellations/disputes",
+              "title": "退货争议",
+              "id": 87052
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/fulfillment/stock",
+          "title": "库存管理",
+          "id": 72556
+        },
+        {
+          "url": "/fulfillment/order-packaging-requirements",
+          "title": "订单包装要求",
+          "id": 88101
+        }
+      ]
+    },
+    {
+      "path": "/promotion",
+      "title": "推广",
+      "url": "/promotion",
+      "id": 72681,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/promotion/subscriptions",
+          "title": "Premium 订阅",
+          "url": "/promotion/subscriptions",
+          "id": 72731,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/promotion/subscriptions/premium-plus",
+              "title": "Premium Plus 订阅",
+              "id": 72733
+            },
+            {
+              "url": "/promotion/subscriptions/premium-pro-global",
+              "title": "Premium Pro 订阅",
+              "id": 72734
+            },
+            {
+              "url": "/promotion/subscriptions/premium-lite-global",
+              "title": "Premium Lite 订阅",
+              "id": 72732
+            },
+            {
+              "url": "/promotion/subscriptions/premium",
+              "title": "卖家 Premium 订阅服务",
+              "id": 72735
+            },
+            {
+              "url": "/promotion/subscriptions/podpiska-analitika-premium",
+              "title": "Analytics Premium订阅",
+              "id": 88042
+            },
+            {
+              "url": "/promotion/subscriptions/analytics-plus",
+              "title": "Analytics Plus订阅",
+              "id": 88043
+            }
+          ]
+        },
+        {
+          "path": "/promotion/promotions",
+          "title": "促销活动与折扣",
+          "url": "/promotion/promotions",
+          "id": 72722,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/promotion/promotions/promo-ozon",
+              "title": "来自Ozon的促销活动",
+              "id": 74738
+            },
+            {
+              "url": "/promotion/promotions/manage-products",
+              "title": "管理Ozon促销活动中的商品",
+              "id": 74865
+            },
+            {
+              "url": "/promotion/promotions/promo-autoadd",
+              "title": "自动将商品添加至Ozon促销活动",
+              "id": 74736
+            },
+            {
+              "url": "/promotion/promotions/promo-faq",
+              "title": "Ozon促销活动问答",
+              "id": 74737
+            },
+            {
+              "url": "/promotion/promotions/seller-promotions",
+              "title": "卖家促销活动",
+              "id": 72729
+            },
+            {
+              "url": "/promotion/promotions/coupon",
+              "title": "促销码",
+              "id": 72723
+            },
+            {
+              "url": "/promotion/promotions/multi-level",
+              "title": "按订单金额设置多级满额折扣",
+              "id": 72727
+            }
+          ]
+        },
+        {
+          "path": "/promotion/big-promotions",
+          "title": "Ozon 大促销",
+          "url": "/promotion/big-promotions",
+          "id": 72682,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/promotion/big-promotions/rasprodazha",
+              "title": "Ozon当前的大促销活动",
+              "id": 72687
+            },
+            {
+              "url": "/promotion/big-promotions/tips-for-big-sales",
+              "title": "应对需求增长的准备",
+              "id": 72688
+            }
+          ]
+        },
+        {
+          "path": "/promotion/marketing-requests",
+          "title": "营销申请",
+          "url": "/promotion/marketing-requests",
+          "id": 72691,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/promotion/marketing-requests/marketing-request",
+              "title": "营销申请",
+              "id": 72693
+            },
+            {
+              "url": "/promotion/marketing-requests/media-kit",
+              "title": "Ozon Media-kit",
+              "id": 72694
+            }
+          ]
+        },
+        {
+          "path": "/promotion/media-advertising",
+          "title": "媒体广告",
+          "url": "/promotion/media-advertising",
+          "id": 72697,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/promotion/media-advertising/moderation-of-advertising-materials",
+              "title": "广告资料审核",
+              "id": 72700
+            },
+            {
+              "url": "/promotion/media-advertising/advertising-labeling",
+              "title": "广告标识",
+              "id": 72698
+            },
+            {
+              "url": "/promotion/media-advertising/media-advertising",
+              "title": "媒体广告",
+              "id": 72699
+            },
+            {
+              "url": "/promotion/media-advertising/requirements-to-advertising-materials",
+              "title": "广告材料要求",
+              "id": 72701
+            }
+          ]
+        },
+        {
+          "path": "/promotion/product-promotions",
+          "title": "商品推广",
+          "url": "/promotion/product-promotions",
+          "id": 72702,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/promotion/product-promotions/pay-per-order",
+              "title": "按订单付费",
+              "url": "/promotion/product-promotions/pay-per-order",
+              "id": 72713,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/promotion/product-promotions/pay-per-order/view-results",
+                  "title": "查看推广结果",
+                  "id": 72718
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-order/morkovsk",
+                  "title": "适用于使用“按订单付费”推广商品的“Morkovsk”促销活动",
+                  "id": 72716
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-order/payment-for-the-order",
+                  "title": "按订单付费的工作原理",
+                  "id": 72717
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-order/launch-promotion",
+                  "title": "启动推广",
+                  "id": 72715
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-order/hold-off",
+                  "title": "停止推广",
+                  "id": 72714
+                }
+              ]
+            },
+            {
+              "path": "/promotion/product-promotions/pay-per-click",
+              "title": "按点击付费",
+              "url": "/promotion/product-promotions/pay-per-click",
+              "id": 72706,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/weekly-budget",
+                  "title": "“按点击付费”模式下的预算说明",
+                  "id": 72711
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/edit-and-pause",
+                  "title": "编辑并关闭广告活动",
+                  "id": 72707
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/view-results",
+                  "title": "广告活动结果",
+                  "id": 72710
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/what-is-cost-per-click",
+                  "title": "按点击付费原理",
+                  "id": 72712
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/launch-promotion",
+                  "title": "广告活动启动",
+                  "id": 72709
+                },
+                {
+                  "url": "/promotion/product-promotions/pay-per-click/item-rate",
+                  "title": "“按点击付费”的出价",
+                  "id": 72708
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/promotion/product-promotions/bonuses",
+              "title": "促销积分",
+              "id": 72704
+            },
+            {
+              "url": "/promotion/product-promotions/analytics",
+              "title": "推广分析",
+              "id": 72703
+            },
+            {
+              "url": "/promotion/product-promotions/podborki-tovarov",
+              "title": "精选商品集",
+              "id": 72719
+            },
+            {
+              "url": "/promotion/product-promotions/promoted-brands",
+              "title": "品牌推广",
+              "id": 72721
+            },
+            {
+              "url": "/promotion/product-promotions/product-promotion",
+              "title": "在Ozon上推广商品的工具",
+              "id": 72720
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/promotion/traffic-analysis",
+          "title": "外部流量分析",
+          "id": 72736
+        }
+      ]
+    },
+    {
+      "path": "/analytics",
+      "title": "销售数据分析与销售清单",
+      "url": "/analytics",
+      "id": 72428,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/analytics/analytics-and-metrics",
+          "title": "分析",
+          "url": "/analytics/analytics-and-metrics",
+          "id": 72429,
+          "isSection": true,
+          "childView": "card",
+          "sections": [
+            {
+              "path": "/analytics/analytics-and-metrics/products-in-search-results",
+              "title": "搜索中的商品",
+              "url": "/analytics/analytics-and-metrics/products-in-search-results",
+              "id": 72433,
+              "isSection": true,
+              "childView": "card",
+              "sections": [],
+              "articles": [
+                {
+                  "url": "/analytics/analytics-and-metrics/products-in-search-results/product-search-position",
+                  "title": "您的商品在搜索中的可见性",
+                  "id": 83301
+                },
+                {
+                  "url": "/analytics/analytics-and-metrics/products-in-search-results/searching-result-impact",
+                  "title": "什么影响搜索结果中的位置",
+                  "id": 72435
+                },
+                {
+                  "url": "/analytics/analytics-and-metrics/products-in-search-results/d",
+                  "title": "搜索可见性",
+                  "id": 72434
+                }
+              ]
+            }
+          ],
+          "articles": [
+            {
+              "url": "/analytics/analytics-and-metrics/charts",
+              "title": "图表",
+              "id": 72430
+            },
+            {
+              "url": "/analytics/analytics-and-metrics/promo",
+              "title": "促销活动分析",
+              "id": 72436
+            },
+            {
+              "url": "/analytics/analytics-and-metrics/repurchased-goods",
+              "title": "已认购商品",
+              "id": 72437
+            },
+            {
+              "url": "/analytics/analytics-and-metrics/sales-funnel",
+              "title": "销售漏斗",
+              "id": 74506
+            },
+            {
+              "url": "/analytics/analytics-and-metrics/search-queries",
+              "title": "搜索查询",
+              "id": 72438
+            },
+            {
+              "url": "/analytics/analytics-and-metrics/dostupnost-tovarov",
+              "title": "商品可售性和错失的销售",
+              "id": 72431
+            }
+          ]
+        },
+        {
+          "path": "/analytics/fulfillment-reports",
+          "title": "报告",
+          "url": "/analytics/fulfillment-reports",
+          "id": 72441,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/analytics/fulfillment-reports/reports",
+              "title": "报告",
+              "id": 72445
+            },
+            {
+              "url": "/analytics/fulfillment-reports/report-orders",
+              "title": "订单报告",
+              "id": 72443
+            },
+            {
+              "url": "/analytics/fulfillment-reports/indexing-errors",
+              "title": "索引错误报告",
+              "id": 72442
+            },
+            {
+              "url": "/analytics/fulfillment-reports/reports-returns",
+              "title": "退货报告",
+              "id": 72444
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/analytics/analytics-tools",
+          "title": "分析工具",
+          "id": 72440
+        }
+      ]
+    },
+    {
+      "path": "/brand-account",
+      "title": "品牌个人中心",
+      "url": "/brand-account",
+      "id": 72449,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/brand-account/faq-brand-account",
+          "title": "关于品牌个人中心的问题和回答",
+          "id": 72455
+        },
+        {
+          "url": "/brand-account/brand-product-selections",
+          "title": "品牌精选商品集",
+          "id": 72452
+        },
+        {
+          "url": "/brand-account/premium-brand",
+          "title": "Premium订阅",
+          "id": 72459
+        },
+        {
+          "url": "/brand-account/brand-storefront",
+          "title": "品牌官方橱窗",
+          "id": 72453
+        },
+        {
+          "url": "/brand-account/list-of-brand-sellers",
+          "title": "品牌卖家列表",
+          "id": 72458
+        },
+        {
+          "url": "/brand-account/customer-reviews",
+          "title": "买家对品牌商品的评价",
+          "id": 72454
+        },
+        {
+          "url": "/brand-account/faq-brand-customers",
+          "title": "品牌买家问题和回答",
+          "id": 72456
+        },
+        {
+          "url": "/brand-account/brand-account-tool",
+          "title": "《品牌个人中心》工具",
+          "id": 72451
+        },
+        {
+          "url": "/brand-account/brand-account-registration",
+          "title": "品牌个人中心注册",
+          "id": 72450
+        },
+        {
+          "url": "/brand-account/list-of-brand-products",
+          "title": "品牌商品列表",
+          "id": 72457
+        }
+      ]
+    },
+    {
+      "path": "/work-with-customers",
+      "title": "买家沟通",
+      "url": "/work-with-customers",
+      "id": 72749,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/work-with-customers/customers-chat",
+          "title": "买家聊天窗口",
+          "url": "/work-with-customers/customers-chat",
+          "id": 72750,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/work-with-customers/customers-chat/auto-answers",
+              "title": "定时自动回复",
+              "id": 72751
+            },
+            {
+              "url": "/work-with-customers/customers-chat/chat-safety-rules",
+              "title": "聊天安全规则",
+              "id": 72752
+            },
+            {
+              "url": "/work-with-customers/customers-chat/write-in-the-chat",
+              "title": "谁可以以及如何在聊天中发送消息",
+              "id": 72755
+            },
+            {
+              "url": "/work-with-customers/customers-chat/view-and-send-messages",
+              "title": "查看和发送消息",
+              "id": 72754
+            },
+            {
+              "url": "/work-with-customers/customers-chat/quick-answers",
+              "title": "与买家聊天中的快速回复",
+              "id": 72753
+            }
+          ]
+        },
+        {
+          "path": "/work-with-customers/managing-reviews",
+          "title": "\"评价管理\"订阅",
+          "url": "/work-with-customers/managing-reviews",
+          "id": 72757,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/work-with-customers/managing-reviews/managing-reviews-subscription",
+              "title": "关于“评价管理”订阅",
+              "id": 72760
+            },
+            {
+              "url": "/work-with-customers/managing-reviews/hide-reviews",
+              "title": "隐藏评价并在负面评价发布前联系买家",
+              "id": 72759
+            },
+            {
+              "url": "/work-with-customers/managing-reviews/generate-ai-response",
+              "title": "使用神经网络回复评价",
+              "id": 72758
+            },
+            {
+              "url": "/work-with-customers/managing-reviews/review-analytics",
+              "title": "商品评价概述",
+              "id": 72763
+            },
+            {
+              "url": "/work-with-customers/managing-reviews/pinned-reviews",
+              "title": "评价置顶",
+              "id": 72761
+            },
+            {
+              "url": "/work-with-customers/managing-reviews/response-templates",
+              "title": "评价回复模板与自动回复",
+              "id": 72762
+            }
+          ]
+        },
+        {
+          "path": "/work-with-customers/points-for-reviews",
+          "title": "“快速收集评价”工具",
+          "url": "/work-with-customers/points-for-reviews",
+          "id": 72764,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/work-with-customers/points-for-reviews/points-algorithm",
+              "title": "快速收集评价的运作方式",
+              "id": 72766
+            },
+            {
+              "url": "/work-with-customers/points-for-reviews/manual",
+              "title": "“快速收集评价”手动广告活动",
+              "id": 76246
+            },
+            {
+              "url": "/work-with-customers/points-for-reviews/for-new-products",
+              "title": "“为您的商品快速收集评价”新品广告活动",
+              "id": 76260
+            },
+            {
+              "url": "/work-with-customers/points-for-reviews/auto-collections",
+              "title": "自动精选商品集",
+              "id": 76275
+            }
+          ]
+        },
+        {
+          "path": "/work-with-customers/working-with-reviews",
+          "title": "评价管理",
+          "url": "/work-with-customers/working-with-reviews",
+          "id": 72768,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/work-with-customers/working-with-reviews/pinned-reviews",
+              "title": "评价置顶",
+              "id": 72780
+            },
+            {
+              "url": "/work-with-customers/working-with-reviews/reviews-overview",
+              "title": "商品评价概述",
+              "id": 72781
+            },
+            {
+              "url": "/work-with-customers/working-with-reviews/customer-reviews",
+              "title": "买家评价与回复",
+              "id": 72769
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/work-with-customers/customers-questions",
+          "title": "问题与回复",
+          "id": 72756
+        },
+        {
+          "url": "/work-with-customers/automated-notifications",
+          "title": "自动群发",
+          "id": 75331
+        }
+      ]
+    },
+    {
+      "path": "/ratings",
+      "title": "评级和封锁",
+      "url": "/ratings",
+      "id": 72737,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/ratings/product-rate",
+          "title": "商品评分",
+          "id": 72743
+        },
+        {
+          "url": "/ratings/quality-metrics",
+          "title": "服务质量指标",
+          "id": 72744
+        },
+        {
+          "url": "/ratings/price-index",
+          "title": "价格指数",
+          "id": 72742
+        },
+        {
+          "url": "/ratings/cancellation-percentage",
+          "title": "rFBS取消率指数",
+          "id": 72739
+        },
+        {
+          "url": "/ratings/csat-blocking",
+          "title": "已交付商品的质量评分",
+          "id": 72740
+        },
+        {
+          "url": "/ratings/ban",
+          "title": "屏蔽原因",
+          "id": 72738
+        }
+      ]
+    },
+    {
+      "path": "/techpartners",
+      "title": "认证合作伙伴",
+      "url": "/techpartners",
+      "id": 72745,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/techpartners/list-of-tech-partners",
+          "title": "认证合作伙伴列表",
+          "id": 72748
+        },
+        {
+          "url": "/techpartners/how-to-become-tech-partner",
+          "title": "Ozon 认证合作伙伴",
+          "id": 72747
+        },
+        {
+          "url": "/techpartners/assigning-sellers-to-partners",
+          "title": "加入认证合作伙伴",
+          "id": 72746
+        }
+      ]
+    },
+    {
+      "path": "/ozon-seller-app",
+      "title": "Ozon Seller 应用",
+      "url": "/ozon-seller-app",
+      "id": 72572,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/ozon-seller-app/product-management",
+          "title": "商品及价格管理",
+          "id": 72775
+        },
+        {
+          "url": "/ozon-seller-app/order-management",
+          "title": "订单管理",
+          "id": 72575
+        },
+        {
+          "url": "/ozon-seller-app/reviews",
+          "title": "商品评价及问题",
+          "id": 72579
+        },
+        {
+          "url": "/ozon-seller-app/promo",
+          "title": "促销活动",
+          "id": 72576
+        },
+        {
+          "url": "/ozon-seller-app/chats",
+          "title": "聊天室",
+          "id": 72573
+        },
+        {
+          "url": "/ozon-seller-app/returns-management",
+          "title": "退货",
+          "id": 72577
+        },
+        {
+          "url": "/ozon-seller-app/review-points",
+          "title": "快速收集评价",
+          "id": 72578
+        },
+        {
+          "url": "/ozon-seller-app/install",
+          "title": "APP安装",
+          "id": 72574
+        },
+        {
+          "url": "/ozon-seller-app/statistics",
+          "title": "商店后台数据",
+          "id": 72580
+        }
+      ]
+    },
+    {
+      "path": "/global-university",
+      "title": "Global University教育平台",
+      "url": "/global-university",
+      "id": 72557,
+      "isSection": true,
+      "childView": "card",
+      "sections": [],
+      "articles": [
+        {
+          "url": "/global-university/what-is-gu",
+          "title": "Global University介绍",
+          "id": 72558
+        }
+      ]
+    },
+    {
+      "path": "/api",
+      "title": "API文件",
+      "url": "/api",
+      "id": 72446,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/api/erp",
+          "title": "电商ERP系统",
+          "url": "/api/erp",
+          "id": 72782,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/api/erp/dianxiaomi",
+              "title": "Dianxiaomi ERP 店小秘",
+              "id": 72783
+            },
+            {
+              "url": "/api/erp/keyouyun",
+              "title": "KeYouYun 客优云",
+              "id": 72784
+            },
+            {
+              "url": "/api/erp/mabang",
+              "title": "MABANG ERP 马帮",
+              "id": 72785
+            },
+            {
+              "url": "/api/erp/mango",
+              "title": "Mango ERP 芒果店长",
+              "id": 72786
+            },
+            {
+              "url": "/api/erp/miaoshou",
+              "title": "Miaoshou ERP 妙手",
+              "id": 72787
+            },
+            {
+              "url": "/api/erp/tongtool",
+              "title": "TONGTOOL ERP 通途",
+              "id": 72788
+            },
+            {
+              "url": "/api/erp/zhiying",
+              "title": "ZhiYing ERP 智赢",
+              "id": 72789
+            }
+          ]
+        }
+      ],
+      "articles": [
+        {
+          "url": "/api/intro",
+          "title": "使用API",
+          "id": 72447
+        },
+        {
+          "url": "/api/perfomance-api",
+          "title": "Performance API",
+          "id": 72448
+        }
+      ]
+    },
+    {
+      "path": "/accounting",
+      "title": "财务会计",
+      "url": "/accounting",
+      "id": 72410,
+      "isSection": true,
+      "childView": "card",
+      "sections": [
+        {
+          "path": "/accounting/receiving-payments",
+          "title": "获取付款",
+          "url": "/accounting/receiving-payments",
+          "id": 72414,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/accounting/receiving-payments/settlements",
+              "title": "相互结算",
+              "id": 72419
+            },
+            {
+              "url": "/accounting/receiving-payments/payment-currency",
+              "title": "卖家结算货币",
+              "id": 72418
+            },
+            {
+              "url": "/accounting/receiving-payments/multicurrency",
+              "title": "货币多样性",
+              "id": 72417
+            },
+            {
+              "url": "/accounting/receiving-payments/conversion-rate",
+              "title": "兑换率",
+              "id": 72415
+            },
+            {
+              "url": "/accounting/receiving-payments/finance-management",
+              "title": "在个人中心中对财务的处理",
+              "id": 72416
+            }
+          ]
+        },
+        {
+          "path": "/accounting/discounts-for-customers",
+          "title": "给买家的折扣",
+          "url": "/accounting/discounts-for-customers",
+          "id": 72411,
+          "isSection": true,
+          "childView": "card",
+          "sections": [],
+          "articles": [
+            {
+              "url": "/accounting/discounts-for-customers/discount-points",
+              "title": "折扣积分",
+              "id": 72412
+            },
+            {
+              "url": "/accounting/discounts-for-customers/ozon-card",
+              "title": "“绿色价格”忠诚度计划",
+              "id": 72413
+            },
+            {
+              "url": "/accounting/discounts-for-customers/star-goods",
+              "title": "“星星商品”忠诚度计划",
+              "id": 74504
+            }
+          ]
+        },
+        {
+          "path": "/accounting/reporting-documents",
+          "isSection": false,
+          "sections": [],
+          "articles": []
+        }
+      ],
+      "articles": [
+        {
+          "url": "/accounting/report-on-fines",
+          "title": "罚款报告",
+          "id": 72420
+        }
+      ]
+    }
+  ],
+  "articles": [
+    {
+      "path": "/launch/steps/step-1",
+      "title": "第1步：注册激活账户",
+      "id": 72562,
+      "updated": "2026-09-30 08:04:01",
+      "url": "https://global-help.ozon.com/zh/launch/steps/step-1?region=CHN"
+    },
+    {
+      "path": "/launch/steps/step-2",
+      "title": "第2步。接受要约",
+      "id": 72563,
+      "updated": "2026-06-02 09:20:30.012829",
+      "url": "https://global-help.ozon.com/zh/launch/steps/step-2?region=CHN"
+    },
+    {
+      "path": "/launch/steps/step-3",
+      "title": "第3步.上传产品或服务",
+      "id": 72564,
+      "updated": "2026-07-17 11:55:58",
+      "url": "https://global-help.ozon.com/zh/launch/steps/step-3?region=CHN"
+    },
+    {
+      "path": "/launch/steps/step-4",
+      "title": "第4步.如何设置快递并开始售卖？",
+      "id": 72565,
+      "updated": "2026-08-26 10:46:53",
+      "url": "https://global-help.ozon.com/zh/launch/steps/step-4?region=CHN"
+    },
+    {
+      "path": "/contracts-for-sellers/dogovor",
+      "title": "来自国外货物添加到 Ozon 平台上的协议（cross-border）",
+      "id": 72478,
+      "updated": "2026-09-23 16:20:54",
+      "url": "https://global-help.ozon.com/zh/contracts-for-sellers/dogovor?region=CHN"
+    },
+    {
+      "path": "/contracts-for-sellers/anticorrupzionnaya-ogovorka",
+      "title": "对遵守反贪污及规管法例的保留",
+      "id": 72476,
+      "updated": "2026-06-02 09:17:30",
+      "url": "https://global-help.ozon.com/zh/contracts-for-sellers/anticorrupzionnaya-ogovorka?region=CHN"
+    },
+    {
+      "path": "/contracts-for-sellers/spisok-izmenenii-v-dogovore",
+      "title": "国外卖家协议更改列表",
+      "id": 72479,
+      "updated": "2026-09-23 16:23:03",
+      "url": "https://global-help.ozon.com/zh/contracts-for-sellers/spisok-izmenenii-v-dogovore?region=CHN"
+    },
+    {
+      "path": "/contracts-for-sellers/tax-residency-certificate",
+      "title": "税收居民身份证明",
+      "id": 72480,
+      "updated": "2026-06-02 09:17:35",
+      "url": "https://global-help.ozon.com/zh/contracts-for-sellers/tax-residency-certificate?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/commissions",
+      "title": "各类商品销售佣金标准",
+      "id": 72464,
+      "updated": "2026-08-12 13:16:01",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/commissions?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/ogl-rates",
+      "title": "OGL费用",
+      "id": 80266,
+      "updated": "2026-09-09 11:31:23",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/ogl-rates?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/partner-delivery-rates",
+      "title": "Ozon 合作伙伴物流的成本",
+      "id": 72468,
+      "updated": "2026-08-24 13:10:47",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/partner-delivery-rates?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/fbp-rates",
+      "title": "FBP半托管服务模式费用",
+      "id": 72466,
+      "updated": "2026-07-29 09:16:40",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/fbp-rates?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/commissions-for-other-services",
+      "title": "其他服务开支",
+      "id": 72463,
+      "updated": "2026-09-23 15:13:59",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/commissions-for-other-services?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/returns-expenses",
+      "title": "退货、未认购及取消相关费用",
+      "id": 72469,
+      "updated": "2026-08-14 16:47:49",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/returns-expenses?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/volume-weight-for-partner-delivery",
+      "title": "运费计算",
+      "id": 72470,
+      "updated": "2026-06-04 13:36:42",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/volume-weight-for-partner-delivery?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/fines",
+      "title": "罚款",
+      "id": 72467,
+      "updated": "2026-07-29 08:24:56",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/fines?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/archive-komisii",
+      "title": "已归档的销售佣金",
+      "id": 72462,
+      "updated": "2026-08-12 12:36:08",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/archive-komisii?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-fees/poryadok-opredeleniya-koefficienta-vozmeshcheniya",
+      "title": "赔偿系数确定程序",
+      "id": 78084,
+      "updated": "2026-08-14 16:41:31",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-fees/poryadok-opredeleniya-koefficienta-vozmeshcheniya?region=CHN"
+    },
+    {
+      "path": "/commissions/ozon-technology-fees/expenses-for-other-services",
+      "title": "奥宗科技服务费率\n",
+      "id": 86102,
+      "updated": "2026-09-23 15:14:19",
+      "url": "https://global-help.ozon.com/zh/commissions/ozon-technology-fees/expenses-for-other-services?region=CHN"
+    },
+    {
+      "path": "/policies/content-policy",
+      "title": "Ozon 平台内容发布政策",
+      "id": 72589,
+      "updated": "2026-06-02 09:19:56",
+      "url": "https://global-help.ozon.com/zh/policies/content-policy?region=CHN"
+    },
+    {
+      "path": "/policies/communication",
+      "title": "与买家和Ozon的沟通规则",
+      "id": 72588,
+      "updated": "2026-06-10 10:22:51",
+      "url": "https://global-help.ozon.com/zh/policies/communication?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/product-rules/refurbished-smartphones",
+      "title": "出售翻新智能手机",
+      "id": 72607,
+      "updated": "2026-07-09 14:48:20",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/product-rules/refurbished-smartphones?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/product-rules/special-categories",
+      "title": "商品类别和文件的限制",
+      "id": 72608,
+      "updated": "2026-07-15 09:56:44",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/product-rules/special-categories?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/safety-passport",
+      "title": "安全数据表",
+      "id": 72600,
+      "updated": "2026-08-10 08:19:00",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/safety-passport?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/faq",
+      "title": "常见问题",
+      "id": 72594,
+      "updated": "2026-07-24 08:42:23",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/faq?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/quality-certificate",
+      "title": "产品质保书",
+      "id": 72599,
+      "updated": "2026-08-10 08:14:09",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/quality-certificate?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/originality-confirmation/brand",
+      "title": "商标授权证明文件",
+      "id": 72596,
+      "updated": "2026-09-24 08:15:16",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/originality-confirmation/brand?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/originality-confirmation/original-badge",
+      "title": "\"品牌已认证\"徽章",
+      "id": 72597,
+      "updated": "2026-08-19 07:02:38",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/originality-confirmation/original-badge?region=CHN"
+    },
+    {
+      "path": "/policies/product-rules-and-documents/documents/originality-confirmation/security-deposit",
+      "title": "保证金",
+      "id": 72598,
+      "updated": "2026-09-07 13:10:45",
+      "url": "https://global-help.ozon.com/zh/policies/product-rules-and-documents/documents/originality-confirmation/security-deposit?region=CHN"
+    },
+    {
+      "path": "/personal-account/showcase",
+      "title": "橱窗",
+      "id": 72584,
+      "updated": "2026-07-31 15:01:53",
+      "url": "https://global-help.ozon.com/zh/personal-account/showcase?region=CHN"
+    },
+    {
+      "path": "/personal-account/user-management",
+      "title": "用户管理",
+      "id": 72586,
+      "updated": "2026-06-04 14:53:39",
+      "url": "https://global-help.ozon.com/zh/personal-account/user-management?region=CHN"
+    },
+    {
+      "path": "/personal-account/notification",
+      "title": "Ozon 通知",
+      "id": 72582,
+      "updated": "2026-06-02 09:19:46",
+      "url": "https://global-help.ozon.com/zh/personal-account/notification?region=CHN"
+    },
+    {
+      "path": "/personal-account/ozon-id",
+      "title": "Ozon ID",
+      "id": 72583,
+      "updated": "2026-06-30 07:36:12",
+      "url": "https://global-help.ozon.com/zh/personal-account/ozon-id?region=CHN"
+    },
+    {
+      "path": "/personal-account/store-name",
+      "title": "店铺名称和标志",
+      "id": 72585,
+      "updated": "2026-06-02 09:20:30.45399",
+      "url": "https://global-help.ozon.com/zh/personal-account/store-name?region=CHN"
+    },
+    {
+      "path": "/products/price-reduction",
+      "title": "仓库转售商品减价处理",
+      "id": 72619,
+      "updated": "2026-06-02 09:20:37",
+      "url": "https://global-help.ozon.com/zh/products/price-reduction?region=CHN"
+    },
+    {
+      "path": "/products/upload/archive",
+      "title": "商品归档库",
+      "id": 72790,
+      "updated": "2026-05-12 16:10:40",
+      "url": "https://global-help.ozon.com/zh/products/upload/archive?region=CHN"
+    },
+    {
+      "path": "/products/upload/barcode-upload",
+      "title": "条形码上传",
+      "id": 72655,
+      "updated": "2026-09-02 13:15:06",
+      "url": "https://global-help.ozon.com/zh/products/upload/barcode-upload?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-limit",
+      "title": "商品上传与编辑限额",
+      "id": 72673,
+      "updated": "2026-06-03 09:56:11",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-limit?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-types/xls",
+      "title": "通过模板上传",
+      "id": 72680,
+      "updated": "2026-06-02 09:41:17.354946",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-types/xls?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-types/online-sheets",
+      "title": "通过在线表格",
+      "id": 72678,
+      "updated": "2026-06-02 09:41:17.287009",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-types/online-sheets?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-types/account",
+      "title": "手动添加",
+      "id": 72675,
+      "updated": "2026-09-07 13:11:33",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-types/account?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-types/creating-product-cards",
+      "title": "在新版商品卡片创建表单中手动创建",
+      "id": 72677,
+      "updated": "2026-09-07 13:11:53",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-types/creating-product-cards?region=CHN"
+    },
+    {
+      "path": "/products/upload/upload-types/copying",
+      "title": "通过复制添加",
+      "id": 72676,
+      "updated": "2026-06-02 09:41:17.150536",
+      "url": "https://global-help.ozon.com/zh/products/upload/upload-types/copying?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/images",
+      "title": "图片上传",
+      "id": 72650,
+      "updated": "2026-06-02 09:23:04",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/images?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/video",
+      "title": "视频上传",
+      "id": 72653,
+      "updated": "2026-07-17 08:19:21",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/video?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/videocover",
+      "title": "视频封面上传",
+      "id": 72654,
+      "updated": "2026-07-17 08:24:01",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/videocover?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/editing-photo",
+      "title": "图片编辑",
+      "id": 72649,
+      "updated": "2026-07-13 13:05:40",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/editing-photo?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/rich-content",
+      "title": "添加JSON富内容",
+      "id": 72651,
+      "updated": "2026-06-02 09:23:06",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/rich-content?region=CHN"
+    },
+    {
+      "path": "/products/upload/adding-content/size-table-constructor",
+      "title": "尺码表格构造函数",
+      "id": 72652,
+      "updated": "2026-06-02 09:23:07",
+      "url": "https://global-help.ozon.com/zh/products/upload/adding-content/size-table-constructor?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/product-list",
+      "title": "商品列表管理",
+      "id": 72660,
+      "updated": "2026-09-09 11:56:26",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/product-list?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/editing-products",
+      "title": "商品卡片编辑",
+      "id": 72658,
+      "updated": "2026-09-09 12:45:26",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/editing-products?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/status",
+      "title": "商品的状态和可售数量",
+      "id": 72662,
+      "updated": "2026-06-02 09:23:21",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/status?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/archive",
+      "title": "商品归档库",
+      "id": 72657,
+      "updated": "2026-06-02 09:23:14",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/archive?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/purchase-multiplicity",
+      "title": "购买倍数",
+      "id": 72661,
+      "updated": "2026-07-21 14:19:29",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/purchase-multiplicity?region=CHN"
+    },
+    {
+      "path": "/products/upload/created-pdp/pdp-transfer",
+      "title": "商品卡片转移",
+      "id": 72659,
+      "updated": "2026-06-10 11:32:17",
+      "url": "https://global-help.ozon.com/zh/products/upload/created-pdp/pdp-transfer?region=CHN"
+    },
+    {
+      "path": "/products/upload/merging-products/intro",
+      "title": "型号",
+      "id": 72665,
+      "updated": "2026-09-10 12:29:13",
+      "url": "https://global-help.ozon.com/zh/products/upload/merging-products/intro?region=CHN"
+    },
+    {
+      "path": "/products/upload/merging-products/merging-into-series",
+      "title": "相似 商品",
+      "id": 72666,
+      "updated": "2026-09-10 13:29:30",
+      "url": "https://global-help.ozon.com/zh/products/upload/merging-products/merging-into-series?region=CHN"
+    },
+    {
+      "path": "/products/upload/merging-products/products-on-photos",
+      "title": "照片上的商品",
+      "id": 72667,
+      "updated": "2026-06-02 09:23:28",
+      "url": "https://global-help.ozon.com/zh/products/upload/merging-products/products-on-photos?region=CHN"
+    },
+    {
+      "path": "/products/upload/merging-products/sets-merging",
+      "title": "套装合并",
+      "id": 72668,
+      "updated": "2026-06-02 09:23:29",
+      "url": "https://global-help.ozon.com/zh/products/upload/merging-products/sets-merging?region=CHN"
+    },
+    {
+      "path": "/products/upload/merging-products/creating-a-bundle",
+      "title": "商品套装创建",
+      "id": 72664,
+      "updated": "2026-06-02 09:23:24",
+      "url": "https://global-help.ozon.com/zh/products/upload/merging-products/creating-a-bundle?region=CHN"
+    },
+    {
+      "path": "/products/upload/moderation/intro",
+      "title": "审核",
+      "id": 72671,
+      "updated": "2026-06-03 09:04:23",
+      "url": "https://global-help.ozon.com/zh/products/upload/moderation/intro?region=CHN"
+    },
+    {
+      "path": "/products/upload/moderation/unpopular-products",
+      "title": "自动归档",
+      "id": 72672,
+      "updated": "2026-06-02 09:25:21.187383",
+      "url": "https://global-help.ozon.com/zh/products/upload/moderation/unpopular-products?region=CHN"
+    },
+    {
+      "path": "/products/upload/moderation/errors-with-pdps",
+      "title": "商品卡片操作错误",
+      "id": 72670,
+      "updated": "2026-07-23 09:28:07",
+      "url": "https://global-help.ozon.com/zh/products/upload/moderation/errors-with-pdps?region=CHN"
+    },
+    {
+      "path": "/products/requirements/export_regulations",
+      "title": "销售受限的商品",
+      "id": 72776,
+      "updated": "2026-05-12 15:54:59",
+      "url": "https://global-help.ozon.com/zh/products/requirements/export_regulations?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/product-description",
+      "title": "商品描述",
+      "id": 72635,
+      "updated": "2026-10-07 09:07:48",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/product-description?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/category",
+      "title": "商品类目",
+      "id": 72627,
+      "updated": "2026-08-04 14:13:10",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/category?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/product-characteristics",
+      "title": "商品特性",
+      "id": 72634,
+      "updated": "2026-09-17 14:31:26",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/product-characteristics?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/naming-requirements",
+      "title": "商品标题",
+      "id": 72633,
+      "updated": "2026-06-02 09:22:41",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/naming-requirements?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/sku",
+      "title": "货号",
+      "id": 72639,
+      "updated": "2026-08-31 09:31:35",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/sku?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/identifiers",
+      "title": "商品代码和Ozon ID",
+      "id": 72632,
+      "updated": "2026-06-02 09:22:40",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/identifiers?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/hashtags",
+      "title": "话题标签",
+      "id": 72631,
+      "updated": "2026-06-02 09:22:38",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/hashtags?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/brands",
+      "title": "品牌",
+      "id": 72626,
+      "updated": "2026-06-04 09:38:11",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/brands?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/clothing-and-accessories-size",
+      "title": "服装和配饰的尺码",
+      "id": 72628,
+      "updated": "2026-10-05 13:35:36",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/clothing-and-accessories-size?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/trend",
+      "title": "趋势",
+      "id": 72640,
+      "updated": "2026-06-02 09:22:51",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/trend?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/volume-weight-characteristics",
+      "title": "体积和重量特征",
+      "id": 72641,
+      "updated": "2026-06-02 09:22:52",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/volume-weight-characteristics?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/volume-whd",
+      "title": "WHD仓库订单体积计算",
+      "id": 77968,
+      "updated": "2026-07-09 15:17:31",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/volume-whd?region=CHN"
+    },
+    {
+      "path": "/products/requirements/product-info/guidebooks/clothes-shoes-accesories",
+      "title": "服饰商品手册",
+      "id": 72630,
+      "updated": "2026-06-02 09:22:37",
+      "url": "https://global-help.ozon.com/zh/products/requirements/product-info/guidebooks/clothes-shoes-accesories?region=CHN"
+    },
+    {
+      "path": "/products/requirements/media/image-requirements",
+      "title": "对图片的要求",
+      "id": 72622,
+      "updated": "2026-06-02 09:20:41",
+      "url": "https://global-help.ozon.com/zh/products/requirements/media/image-requirements?region=CHN"
+    },
+    {
+      "path": "/products/requirements/media/videocover-requirements",
+      "title": "视频封面要求",
+      "id": 72624,
+      "updated": "2026-06-02 09:20:44",
+      "url": "https://global-help.ozon.com/zh/products/requirements/media/videocover-requirements?region=CHN"
+    },
+    {
+      "path": "/products/requirements/media/video-requirements",
+      "title": "对视频的要求",
+      "id": 72623,
+      "updated": "2026-06-02 09:20:43",
+      "url": "https://global-help.ozon.com/zh/products/requirements/media/video-requirements?region=CHN"
+    },
+    {
+      "path": "/products/selling-pdp/good-pdps",
+      "title": "商品卡片正确填写示例",
+      "id": 72645,
+      "updated": "2026-06-02 09:22:58",
+      "url": "https://global-help.ozon.com/zh/products/selling-pdp/good-pdps?region=CHN"
+    },
+    {
+      "path": "/products/selling-pdp/content-rating",
+      "title": "内容评级",
+      "id": 72643,
+      "updated": "2026-06-29 14:38:24",
+      "url": "https://global-help.ozon.com/zh/products/selling-pdp/content-rating?region=CHN"
+    },
+    {
+      "path": "/products/selling-pdp/display-of-products",
+      "title": "Ozon上的商品显示",
+      "id": 72644,
+      "updated": "2026-07-28 07:31:10",
+      "url": "https://global-help.ozon.com/zh/products/selling-pdp/display-of-products?region=CHN"
+    },
+    {
+      "path": "/prices/price-control",
+      "title": "价格管理",
+      "id": 72613,
+      "updated": "2026-09-16 11:49:37",
+      "url": "https://global-help.ozon.com/zh/prices/price-control?region=CHN"
+    },
+    {
+      "path": "/prices/price-quarantine",
+      "title": "价格锁定",
+      "id": 72614,
+      "updated": "2026-09-07 13:09:13",
+      "url": "https://global-help.ozon.com/zh/prices/price-quarantine?region=CHN"
+    },
+    {
+      "path": "/prices/regional-price",
+      "title": "区域价格系数",
+      "id": 72615,
+      "updated": "2026-09-07 13:09:45",
+      "url": "https://global-help.ozon.com/zh/prices/regional-price?region=CHN"
+    },
+    {
+      "path": "/prices/customs-duties",
+      "title": "海关税费",
+      "id": 72612,
+      "updated": "2026-06-10 11:36:19",
+      "url": "https://global-help.ozon.com/zh/prices/customs-duties?region=CHN"
+    },
+    {
+      "path": "/prices/changes-in-pricing",
+      "title": "个人账户变更列表",
+      "id": 82739,
+      "updated": "2026-08-31 12:20:33",
+      "url": "https://global-help.ozon.com/zh/prices/changes-in-pricing?region=CHN"
+    },
+    {
+      "path": "/fulfillment/stock",
+      "title": "库存管理",
+      "id": 72556,
+      "updated": "2026-09-28 14:26:36",
+      "url": "https://global-help.ozon.com/zh/fulfillment/stock?region=CHN"
+    },
+    {
+      "path": "/fulfillment/order-packaging-requirements",
+      "title": "订单包装要求",
+      "id": 88101,
+      "updated": "2026-09-30 08:40:57",
+      "url": "https://global-help.ozon.com/zh/fulfillment/order-packaging-requirements?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/ogl-work-scheme",
+      "title": "OGL工作模式",
+      "id": 76406,
+      "updated": "2026-10-07 14:17:33",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/ogl-work-scheme?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/logistic-settings-ogl/warehouse-setting-ogl",
+      "title": "OGL仓库设置",
+      "id": 76411,
+      "updated": "2026-10-05 09:30:49",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/logistic-settings-ogl/warehouse-setting-ogl?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/logistic-settings-ogl/delivery-methods-ogl",
+      "title": "OGL配送方式设置",
+      "id": 80043,
+      "updated": "2026-08-17 13:19:25",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/logistic-settings-ogl/delivery-methods-ogl?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/shipment-preparation",
+      "title": "货件备货",
+      "id": 76413,
+      "updated": "2026-08-14 16:43:20",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/shipment-preparation?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/video-recording",
+      "title": "订单备货的视频记录",
+      "id": 76415,
+      "updated": "2026-08-14 16:45:01",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/video-recording?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/shipment-formation",
+      "title": "生成发运",
+      "id": 76417,
+      "updated": "2026-09-28 12:08:19",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/shipment-formation?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/label-and-packaging",
+      "title": "货物交接入库手续",
+      "id": 76426,
+      "updated": "2026-08-14 16:43:54",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/label-and-packaging?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/shipping-to-drop-off-point",
+      "title": "通过Self-Drop方法发运货件",
+      "id": 76427,
+      "updated": "2026-10-05 09:30:55",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/shipping-to-drop-off-point?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/pick-up-shipping",
+      "title": "通过Pick-up方法发运",
+      "id": 79943,
+      "updated": "2026-10-05 09:31:23",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/pick-up-shipping?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/order-status",
+      "title": "订单状态",
+      "id": 76429,
+      "updated": "2026-08-14 16:45:37",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/order-status?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/shipping-from-your-warehouse/drop-off-points-ogl",
+      "title": "集运仓库地址",
+      "id": 76408,
+      "updated": "2026-09-30 13:54:11",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/shipping-from-your-warehouse/drop-off-points-ogl?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/dispute/disputed-orders",
+      "title": "转交OGL物流时的有争议的订单",
+      "id": 80252,
+      "updated": "2026-08-14 16:42:40",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/dispute/disputed-orders?region=CHN"
+    },
+    {
+      "path": "/fulfillment/ogl/dispute/compensation-for-shortage-of-goods",
+      "title": "OGL订单中商品短缺的赔偿",
+      "id": 80261,
+      "updated": "2026-08-14 16:43:50",
+      "url": "https://global-help.ozon.com/zh/fulfillment/ogl/dispute/compensation-for-shortage-of-goods?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/fulfilment-by-partner",
+      "title": "FBP物流介绍",
+      "id": 72491,
+      "updated": "2026-06-02 09:20:25.789274",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/fulfilment-by-partner?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/order-management",
+      "title": "处理订单",
+      "id": 72494,
+      "updated": "2026-06-02 09:20:25.950591",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/order-management?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/returns-",
+      "title": null,
+      "id": null,
+      "updated": null,
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/returns-?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/rates",
+      "title": null,
+      "id": null,
+      "updated": null,
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/rates?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/logistics/available-services",
+      "title": "可用的配送服务",
+      "id": 72493,
+      "updated": "2026-10-08 08:51:47",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/logistics/available-services?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/cel-warehouse",
+      "title": "CEL仓库",
+      "id": 72512,
+      "updated": "2026-09-01 06:22:51",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/cel-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/ets-warehouse",
+      "title": "RETS仓库",
+      "id": 72514,
+      "updated": "2026-08-11 08:56:36",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/ets-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/ural-warehouse",
+      "title": "Ural仓库",
+      "id": 72518,
+      "updated": "2026-09-02 06:05:23",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/ural-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/xinguan-warehouse",
+      "title": "Xingyuan仓库",
+      "id": 72520,
+      "updated": "2026-08-11 08:54:08",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/xinguan-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/guoo-warehouse",
+      "title": "GUOO仓库",
+      "id": 72516,
+      "updated": "2026-08-11 08:53:07",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/guoo-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/wbbs",
+      "title": "DEX仓库",
+      "id": 72519,
+      "updated": "2026-08-11 08:48:40",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/wbbs?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/warehouse/bonded-warehouse",
+      "title": "保税仓库特点",
+      "id": 72511,
+      "updated": "2026-09-02 06:05:46",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/warehouse/bonded-warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/fbp-utilization",
+      "title": "销毁受损商品",
+      "id": 72500,
+      "updated": "2026-06-02 09:17:54",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/fbp-utilization?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/stock-report",
+      "title": "FBP 模式下的库存管理",
+      "id": 72503,
+      "updated": "2026-06-02 09:41:15.852694",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/stock-report?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/pick-up",
+      "title": "面向FBP的上门揽收服务",
+      "id": 72501,
+      "updated": "2026-06-02 09:20:26.122047",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/pick-up?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/change-delivery-service",
+      "title": "更改配送服务",
+      "id": 72499,
+      "updated": "2026-06-02 09:17:52",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/change-delivery-service?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/product-availability",
+      "title": null,
+      "id": null,
+      "updated": null,
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/product-availability?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/partner-warehouse-returns",
+      "title": "从合作伙伴仓库退货",
+      "id": 77147,
+      "updated": "2026-07-07 13:58:41",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/partner-warehouse-returns?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/supply-work/create-supply",
+      "title": "创建供应申请",
+      "id": 72507,
+      "updated": "2026-08-21 10:00:21",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/supply-work/create-supply?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/supply-work/cancel",
+      "title": "取消或编辑申请",
+      "id": 72506,
+      "updated": "2026-06-02 09:20:26.17134",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/supply-work/cancel?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/supply-work/application-cancelled",
+      "title": "如果申请被拒绝",
+      "id": 72505,
+      "updated": "2026-06-02 09:18:00",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/supply-work/application-cancelled?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/supply-work/status",
+      "title": "申请状态",
+      "id": 72509,
+      "updated": "2026-06-02 09:20:26.290187",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/supply-work/status?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp/supplies/supply-work/mark",
+      "title": "为盒子粘贴标志",
+      "id": 72508,
+      "updated": "2026-06-02 09:18:04",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp/supplies/supply-work/mark?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/fulfillment-by-seller",
+      "title": "realFBS 物流介绍",
+      "id": 72531,
+      "updated": "2026-06-02 09:20:27.324186",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/fulfillment-by-seller?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/replacement-number",
+      "title": "虚拟号码",
+      "id": 72554,
+      "updated": "2026-06-04 13:45:12",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/replacement-number?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/warehouse",
+      "title": "仓库管理",
+      "id": 72545,
+      "updated": "2026-06-02 09:20:27.935997",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/warehouse?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/delivery-methods",
+      "title": "配送方式管理",
+      "id": 72534,
+      "updated": "2026-06-26 10:10:19",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/delivery-methods?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/order-management",
+      "title": "订单管理",
+      "id": 72535,
+      "updated": "2026-09-08 10:06:35",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/order-management?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/packaging-time",
+      "title": "订单准备时间",
+      "id": 72538,
+      "updated": "2026-06-02 09:20:27.585678",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/packaging-time?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/pick-up-service",
+      "title": "Pick-up — 揽收服务",
+      "id": 72543,
+      "updated": "2026-07-01 06:44:11",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/pick-up-service?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/logistic-settings/ozon-rating",
+      "title": "Ozon评级",
+      "id": 72537,
+      "updated": "2026-06-02 09:18:44",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/logistic-settings/ozon-rating?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/cancellations/cancel-by-customer",
+      "title": "由买家取消的订单",
+      "id": 72528,
+      "updated": "2026-08-03 08:36:53",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/cancellations/cancel-by-customer?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/cancellations/cancel-by-seller",
+      "title": "由卖家取消的订单",
+      "id": 72530,
+      "updated": "2026-07-09 08:31:16",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/cancellations/cancel-by-seller?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/cancellations/cancel-by-ozon",
+      "title": "由Ozon取消的订单",
+      "id": 72529,
+      "updated": "2026-07-09 08:32:41",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/cancellations/cancel-by-ozon?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/refunds/pick-up-point-returns",
+      "title": "通过Ozon取货点的退货",
+      "id": 72552,
+      "updated": "2026-09-25 12:10:36",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/refunds/pick-up-point-returns?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/refunds/returns-3pl",
+      "title": "退货",
+      "id": 72553,
+      "updated": "2026-09-15 13:40:44",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/refunds/returns-3pl?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/refunds/money",
+      "title": "退款政策",
+      "id": 72548,
+      "updated": "2026-07-09 08:10:04",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/refunds/money?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/refunds/deviation",
+      "title": "纠纷",
+      "id": 72547,
+      "updated": "2026-07-09 08:11:57",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/refunds/deviation?region=CHN"
+    },
+    {
+      "path": "/fulfillment/rfbs/refunds/partial-refunds",
+      "title": "部分补偿",
+      "id": 72549,
+      "updated": "2026-09-15 13:41:16",
+      "url": "https://global-help.ozon.com/zh/fulfillment/rfbs/refunds/partial-refunds?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/order-cancellation",
+      "title": "订单取消",
+      "id": 72524,
+      "updated": "2026-09-15 13:42:13",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/order-cancellation?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/where-send-returns",
+      "title": "取消、未认购、客户退货的去向",
+      "id": 72525,
+      "updated": "2026-09-17 10:46:06",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/where-send-returns?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/disputes",
+      "title": "退货争议",
+      "id": 87052,
+      "updated": "2026-09-24 09:06:30",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/disputes?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/time-conditions",
+      "title": "退货期限和条件",
+      "id": 86870,
+      "updated": "2026-10-08 07:08:46",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/time-conditions?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/process-requests",
+      "title": "处理退货申请",
+      "id": 87019,
+      "updated": "2026-09-22 08:41:17",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/process-requests?region=CHN"
+    },
+    {
+      "path": "/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/partial-compensation",
+      "title": "部分赔偿",
+      "id": 87021,
+      "updated": "2026-09-22 08:40:51",
+      "url": "https://global-help.ozon.com/zh/fulfillment/fbp-rfbs-returns-cancellations/customer-returns/partial-compensation?region=CHN"
+    },
+    {
+      "path": "/promotion/traffic-analysis",
+      "title": "外部流量分析",
+      "id": 72736,
+      "updated": "2026-07-25 14:03:10",
+      "url": "https://global-help.ozon.com/zh/promotion/traffic-analysis?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/premium-plus",
+      "title": "Premium Plus 订阅",
+      "id": 72733,
+      "updated": "2026-10-01 12:31:01",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/premium-plus?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/premium-pro-global",
+      "title": "Premium Pro 订阅",
+      "id": 72734,
+      "updated": "2026-10-01 12:33:03",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/premium-pro-global?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/premium-lite-global",
+      "title": "Premium Lite 订阅",
+      "id": 72732,
+      "updated": "2026-10-01 12:30:14",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/premium-lite-global?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/premium",
+      "title": "卖家 Premium 订阅服务",
+      "id": 72735,
+      "updated": "2026-10-01 12:30:38",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/premium?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/podpiska-analitika-premium",
+      "title": "Analytics Premium订阅",
+      "id": 88042,
+      "updated": "2026-10-01 12:33:46",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/podpiska-analitika-premium?region=CHN"
+    },
+    {
+      "path": "/promotion/subscriptions/analytics-plus",
+      "title": "Analytics Plus订阅",
+      "id": 88043,
+      "updated": "2026-10-01 12:36:29",
+      "url": "https://global-help.ozon.com/zh/promotion/subscriptions/analytics-plus?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/promo-ozon",
+      "title": "来自Ozon的促销活动",
+      "id": 74738,
+      "updated": "2026-09-16 12:54:59",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/promo-ozon?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/manage-products",
+      "title": "管理Ozon促销活动中的商品",
+      "id": 74865,
+      "updated": "2026-09-25 09:22:01",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/manage-products?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/promo-autoadd",
+      "title": "自动将商品添加至Ozon促销活动",
+      "id": 74736,
+      "updated": "2026-09-25 09:58:06",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/promo-autoadd?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/promo-faq",
+      "title": "Ozon促销活动问答",
+      "id": 74737,
+      "updated": "2026-09-07 13:28:33",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/promo-faq?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/seller-promotions",
+      "title": "卖家促销活动",
+      "id": 72729,
+      "updated": "2026-09-07 13:28:56",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/seller-promotions?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/coupon",
+      "title": "促销码",
+      "id": 72723,
+      "updated": "2026-06-08 13:29:27",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/coupon?region=CHN"
+    },
+    {
+      "path": "/promotion/promotions/multi-level",
+      "title": "按订单金额设置多级满额折扣",
+      "id": 72727,
+      "updated": "2026-06-08 13:30:00",
+      "url": "https://global-help.ozon.com/zh/promotion/promotions/multi-level?region=CHN"
+    },
+    {
+      "path": "/promotion/big-promotions/rasprodazha",
+      "title": "Ozon当前的大促销活动",
+      "id": 72687,
+      "updated": "2026-09-16 07:53:13",
+      "url": "https://global-help.ozon.com/zh/promotion/big-promotions/rasprodazha?region=CHN"
+    },
+    {
+      "path": "/promotion/big-promotions/tips-for-big-sales",
+      "title": "应对需求增长的准备",
+      "id": 72688,
+      "updated": "2026-07-29 10:43:33",
+      "url": "https://global-help.ozon.com/zh/promotion/big-promotions/tips-for-big-sales?region=CHN"
+    },
+    {
+      "path": "/promotion/marketing-requests/marketing-request",
+      "title": "营销申请",
+      "id": 72693,
+      "updated": "2026-06-02 09:25:21.268608",
+      "url": "https://global-help.ozon.com/zh/promotion/marketing-requests/marketing-request?region=CHN"
+    },
+    {
+      "path": "/promotion/marketing-requests/media-kit",
+      "title": "Ozon Media-kit",
+      "id": 72694,
+      "updated": "2026-08-18 06:36:25",
+      "url": "https://global-help.ozon.com/zh/promotion/marketing-requests/media-kit?region=CHN"
+    },
+    {
+      "path": "/promotion/media-advertising/moderation-of-advertising-materials",
+      "title": "广告资料审核",
+      "id": 72700,
+      "updated": "2026-07-22 10:18:27",
+      "url": "https://global-help.ozon.com/zh/promotion/media-advertising/moderation-of-advertising-materials?region=CHN"
+    },
+    {
+      "path": "/promotion/media-advertising/advertising-labeling",
+      "title": "广告标识",
+      "id": 72698,
+      "updated": "2026-06-02 09:25:21.347523",
+      "url": "https://global-help.ozon.com/zh/promotion/media-advertising/advertising-labeling?region=CHN"
+    },
+    {
+      "path": "/promotion/media-advertising/media-advertising",
+      "title": "媒体广告",
+      "id": 72699,
+      "updated": "2026-06-02 09:25:21.377495",
+      "url": "https://global-help.ozon.com/zh/promotion/media-advertising/media-advertising?region=CHN"
+    },
+    {
+      "path": "/promotion/media-advertising/requirements-to-advertising-materials",
+      "title": "广告材料要求",
+      "id": 72701,
+      "updated": "2026-06-02 09:25:21.454501",
+      "url": "https://global-help.ozon.com/zh/promotion/media-advertising/requirements-to-advertising-materials?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/bonuses",
+      "title": "促销积分",
+      "id": 72704,
+      "updated": "2026-06-02 09:25:21.563187",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/bonuses?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/analytics",
+      "title": "推广分析",
+      "id": 72703,
+      "updated": "2026-10-09 14:09:06",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/analytics?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/podborki-tovarov",
+      "title": "精选商品集",
+      "id": 72719,
+      "updated": "2026-06-02 09:25:22.106653",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/podborki-tovarov?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/promoted-brands",
+      "title": "品牌推广",
+      "id": 72721,
+      "updated": "2026-09-07 13:26:39",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/promoted-brands?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/product-promotion",
+      "title": "在Ozon上推广商品的工具",
+      "id": 72720,
+      "updated": "2026-06-02 09:41:17.494198",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/product-promotion?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-order/view-results",
+      "title": "查看推广结果",
+      "id": 72718,
+      "updated": "2026-08-25 06:45:51",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-order/view-results?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-order/morkovsk",
+      "title": "适用于使用“按订单付费”推广商品的“Morkovsk”促销活动",
+      "id": 72716,
+      "updated": "2026-06-19 10:23:53",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-order/morkovsk?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-order/payment-for-the-order",
+      "title": "按订单付费的工作原理",
+      "id": 72717,
+      "updated": "2026-09-28 14:39:13",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-order/payment-for-the-order?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-order/launch-promotion",
+      "title": "启动推广",
+      "id": 72715,
+      "updated": "2026-09-07 13:29:23",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-order/launch-promotion?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-order/hold-off",
+      "title": "停止推广",
+      "id": 72714,
+      "updated": "2026-06-02 09:24:34",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-order/hold-off?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/weekly-budget",
+      "title": "“按点击付费”模式下的预算说明",
+      "id": 72711,
+      "updated": "2026-09-07 11:04:18",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/weekly-budget?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/edit-and-pause",
+      "title": "编辑并关闭广告活动",
+      "id": 72707,
+      "updated": "2026-09-10 09:23:36",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/edit-and-pause?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/view-results",
+      "title": "广告活动结果",
+      "id": 72710,
+      "updated": "2026-08-25 06:47:02",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/view-results?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/what-is-cost-per-click",
+      "title": "按点击付费原理",
+      "id": 72712,
+      "updated": "2026-07-28 10:43:14",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/what-is-cost-per-click?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/launch-promotion",
+      "title": "广告活动启动",
+      "id": 72709,
+      "updated": "2026-09-10 09:24:13",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/launch-promotion?region=CHN"
+    },
+    {
+      "path": "/promotion/product-promotions/pay-per-click/item-rate",
+      "title": "“按点击付费”的出价",
+      "id": 72708,
+      "updated": "2026-09-25 08:37:08",
+      "url": "https://global-help.ozon.com/zh/promotion/product-promotions/pay-per-click/item-rate?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-tools",
+      "title": "分析工具",
+      "id": 72440,
+      "updated": "2026-07-31 11:30:59",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-tools?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/charts",
+      "title": "图表",
+      "id": 72430,
+      "updated": "2026-09-07 13:01:59",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/charts?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/promo",
+      "title": "促销活动分析",
+      "id": 72436,
+      "updated": "2026-06-16 12:31:34",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/promo?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/repurchased-goods",
+      "title": "已认购商品",
+      "id": 72437,
+      "updated": "2026-06-16 13:46:26",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/repurchased-goods?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/sales-funnel",
+      "title": "销售漏斗",
+      "id": 74506,
+      "updated": "2026-06-02 09:16:36",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/sales-funnel?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/search-queries",
+      "title": "搜索查询",
+      "id": 72438,
+      "updated": "2026-06-16 14:07:20",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/search-queries?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/dostupnost-tovarov",
+      "title": "商品可售性和错失的销售",
+      "id": 72431,
+      "updated": "2026-08-24 14:18:32",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/dostupnost-tovarov?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/products-in-search-results/product-search-position",
+      "title": "您的商品在搜索中的可见性",
+      "id": 83301,
+      "updated": "2026-09-15 09:49:10",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/products-in-search-results/product-search-position?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/products-in-search-results/searching-result-impact",
+      "title": "什么影响搜索结果中的位置",
+      "id": 72435,
+      "updated": "2026-09-16 14:43:08",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/products-in-search-results/searching-result-impact?region=CHN"
+    },
+    {
+      "path": "/analytics/analytics-and-metrics/products-in-search-results/d",
+      "title": "搜索可见性",
+      "id": 72434,
+      "updated": "2026-09-15 09:48:45",
+      "url": "https://global-help.ozon.com/zh/analytics/analytics-and-metrics/products-in-search-results/d?region=CHN"
+    },
+    {
+      "path": "/analytics/fulfillment-reports/reports",
+      "title": "报告",
+      "id": 72445,
+      "updated": "2026-09-07 13:04:14",
+      "url": "https://global-help.ozon.com/zh/analytics/fulfillment-reports/reports?region=CHN"
+    },
+    {
+      "path": "/analytics/fulfillment-reports/report-orders",
+      "title": "订单报告",
+      "id": 72443,
+      "updated": "2026-06-16 08:35:32",
+      "url": "https://global-help.ozon.com/zh/analytics/fulfillment-reports/report-orders?region=CHN"
+    },
+    {
+      "path": "/analytics/fulfillment-reports/indexing-errors",
+      "title": "索引错误报告",
+      "id": 72442,
+      "updated": "2026-06-16 08:47:00",
+      "url": "https://global-help.ozon.com/zh/analytics/fulfillment-reports/indexing-errors?region=CHN"
+    },
+    {
+      "path": "/analytics/fulfillment-reports/reports-returns",
+      "title": "退货报告",
+      "id": 72444,
+      "updated": "2026-09-15 13:41:46",
+      "url": "https://global-help.ozon.com/zh/analytics/fulfillment-reports/reports-returns?region=CHN"
+    },
+    {
+      "path": "/brand-account/faq-brand-account",
+      "title": "关于品牌个人中心的问题和回答",
+      "id": 72455,
+      "updated": "2026-07-29 08:26:04",
+      "url": "https://global-help.ozon.com/zh/brand-account/faq-brand-account?region=CHN"
+    },
+    {
+      "path": "/brand-account/brand-product-selections",
+      "title": "品牌精选商品集",
+      "id": 72452,
+      "updated": "2026-06-02 09:25:20.049777",
+      "url": "https://global-help.ozon.com/zh/brand-account/brand-product-selections?region=CHN"
+    },
+    {
+      "path": "/brand-account/premium-brand",
+      "title": "Premium订阅",
+      "id": 72459,
+      "updated": "2026-06-02 09:25:20.168626",
+      "url": "https://global-help.ozon.com/zh/brand-account/premium-brand?region=CHN"
+    },
+    {
+      "path": "/brand-account/brand-storefront",
+      "title": "品牌官方橱窗",
+      "id": 72453,
+      "updated": "2026-06-02 09:25:20.093667",
+      "url": "https://global-help.ozon.com/zh/brand-account/brand-storefront?region=CHN"
+    },
+    {
+      "path": "/brand-account/list-of-brand-sellers",
+      "title": "品牌卖家列表",
+      "id": 72458,
+      "updated": "2026-06-02 09:20:20.795323",
+      "url": "https://global-help.ozon.com/zh/brand-account/list-of-brand-sellers?region=CHN"
+    },
+    {
+      "path": "/brand-account/customer-reviews",
+      "title": "买家对品牌商品的评价",
+      "id": 72454,
+      "updated": "2026-06-02 09:20:31.53037",
+      "url": "https://global-help.ozon.com/zh/brand-account/customer-reviews?region=CHN"
+    },
+    {
+      "path": "/brand-account/faq-brand-customers",
+      "title": "品牌买家问题和回答",
+      "id": 72456,
+      "updated": "2026-06-02 09:20:34.865445",
+      "url": "https://global-help.ozon.com/zh/brand-account/faq-brand-customers?region=CHN"
+    },
+    {
+      "path": "/brand-account/brand-account-tool",
+      "title": "《品牌个人中心》工具",
+      "id": 72451,
+      "updated": "2026-06-04 08:22:09",
+      "url": "https://global-help.ozon.com/zh/brand-account/brand-account-tool?region=CHN"
+    },
+    {
+      "path": "/brand-account/brand-account-registration",
+      "title": "品牌个人中心注册",
+      "id": 72450,
+      "updated": "2026-08-10 09:18:17",
+      "url": "https://global-help.ozon.com/zh/brand-account/brand-account-registration?region=CHN"
+    },
+    {
+      "path": "/brand-account/list-of-brand-products",
+      "title": "品牌商品列表",
+      "id": 72457,
+      "updated": "2026-06-02 09:20:20.724072",
+      "url": "https://global-help.ozon.com/zh/brand-account/list-of-brand-products?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-questions",
+      "title": "问题与回复",
+      "id": 72756,
+      "updated": "2026-06-02 09:41:17.68618",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-questions?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/automated-notifications",
+      "title": "自动群发",
+      "id": 75331,
+      "updated": "2026-06-25 13:16:06",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/automated-notifications?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-chat/auto-answers",
+      "title": "定时自动回复",
+      "id": 72751,
+      "updated": "2026-06-02 09:40:38",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-chat/auto-answers?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-chat/chat-safety-rules",
+      "title": "聊天安全规则",
+      "id": 72752,
+      "updated": "2026-06-02 09:40:39",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-chat/chat-safety-rules?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-chat/write-in-the-chat",
+      "title": "谁可以以及如何在聊天中发送消息",
+      "id": 72755,
+      "updated": "2026-06-02 09:40:43",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-chat/write-in-the-chat?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-chat/view-and-send-messages",
+      "title": "查看和发送消息",
+      "id": 72754,
+      "updated": "2026-06-02 09:41:17.625719",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-chat/view-and-send-messages?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/customers-chat/quick-answers",
+      "title": "与买家聊天中的快速回复",
+      "id": 72753,
+      "updated": "2026-06-02 09:40:41",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/customers-chat/quick-answers?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/managing-reviews-subscription",
+      "title": "关于“评价管理”订阅",
+      "id": 72760,
+      "updated": "2026-06-15 14:14:54",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/managing-reviews-subscription?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/hide-reviews",
+      "title": "隐藏评价并在负面评价发布前联系买家",
+      "id": 72759,
+      "updated": "2026-06-15 12:46:36",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/hide-reviews?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/generate-ai-response",
+      "title": "使用神经网络回复评价",
+      "id": 72758,
+      "updated": "2026-06-02 09:40:47",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/generate-ai-response?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/review-analytics",
+      "title": "商品评价概述",
+      "id": 72763,
+      "updated": "2026-06-02 09:40:54",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/review-analytics?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/pinned-reviews",
+      "title": "评价置顶",
+      "id": 72761,
+      "updated": "2026-06-02 09:40:51",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/pinned-reviews?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/managing-reviews/response-templates",
+      "title": "评价回复模板与自动回复",
+      "id": 72762,
+      "updated": "2026-06-02 09:41:17.843646",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/managing-reviews/response-templates?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/points-for-reviews/points-algorithm",
+      "title": "快速收集评价的运作方式",
+      "id": 72766,
+      "updated": "2026-10-09 09:15:16",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/points-for-reviews/points-algorithm?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/points-for-reviews/manual",
+      "title": "“快速收集评价”手动广告活动",
+      "id": 76246,
+      "updated": "2026-10-09 09:15:41",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/points-for-reviews/manual?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/points-for-reviews/for-new-products",
+      "title": "“为您的商品快速收集评价”新品广告活动",
+      "id": 76260,
+      "updated": "2026-10-09 09:16:01",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/points-for-reviews/for-new-products?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/points-for-reviews/auto-collections",
+      "title": "自动精选商品集",
+      "id": 76275,
+      "updated": "2026-10-09 09:16:21",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/points-for-reviews/auto-collections?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/working-with-reviews/pinned-reviews",
+      "title": "评价置顶",
+      "id": 72780,
+      "updated": "2026-05-12 16:03:22",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/working-with-reviews/pinned-reviews?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/working-with-reviews/reviews-overview",
+      "title": "商品评价概述",
+      "id": 72781,
+      "updated": "2026-05-12 16:03:29",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/working-with-reviews/reviews-overview?region=CHN"
+    },
+    {
+      "path": "/work-with-customers/working-with-reviews/customer-reviews",
+      "title": "买家评价与回复",
+      "id": 72769,
+      "updated": "2026-07-06 14:52:51",
+      "url": "https://global-help.ozon.com/zh/work-with-customers/working-with-reviews/customer-reviews?region=CHN"
+    },
+    {
+      "path": "/ratings/product-rate",
+      "title": "商品评分",
+      "id": 72743,
+      "updated": "2026-06-22 12:37:17",
+      "url": "https://global-help.ozon.com/zh/ratings/product-rate?region=CHN"
+    },
+    {
+      "path": "/ratings/quality-metrics",
+      "title": "服务质量指标",
+      "id": 72744,
+      "updated": "2026-06-30 13:33:18",
+      "url": "https://global-help.ozon.com/zh/ratings/quality-metrics?region=CHN"
+    },
+    {
+      "path": "/ratings/price-index",
+      "title": "价格指数",
+      "id": 72742,
+      "updated": "2026-07-13 10:15:49",
+      "url": "https://global-help.ozon.com/zh/ratings/price-index?region=CHN"
+    },
+    {
+      "path": "/ratings/cancellation-percentage",
+      "title": "rFBS取消率指数",
+      "id": 72739,
+      "updated": "2026-06-22 13:50:29",
+      "url": "https://global-help.ozon.com/zh/ratings/cancellation-percentage?region=CHN"
+    },
+    {
+      "path": "/ratings/csat-blocking",
+      "title": "已交付商品的质量评分",
+      "id": 72740,
+      "updated": "2026-06-02 09:40:23",
+      "url": "https://global-help.ozon.com/zh/ratings/csat-blocking?region=CHN"
+    },
+    {
+      "path": "/ratings/ban",
+      "title": "屏蔽原因",
+      "id": 72738,
+      "updated": "2026-08-21 11:05:40",
+      "url": "https://global-help.ozon.com/zh/ratings/ban?region=CHN"
+    },
+    {
+      "path": "/techpartners/list-of-tech-partners",
+      "title": "认证合作伙伴列表",
+      "id": 72748,
+      "updated": "2026-06-15 13:23:20",
+      "url": "https://global-help.ozon.com/zh/techpartners/list-of-tech-partners?region=CHN"
+    },
+    {
+      "path": "/techpartners/how-to-become-tech-partner",
+      "title": "Ozon 认证合作伙伴",
+      "id": 72747,
+      "updated": "2026-06-02 09:41:16.75706",
+      "url": "https://global-help.ozon.com/zh/techpartners/how-to-become-tech-partner?region=CHN"
+    },
+    {
+      "path": "/techpartners/assigning-sellers-to-partners",
+      "title": "加入认证合作伙伴",
+      "id": 72746,
+      "updated": "2026-06-02 09:41:16.711296",
+      "url": "https://global-help.ozon.com/zh/techpartners/assigning-sellers-to-partners?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/product-management",
+      "title": "商品及价格管理",
+      "id": 72775,
+      "updated": "2026-05-12 15:53:56",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/product-management?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/order-management",
+      "title": "订单管理",
+      "id": 72575,
+      "updated": "2026-06-04 14:22:31",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/order-management?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/reviews",
+      "title": "商品评价及问题",
+      "id": 72579,
+      "updated": "2026-06-02 09:19:42",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/reviews?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/promo",
+      "title": "促销活动",
+      "id": 72576,
+      "updated": "2026-06-02 09:25:20.729897",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/promo?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/chats",
+      "title": "聊天室",
+      "id": 72573,
+      "updated": "2026-06-02 09:19:34",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/chats?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/returns-management",
+      "title": "退货",
+      "id": 72577,
+      "updated": "2026-06-02 09:19:39",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/returns-management?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/review-points",
+      "title": "快速收集评价",
+      "id": 72578,
+      "updated": "2026-06-02 09:19:41",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/review-points?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/install",
+      "title": "APP安装",
+      "id": 72574,
+      "updated": "2026-06-02 09:19:35",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/install?region=CHN"
+    },
+    {
+      "path": "/ozon-seller-app/statistics",
+      "title": "商店后台数据",
+      "id": 72580,
+      "updated": "2026-06-02 09:19:43",
+      "url": "https://global-help.ozon.com/zh/ozon-seller-app/statistics?region=CHN"
+    },
+    {
+      "path": "/global-university/what-is-gu",
+      "title": "Global University介绍",
+      "id": 72558,
+      "updated": "2026-06-02 09:19:13",
+      "url": "https://global-help.ozon.com/zh/global-university/what-is-gu?region=CHN"
+    },
+    {
+      "path": "/api/intro",
+      "title": "使用API",
+      "id": 72447,
+      "updated": "2026-07-31 13:12:07",
+      "url": "https://global-help.ozon.com/zh/api/intro?region=CHN"
+    },
+    {
+      "path": "/api/perfomance-api",
+      "title": "Performance API",
+      "id": 72448,
+      "updated": "2026-06-02 09:16:49",
+      "url": "https://global-help.ozon.com/zh/api/perfomance-api?region=CHN"
+    },
+    {
+      "path": "/api/erp/dianxiaomi",
+      "title": "Dianxiaomi ERP 店小秘",
+      "id": 72783,
+      "updated": "2026-05-12 16:05:46",
+      "url": "https://global-help.ozon.com/zh/api/erp/dianxiaomi?region=CHN"
+    },
+    {
+      "path": "/api/erp/keyouyun",
+      "title": "KeYouYun 客优云",
+      "id": 72784,
+      "updated": "2026-05-12 16:05:53",
+      "url": "https://global-help.ozon.com/zh/api/erp/keyouyun?region=CHN"
+    },
+    {
+      "path": "/api/erp/mabang",
+      "title": "MABANG ERP 马帮",
+      "id": 72785,
+      "updated": "2026-05-12 16:05:59",
+      "url": "https://global-help.ozon.com/zh/api/erp/mabang?region=CHN"
+    },
+    {
+      "path": "/api/erp/mango",
+      "title": "Mango ERP 芒果店长",
+      "id": 72786,
+      "updated": "2026-05-12 16:06:05",
+      "url": "https://global-help.ozon.com/zh/api/erp/mango?region=CHN"
+    },
+    {
+      "path": "/api/erp/miaoshou",
+      "title": "Miaoshou ERP 妙手",
+      "id": 72787,
+      "updated": "2026-05-12 16:06:12",
+      "url": "https://global-help.ozon.com/zh/api/erp/miaoshou?region=CHN"
+    },
+    {
+      "path": "/api/erp/tongtool",
+      "title": "TONGTOOL ERP 通途",
+      "id": 72788,
+      "updated": "2026-05-12 16:06:18",
+      "url": "https://global-help.ozon.com/zh/api/erp/tongtool?region=CHN"
+    },
+    {
+      "path": "/api/erp/zhiying",
+      "title": "ZhiYing ERP 智赢",
+      "id": 72789,
+      "updated": "2026-05-12 16:06:24",
+      "url": "https://global-help.ozon.com/zh/api/erp/zhiying?region=CHN"
+    },
+    {
+      "path": "/accounting/report-on-fines",
+      "title": "罚款报告",
+      "id": 72420,
+      "updated": "2026-07-15 10:11:45",
+      "url": "https://global-help.ozon.com/zh/accounting/report-on-fines?region=CHN"
+    },
+    {
+      "path": "/accounting/receiving-payments/settlements",
+      "title": "相互结算",
+      "id": 72419,
+      "updated": "2026-10-01 12:50:51",
+      "url": "https://global-help.ozon.com/zh/accounting/receiving-payments/settlements?region=CHN"
+    },
+    {
+      "path": "/accounting/receiving-payments/payment-currency",
+      "title": "卖家结算货币",
+      "id": 72418,
+      "updated": "2026-07-20 09:15:12",
+      "url": "https://global-help.ozon.com/zh/accounting/receiving-payments/payment-currency?region=CHN"
+    },
+    {
+      "path": "/accounting/receiving-payments/multicurrency",
+      "title": "货币多样性",
+      "id": 72417,
+      "updated": "2026-09-16 12:02:13",
+      "url": "https://global-help.ozon.com/zh/accounting/receiving-payments/multicurrency?region=CHN"
+    },
+    {
+      "path": "/accounting/receiving-payments/conversion-rate",
+      "title": "兑换率",
+      "id": 72415,
+      "updated": "2026-07-15 09:52:42",
+      "url": "https://global-help.ozon.com/zh/accounting/receiving-payments/conversion-rate?region=CHN"
+    },
+    {
+      "path": "/accounting/receiving-payments/finance-management",
+      "title": "在个人中心中对财务的处理",
+      "id": 72416,
+      "updated": "2026-10-01 12:46:57",
+      "url": "https://global-help.ozon.com/zh/accounting/receiving-payments/finance-management?region=CHN"
+    },
+    {
+      "path": "/accounting/discounts-for-customers/discount-points",
+      "title": "折扣积分",
+      "id": 72412,
+      "updated": "2026-09-11 09:44:19",
+      "url": "https://global-help.ozon.com/zh/accounting/discounts-for-customers/discount-points?region=CHN"
+    },
+    {
+      "path": "/accounting/discounts-for-customers/ozon-card",
+      "title": "“绿色价格”忠诚度计划",
+      "id": 72413,
+      "updated": "2026-09-18 10:10:10",
+      "url": "https://global-help.ozon.com/zh/accounting/discounts-for-customers/ozon-card?region=CHN"
+    },
+    {
+      "path": "/accounting/discounts-for-customers/star-goods",
+      "title": "“星星商品”忠诚度计划",
+      "id": 74504,
+      "updated": "2026-06-09 14:53:39",
+      "url": "https://global-help.ozon.com/zh/accounting/discounts-for-customers/star-goods?region=CHN"
+    }
+  ]
+}
