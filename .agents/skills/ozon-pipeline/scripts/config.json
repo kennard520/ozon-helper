@@ -1,0 +1,12 @@
+{
+  "BCS_BASE": "https://ozon.bcserp.com/prod-api",
+  "BCS_TOKEN": "eyJhbGciOiJIUzUxMiJ9.eyJsb2dpbl91c2VyX2tleSI6Ijc2ZjM5OTAwLWJjMTUtNDUwNy1hZGIxLTIxMTBmYjhjOTdjOCJ9.ojsg4BnhkYbpQYgZkmVm6CsPHqolKSGGPek-ovNaDLXUoleUju0Af1LNQ0tNFRvSU8WvPGeIkzftvqz0TCquDg",
+  "BCS_LIMIT_KEY": "118508.4h0xszMr3HZ1JNRlnx0pQxQi6LstD3tlhePqjKnex34",
+  "RUB_TO_RMB": 0.093,
+  "MIN_SALES": 50,
+  "MIN_PROFIT_RMB": 20,
+  "MAX_PRICE_RUB": 8000,
+  "PAGES": 2,
+  "COMMISSION_DEFAULT": 0.17,
+  "CATEGORY": "other"
+}

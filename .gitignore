@@ -38,5 +38,3 @@ _copy*.json
 # Ozon 选品运行中间产物（竞品素材/浏览器 profile/token 抓取文件，绝不入库）
 /picks_output/
 .agents/skills/picks_output/
-# 技能私有配置（含 BCS token，绝不入库）
-.agents/skills/ozon-pipeline/scripts/config.json
