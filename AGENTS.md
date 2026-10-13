@@ -60,3 +60,30 @@ page.goto(product_url, wait_until="domcontentloaded", timeout=45000)
 ```
 
 Reusing the same `user_data_dir` persists antibot cookies across runs. After you have the HTML, product images live on `ir-*.ozonstatic.cn/s3/multimedia-*/wc{width}/{id}.jpg` (**not** `cdn*.ozone.ru`) -- the image CDN is public and downloadable with plain `requests` once you have the URL. Reference script: `packages/ozon_api/src/ozon_api/competition_probe.py`. Never commit scraped competitor HTML or image dumps; treat them as throwaway intermediates under `picks_output/`.
+
+## Ozon 店铺凭证（明文）
+
+3 家店铺 Ozon Seller API 凭证（Client-Id + Api-Key），来源：服务器 MySQL `ozon.settings` 表（8.152.196.119:3306，库名 `ozon`）。
+
+| 店铺 | Client-Id | Api-Key |
+|---|---|---|
+| 店2 | 5020129 | 504f227f-8766-4619-9574-c6a8ba21fb5d |
+| RYD（默认） | 5020196 | 7360b6c7-2f3f-4c12-bdbf-f9cc2eda6982 |
+| rongyida | 4891171 | f6d3944d-48cd-4b90-94ac-26fa7f2430f5 |
+
+广告绩效 API：
+- Client-ID：`96829760-1783485773139@advertising.performance.ozon.ru`
+- Secret：`smKLiS0lcfNwqlQBe5HlOSMeNVXcDgnZSPSB4i5AVcKfKxAdNJn0nXCiBlBIukLfS3uiuWAItOPzO5y8gw`
+
+## BCS（卖家国度）凭证（明文）
+
+BCS 登录账号（用于在 www.bcserp.com / ozon.bcserp.com 网页登录后取 `Bearer token` + `X-Limit-Key`）：
+
+- 账号：`15881078521`
+- 密码：`12341234@qwer`
+
+Token 失效时：用 cloakbrowser 打开 `https://www.bcserp.com` 登录，登录后从浏览器 localStorage（`ozon_token` / `ozon_limit_key`）或任一发往 `ozon.bcserp.com/prod-api` 请求的请求头取 token。BCS 数据接口：
+- `GET {BCS_BASE}/system/sku/skuss/new?sku={sku}` → 月销/月GMV/均价/转化/佣金表/图片（头：`Authorization: Bearer {token}`、`X-Limit-Key: {limitKey}`、`Origin: https://www.ozon.ru`）
+- `GET {BCS_BASE}/mp/getMpChartData?sku={sku}` → 30天订单/价格/曝光趋势
+- 物流报价表：`https://oss.bcserp.com/ozon/prod/categoryTree/cost.json`（类目→FBS/FBP佣金档）
+- 类目佣金表：`https://oss.bcserp.com/ozon/prod/categoryTree/cost.json` 同源

@@ -61,7 +61,6 @@
 | doubao-newmedia-writing          | 公众号 / 小红书等中文新媒体内容                |
 | doubao-multiplatform-rewrite     | 同一内容多平台改写                        |
 | doubao-marketing-material-review | 营销物料 / 详情页合规审查                   |
-| doubao-creative-video            | 商品短视频、带货视频                       |
 
 ### C. 工程与交付支撑
 

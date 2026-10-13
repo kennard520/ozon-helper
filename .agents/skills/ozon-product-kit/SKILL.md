@@ -1,13 +1,13 @@
 ---
 name: ozon-product-kit
-description: "Ozon 商品卡一键生成总控：根据产品图、商品链接或简单说明，自动提取图片文字/尺寸/卖点，设计并生成 10 张 Ozon 商品图、AI 商品视频、俄语 listing、标签和富文本结构。"
-version: 2.0.0
+description: "Ozon 商品卡一键生成总控：根据产品图、商品链接或简单说明，自动提取图片文字/尺寸/卖点，设计并生成 10 张 Ozon 商品图、俄语 listing、标签和富文本结构。"
+version: 2.1.0
 author: User
 license: MIT
 platforms: [windows, linux, macos]
 metadata:
   hermes:
-    tags: [ozon, ecommerce, product-card, listing, rich-content, product-images, product-video, russian, ocr]
+    tags: [ozon, ecommerce, product-card, listing, rich-content, product-images, russian, ocr]
     image_backend: doubao_native  # 直接用豆包内置 image_gen / image_edit（Seedream），不再依赖外部 gen-image 脚本
 ---
 
@@ -34,7 +34,6 @@ metadata:
 7. 生成 30 个以内俄语主题标签
 8. 生成 Ozon 富文本内容结构
 9. 输出完整路径、文案和复核清单
-10. 设计并生成 AI 商品视频（默认 1 条主视频/视频封面，可选场景/功能视频），遵守"Ozon 视频要求"
 
 ---
 
@@ -53,14 +52,17 @@ metadata:
 | `--mode create` | `image_gen(prompt, width, height, model_version)` |
 | `--mode edit --image X` | `image_edit(prompt, image_reference_url_list=[X_url], width, height, model_version)` |
 | `--mode mask`（去水印 / 换背景 / 局部改） | `image_edit`，在 prompt 里用自然语言圈定只改哪一块，无独立 mask 参数 |
-| `--size 1024x1536` | `width=1024, height=1536`（3:4 竖版） |
+| `--size 1080x1440` | `width=1080, height=1440`（3:4 竖版） |
 | `--n 1` | 每次 request 只出 1 张 |
 | `--name 01_main.png` | 生成后把返回 URL 落盘为该文件名 |
 
 固定出图参数：
 
-- `width=1024, height=1536`（Ozon 3:4 竖版；用户指定其它比例时再改）。
-- `model_version` 默认 `seedream_5.0_flash`；主图 / 高质量场景图可升级 `seedream_5.0_pro`。
+- `width=1080, height=1440`（Ozon 3:4 竖版；用户指定其它比例时再改）。
+- `model_version` 分支规则（默认）：
+  - `image_edit`（有参考图：主图 / 保真编辑 / 局部修改）→ `seedream_5.0_flash`：快且产品一致性稳。
+  - `image_gen`（无参考图：场景图 / 概念图 / 排版底图）→ `seedream_5.0_pro`：质感更好。
+  - 用户明确指定模型时以用户为准；`seedream_5.0_pro` 调用失败（如会员权限不足）时回退 `seedream_5.0_flash`。
 
 本地产品图是参考图时的前置步骤（必须）：
 
@@ -99,10 +101,6 @@ Ozon一键生成：
 
 ```text
 这个产品上架 Ozon。
-```
-
-```text
-Ozon一键生成：这个产品上架 Ozon，图片 + 视频一起做。
 ```
 
 ---
@@ -388,7 +386,7 @@ Ozon一键生成：
 
 1. 单张独立图片，不要拼宫格。
 2. 竖版 3:4。
-3. 推荐尺寸：`1024x1536`。
+3. 推荐尺寸：`1080x1440`（注意 1024×1536 是 2:3，不是 3:4，勿用）。
 4. 背景白色或浅色。
 5. 白色或透明商品可使用深色背景。
 6. 服装、鞋类、配饰类目可使用灰色背景 `#f2f3f5`。
@@ -414,115 +412,41 @@ Ozon一键生成：
 
 ---
 
-# Ozon 视频要求
+# 图片来源合规（必做）
 
-来源：Ozon 帮助中心《对视频的要求》《视频封面要求》
-本地知识库：`ozon-help-kb/markdown/products/requirements/media/video-requirements.md`、`videocover-requirements.md`
+生成任何图前，先登记参考图来源并分类：
 
-## 商品视频（卡片内视频）
+| 来源类型 | 标记 | 用途 |
+|---|---|---|
+| 自有货源实拍图 / 供应商授权图 | `可上架` | 可作生成锚点，最终上架图必须全部出自此类 |
+| 竞品下载图 / 他人商品图 | `仅参考` | **禁止作为生成锚点**；只允许用于提取卖点、参数、场景创意和风格参考 |
+| 无来源的网图 | `待确认` | 不得使用，先向用户核实来源 |
 
-| 参数 | 要求 |
-|---|---|
-| 格式 | MP4 / MOV |
-| 分辨率 | 长边 1080 ~ 1920px |
-| 大小 | 电脑经个人中心上传 ≤100MB；其他 ≤5GB |
-| 时长 | 8 秒 ~ 5 分钟 |
-| 编码 | H.264 / HEVC(H.265) / VP9 / MPEG-4 等常见编码 |
-| 上传来源 | 仅 VK Video / Yandex.Disk / Rutube；最多 5 个视频 |
-| 内容 | 必须包含所属商品，展示优点和使用示例；音质良好 |
+强制规则：
 
-视频内容禁止：
-
-- 脏话、侮辱性言辞；
-- 酒、烟；
-- 价格、折扣、联系方式、社交网站文字；
-- 提及 Instagram / Facebook（Meta，俄罗斯禁止）；
-- 物流及退货条件（如"快速物流""明日送到"）；
-- 其它平台或店铺广告；
-- 个人信息（银行卡号、护照照片等）；
-- 身体私密部位、色情声音；
-- 俄罗斯法律禁止的信息；
-- Ozon 禁售商品。
-
-## 视频封面（代替主图展示的短视频）
-
-| 参数 | 要求 |
-|---|---|
-| 格式 | MP4 / MOV |
-| 大小 | ≤20MB |
-| 时长 | 8 ~ 30 秒 |
-| 比例 | 竖版 3:4（勿用 16:9 / 9:16，会被大裁剪） |
-| 边框/底板 | 禁用 |
-| 内容 | 第一帧必须清晰；关键文字大而清晰、防裁剪；无需音轨也能看懂；焦点在商品上 |
-
-注意：视频封面仅显示在商品卡片，不显示在搜索结果页和类目页。
-
----
-
-# Ozon 视频生成（AI 设计）
-
-listing 默认包含 AI 商品视频（视频封面 / 主视频）。所有视频生成必须遵守上方"Ozon 视频要求"，并配合全局 skill `doubao-creative-video` 执行。
-
-## 调用前置（必须）
-
-1. 生成前必须先完整读取全局 skill `doubao-creative-video` 的 SKILL.md，按其实行：参数确认 → 分镜表 → `interaction.ask` 生成确认 → 委派生成。
-2. 用户明确指定 seedance 2.5 时，同时读取 `seedance-25` skill。
-3. 视频工具：`image_to_video`（有产品图时图生视频，保持产品外观一致）/ `text_to_video`（无产品图时做概念/场景）。
-4. 本地产品图先 `FileBatchUpload` 上传拿 URL，再作为参考图传入。
-
-## 默认视频方案
-
-| 项 | 默认 |
-|---|---|
-| 数量 | 1 条主视频（视频封面位）；场景/功能视频按需，一轮最多 2 条 |
-| 时长 | 8~15 秒（seedance 2.0 fast）；封面场景如需更长（≤30 秒）须用户明确指定 2.5 |
-| 比例 | 3:4（Ozon 商品卡/封面）；用户指定信息流投放时可 9:16 |
-| 模型 | seedance 2.0 fast（默认）；seedance 2.5 仅用户明确指定 |
-| 字幕/文字 | 默认无字幕；画面文字不使用中文（合规） |
-| 语言 | 与用户指令语言一致；无中文文字上屏 |
-
-## 视频方案设计（video_plan.md）
-
-与图片方案同目录输出 video_plan.md，每条视频包含：
-
-- 视频编号与用途（主视频 / 场景视频 / 功能演示）
-- 叙事节拍（B01...，围绕商品卖点组织）
-- 生成提示词（英文，按 doubao-creative-video 的五段式规则编译）
-- 工具：`image_to_video` / `text_to_video`
-- 参考图 URL（产品图，如有）
-- 时长、比例、模型
-- 禁止事项（无中文、无价格、无水印、无品牌侵权）
-
-## 落盘与记录
-
-1. 视频工具返回视频 URL。
-2. 下载到 `outputs/ozon/<商品名>_<日期>/video/`（用 curl -L -o）。
-3. 写 video_results.md：编号、工具、参考图、落盘路径、时长、重试记录。
-4. 交付以落盘本地路径为准，不用临时 URL。
-
-## 视频合规检查
-
-- 时长/比例/格式符合"Ozon 视频要求"（3:4、8~30 秒封面、MP4/MOV）
-- 画面无中文、无价格/折扣、无联系方式、无水印、无品牌侵权
-- 内容包含商品本身，展示优点和使用示例
-- 无脏话/酒烟、无 Meta 平台提及、无物流履约条件、无个人信息、无色情内容等红线
-- 主视频首帧清晰（封面位）
-- 失败重新生成，每条最多重试 2 次
-
----
+1. 竞品图只能用于"读懂商品卖点"，不得以其画面为锚点生成上架图（Ozon 禁止他人商品图，改水印/重绘不改变侵权性质）。
+2. 上架前核验：最终交付图集的生成锚点必须全部来自 `可上架` 来源；存在 `仅参考` 锚点时，交付说明必须标注"仅供内部参考，不可上架"。
+3. 来源登记写入 image_results.md 的"图片来源"字段。
 
 # 图片文字规则
 
-AI 图片生成不适合直接生成准确俄文、中文、尺寸数字和参数表。
+## 文字使用边界（用户已确认口径）
 
-因此：
+- **第 1 张主图（白底图）**：严格无文字。
+- **附加图（第 2 张起）**：可以带文字（俄语卖点 / 参数 / 说明），按"卖点文字锁定表"逐字生成，生成后必须 OCR 核对。
+
+## 文字来源（禁止临时编造）
+
+1. 所有出现在图上的文字（俄语卖点、参数、说明）必须来自"商品理解简报"（Step 3 的 image_extracted_info.md / product_brief.md 已确认信息），生成前先锁定到 image_plan.md 的"卖点文字锁定表"。
+2. **真实数据（尺寸、材质、重量、容量、认证等）只有两种来源**：用户确认，或图片高可信识别；两者皆无时，该图只出无字底图并在交付中标注"[待补]"，等待用户提供数据后再加文字，**严禁 AI 编造**（例：AI 曾自写 330mm 尺寸标注，属违规）。
+3. 俄语文字由 AI 生成有错字风险：带文字图生成后必须逐张 OCR 核对，错字/乱码/重复立即重做（见 Step 8）。
+
+## 一般规则
 
 1. 主图不放文字。
-2. 尺寸图只生成干净底图和预留排版区域。
-3. 参数图只生成底图，不让 AI 写参数。
-4. 富文本底图可以预留标题区、参数区、卖点区，但不要让 AI 写具体文字。
-5. 俄文标题、参数、卖点应在后期设计工具中单独排版。
-6. 如果用户要求直接出带文字图片，必须提醒：AI 可能生成错误文字，建议后期排版。
+2. 尺寸图缺真实尺寸数据时，只生成干净底图 + "[待补]"标记；有数据后按锁定表加俄语标注。
+3. 富文本底图可以预留标题区、参数区、卖点区，但不要让 AI 写具体文字（后期排版）。
+4. 如果用户要求直接出带文字图片，必须提醒：AI 可能生成错误文字，生成后需核对。
 
 ---
 
@@ -581,10 +505,6 @@ outputs/ozon/<商品名>_<日期>/
     09_package.png
     10_rich_content_base.png
 
-  video/
-      01_main.mp4
-      02_scene.mp4（可选）
-
   product_brief.md
   image_extracted_info.md
   image_plan.md
@@ -621,7 +541,7 @@ outputs/ozon/<商品名>_<日期>/
 
 - 目标平台：Ozon
 - 目标语言：俄语
-- 图片尺寸：`1024x1536`
+- 图片尺寸：`1080x1440`
 - 图片比例：3:4
 - 图片数量：10 张（硬性下限 6 张，商品图片总数不得低于 6 张）
 - 出图方式：优先 `image_edit`（有产品图时）
@@ -684,7 +604,24 @@ outputs/ozon/<商品名>_<日期>/
 - 涉及带电、液体、食品、儿童、医疗、危险品等，需要标记风险。
 - 涉及品牌词，需要提示是否有授权。
 
+### 卖点文字锁定（商品理解闭环）
+
+- 从 image_extracted_info.md / product_brief.md 的"已确认信息 / 图片识别信息"中提取本套图要使用的所有俄语文字（主标、参数、说明），写入 image_plan.md 的"卖点文字锁定表"。
+- 后续 Step 5 生成提示词、Step 6 出图时，文字只能取自锁定表，禁止临时改写或编造新卖点。
+- 锁定表每项标注来源：`用户确认` / `图片识别` / `合理推断（慎用）`；`待确认` 项不得进入图片文字。
+
 ## Step 4：设计 10 张商品图 image_plan.md
+
+### 全局视觉参数（系列一致性，先定后用）
+
+在 image_plan.md 开头定义并锁定整套图的全局视觉参数，所有图 Prompt 共用：
+
+- 主光源方向（如"左上 45° 柔和影棚光"）
+- 背景色系（如"纯白 / 浅灰渐变 #f2f3f5"）
+- 风格基调（固定为俄罗斯电商风格：干净专业、参数精确、配色克制、无夸张促销感）
+- 产品朝向基准（主图正面，附加图可 45° 等）
+
+禁止每张图各自临时定光源/背景导致系列风格割裂。
 
 默认设计 10 张单独图片。
 
@@ -710,6 +647,17 @@ outputs/ozon/<商品名>_<日期>/
 - 禁止事项
 - 输出文件名
 
+## Step 4.5：电商视觉推演（必做，出图前）
+
+每张图写提示词前，必须先做电商视觉推演，禁止直接裸写提示词：
+
+1. **读取视觉规则源**：读取全局 skill `doubao-creative-design` 的电商规则文件 `references/style/pure-image/scenarios/ecommerce-design.md`（位于 `C:\Users\zqr\AppData\Local\Doubao\User Data\Profile 2\.doubao\agent_mode\workspace\.skills\doubao-creative-design\`），按该文件执行：产物结构骨架、构图原型、信息密度档位、文字排版法则、平台×品类视觉特征、抽象词翻译。
+2. **构图决策**：每张图选定主构图原型（单商品优先非对称主视觉 / 居中英雄；多 SKU 优先满版阵列 / 台阶陈列；场景图按场景语义推演），并写明第一焦点与收束位置。
+3. **信息密度档位**：主图=极低（商品占比高、画面纯净）；卖点/细节图=低（1 个卖点 + 简短支撑）；场景图=极低；富文本底图=预留排版区不写字。
+4. **文字红线**：主图不渲染任何可读文字；其余图需要文字时逐字写实并用引号标记；严禁价格、折扣、极限词、占位符。
+5. **抽象词翻译**：用户提到"高端 / 质感 / 简约 / Ins风"等抽象词时，翻译成具体的光影 / 配色 / 构图 / 字体参数，禁止把抽象词直接丢给模型。
+6. 将推演结果写入 image_plan.md 对应图片的"视觉推演"字段（构图 / 信息密度 / 文字 / 光影）。
+
 ## Step 5：为每张图生成英文提示词
 
 每张图提示词必须包含：
@@ -718,7 +666,7 @@ outputs/ozon/<商品名>_<日期>/
 - 产品外观要求
 - Ozon 风格
 - 3:4 vertical image
-- 1024x1536
+- 1080x1440
 - white or light background
 - no Chinese text
 - no watermark
@@ -731,7 +679,7 @@ outputs/ozon/<商品名>_<日期>/
 通用提示词尾部必须加入：
 
 ```text
-3:4 vertical ecommerce product image, 1024x1536. Clean Ozon marketplace style. No Chinese text, no watermark, no logo, no QR code, no price, no discount, no contact information, no website link, no call-to-action. Keep the product appearance consistent with the reference image. Do not invent accessories or functions.
+3:4 vertical ecommerce product image, 1080x1440. Russian e-commerce marketplace style (Ozon-style): clean professional product presentation, light clean background, clear information hierarchy, precise parameter labels, trustworthy commercial photography, restrained color accents, no flashy promo feel. No Chinese text, no watermark, no logo, no QR code, no price, no discount, no contact information, no website link, no call-to-action. Keep the product appearance consistent with the reference image. Do not invent accessories or functions.
 ```
 
 对于信息图底图，额外加入：
@@ -739,6 +687,11 @@ outputs/ozon/<商品名>_<日期>/
 ```text
 Create a clean layout base only. Leave empty space for later Russian text overlay. Do not generate readable text, numbers, labels or parameter tables.
 ```
+
+### 模型改写接力（必做）
+
+- 用户明确指定 `seedream_5.0_flash` 时，先读取全局 skill `seedream-50` 的 `SKILL.md`（位于 `C:\Users\zqr\AppData\Local\Doubao\User Data\Profile 2\.doubao\agent_mode\workspace\.skills\seedream-50\`），按其中 5.0_flash 的 Prompt 组装规则改写后再调用工具。
+- 未指定模型时，按本 skill 通用规则 + Step 4.5 推演结果组装 Prompt，直接以 `seedream_5.0_flash`（edit）或 `seedream_5.0_pro`（create）调用，禁止跳过推演直接调用。
 
 ## Step 6：调用豆包图片工具出图
 
@@ -752,7 +705,7 @@ Create a clean layout base only. Leave empty space for later Russian text overla
 image_edit(
   prompt="<英文 PROMPT>",
   image_reference_url_list=["<PRODUCT_URL>"],
-  width=1024, height=1536,
+  width=1080, height=1440,
   model_version="seedream_5.0_flash"
 )
 ```
@@ -766,8 +719,8 @@ image_edit(
 ```text
 image_gen(
   prompt="<英文 PROMPT>",
-  width=1024, height=1536,
-  model_version="seedream_5.0_flash"
+  width=1080, height=1440,
+  model_version="seedream_5.0_pro"
 )
 ```
 
@@ -817,6 +770,22 @@ Keep the product exactly unchanged. Only replace the background with pure white.
 - 是否出现不存在的配件
 - 是否出现不存在的功能
 - 是否有明显变形
+
+### 画面完成度
+
+- 关键主体完整置于安全边界内，四周边距均衡，背景自然铺满画布
+- 需要文字的画面：文字形成清晰可读的主标题、辅助信息和行动层级（如有），无乱码 / 错字 / 重复生成
+- 纯视觉画面：图形、色彩、材质和空间关系承载信息
+- 有人物时：五官结构自然、手部五指关系自然、肢体比例协调
+- 产品与背景光影融合自然，无生硬抠图感、无水印黑框
+- 参考图强制锚点（产品身份）在生成图中完整保留
+
+### 文字核对与真实数据（附加图必查）
+
+- 画面含生成文字时：用 OCR 逐字核对，俄语拼写正确、无乱码、无重复、无遗漏
+- 核对画面文字与"卖点文字锁定表"一致，无临时编造内容
+- 尺寸/材质/重量等真实数据：确认来自锁定表（用户确认或图片高可信识别），无 AI 编造数字
+- 主图（第 1 张）：确认无任何文字
 
 ### Ozon 主图检查
 
@@ -972,19 +941,6 @@ Keep the product exactly unchanged. Only replace the background with pure white.
 
 ---
 
-## Step 13：生成 AI 商品视频（默认）
-
-按"# Ozon 视频生成（AI 设计）"章节执行：
-
-1. 设计 video_plan.md：默认 1 条主视频（视频封面位），可选场景/功能视频（一轮最多 2 条）。
-2. 生成前先完整读取全局 skill `doubao-creative-video` 的 SKILL.md，按其执行参数确认与生成确认（interaction.ask）；用户指定 seedance 2.5 时同时读取 `seedance-25`。
-3. 有产品图用 `image_to_video`（产品图为参考，保持一致性）；无产品图用 `text_to_video`（概念/场景）。
-4. 默认比例 3:4、时长 8~15 秒、模型 seedance 2.0 fast；封面场景如需更长（≤30 秒）须用户明确指定 2.5。
-5. 视频返回 URL 后下载到 video/ 目录，写 video_results.md（编号、工具、参考图、落盘路径、时长）。
-6. 按"视频合规检查"逐条复核；失败重新生成，最多重试 2 次。
-
----
-
 # 最终回复格式
 
 最终回复用户时，必须包含：
@@ -1040,14 +996,6 @@ Keep the product exactly unchanged. Only replace the background with pure white.
 
 ## 9. 建议人工复核
 
-## 10. 视频结果（AI 生成）
-
-主视频：
-路径：
-
-场景/功能视频（如有）：
-路径：
-
 ```
 
 如果没有成功生成图片，必须说明原因，并给出下一步操作建议。
@@ -1080,7 +1028,7 @@ Ozon一键生成：
 卖点：【核心卖点】
 包装：【包装清单】
 禁止：【不要写的内容】
-生成10张Ozon商品图、1条AI商品视频、俄语标题、描述、标签、富文本。
+生成10张Ozon商品图、俄语标题、描述、标签、富文本。
 ```
 
 ---
@@ -1175,9 +1123,6 @@ Ozon一键生成：
 15. 输出结果时只说“完成”而不列路径。
 16. 再去调用外部 gen-image/generate.py 脚本或第三方 gpt-image API；出图一律走豆包内置 image_gen / image_edit。
 17. 商品图片总数不得低于 6 张（用户业务硬性要求）。
-18. 生成视频跳过 doubao-creative-video 流程或未经生成确认直接调用视频工具。
-19. 视频出现中文、价格、折扣、联系方式、水印或品牌侵权内容。
-20. 视频时长/比例/格式不符合"Ozon 视频要求"（如视频封面用 16:9）。
 
 ---
 
